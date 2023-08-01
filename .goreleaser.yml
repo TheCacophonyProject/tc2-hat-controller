@@ -1,0 +1,71 @@
+project_name: tc2-hat-controller
+
+release:
+  github:
+    owner: TheCacophonyProject
+    name: tc2-hat-controller
+  name_template: '{{.Tag}}'
+
+builds:
+- id: tc2-hat-attiny
+  binary: tc2-hat-attiny
+  main: ./cmd/tc2-hat-attiny
+  goos:
+    - linux
+  goarch:
+    - arm64
+  ldflags: -s -w -X main.version={{.Version}}
+
+- id: tc2-hat-rp2040
+  binary: tc2-hat-rp2040
+  main: ./cmd/tc2-hat-rp2040
+  goos:
+    - linux
+  goarch:
+    - arm64
+  ldflags: -s -w -X main.version={{.Version}}
+
+- id: tc2-hat-temp
+  binary: tc2-hat-temp
+  main: ./cmd/tc2-hat-temp
+  goos:
+    - linux
+  goarch:
+    - arm64
+  ldflags: -s -w -X main.version={{.Version}}
+
+nfpms:
+- vendor: The Cacophony Project
+  homepage: http://cacophony.org.nz/
+  maintainer: Cacophony Developers <coredev@cacophony.org.nz>
+  description: Controls the ATtiny and other device on the Pi HAT
+  license: GPL v3.0
+  file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}"
+  formats:
+    - deb
+  bindir: /usr/bin
+  contents:
+    - src: _release/raspberrypi-swd.cfg
+      dst: /etc/cacophony/raspberrypi-swd.cfg
+    - src: _release/org.cacophony.ATtiny.conf
+      dst: /etc/dbus-1/system.d/org.cacophony.ATtiny.conf
+    - src: _release/tc2-hat-temp.service
+      dst: /etc/systemd/system/tc2-hat-temp.service
+    - src: _release/tc2-hat-attiny.service
+      dst: /etc/systemd/system/tc2-hat-attiny.service
+    - src: _release/stay-on-for
+      dst: /usr/bin/stay-on-for
+    - src: _release/10-notify-attiny
+      dst: /lib/dhcpcd/dhcpcd-hooks/10-notify-attiny
+    - src: _release/attiny-firmware.hex
+      dst: /etc/cacophony/attiny-firmware.hex
+  
+  dependencies:
+    - python3-pip
+  scripts:
+    postinstall: "./_release/postinstall.sh"
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
+
+dist: dist

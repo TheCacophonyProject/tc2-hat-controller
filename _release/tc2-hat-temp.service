@@ -1,0 +1,13 @@
+
+[Unit]
+Description=Cacophony Project temperature and humidity monitor 
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tc2-hat-temp
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

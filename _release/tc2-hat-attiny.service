@@ -1,0 +1,13 @@
+
+[Unit]
+Description=Cacophony Project ATtiny controller
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tc2-hat-attiny
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
