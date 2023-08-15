@@ -78,12 +78,13 @@ func runMain() error {
 		return fmt.Errorf("failed to find GPIO pin '%s'", args.BootModePin)
 	}
 
-	log.Println("Putting RP2040 in USB boot mode. Can also be programmed from SWD in this mode.")
+	log.Println("Driving boot pin low so on next restart the RP2040 will boot in USB mode. Can also be programmed from SWD in this mode.")
 	if err := bootModePin.Out(gpio.Low); err != nil {
 		return err
 	}
-	time.Sleep(time.Millisecond * 10)
+	time.Sleep(1 * time.Second)
 
+	log.Println("Restarting RP2040...")
 	if err := runPin.Out(gpio.Low); err != nil {
 		return err
 	}
@@ -91,7 +92,12 @@ func runMain() error {
 	if err := runPin.Out(gpio.High); err != nil {
 		return err
 	}
-	time.Sleep(time.Second)
+
+	time.Sleep(10 * time.Second)
+	if err := bootModePin.Out(gpio.High); err != nil {
+		return err
+	}
+
 	log.Println("RP2400 read for programming.")
 
 	if args.ELF == "" {

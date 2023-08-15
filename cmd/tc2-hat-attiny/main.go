@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -109,6 +110,8 @@ func runMain() error {
 		return err
 	}
 
+	go monitorVoltageLoop(attiny)
+
 	log.Println("Connecting to RTC")
 	rtc, err := InitPCF9564(bus)
 	if err != nil {
@@ -178,8 +181,9 @@ func runMain() error {
 			if err := rtc.SetAlarmEnabled(true); err != nil {
 				return err
 			}
+			attiny.PoweringOff()
 			log.Println("Shutting down.")
-			time.Sleep(time.Second * 3)
+			time.Sleep(10 * time.Second)
 			shutdown()
 			time.Sleep(time.Second * 3)
 			return nil
@@ -189,6 +193,32 @@ func runMain() error {
 		log.Println(waitReason)
 		time.Sleep(waitDuration)
 		waitDuration = time.Duration(0)
+	}
+}
+
+func monitorVoltageLoop(a *attiny) {
+	for {
+		mainBat, err := a.ReadMainBattery()
+		if err != nil {
+			log.Fatal(err)
+		}
+		rtcBat, err := a.ReadRTCBattery()
+		if err != nil {
+			log.Fatal(err)
+		}
+		file, err := os.OpenFile("/var/log/battery_voltage.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		line := fmt.Sprintf("%s, %d, %d", time.Now().Format("2006-01-02 15:04:05"), mainBat, rtcBat)
+		log.Println("Battery reading:", line)
+		_, err = file.WriteString(line + "\n")
+		file.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		time.Sleep(time.Minute)
 	}
 }
 

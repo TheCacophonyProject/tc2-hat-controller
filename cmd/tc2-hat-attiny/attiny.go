@@ -284,10 +284,10 @@ func (a *attiny) pingWatchdogLoop() {
 	}()
 }
 
-// PowerOff asks the ATtiny to turn the system off, it will be delayed by 30 seconds to give the
-// system time to shutdown.
+// PowerOff asks the ATtiny to turn the system off.
 func (a *attiny) PoweringOff() error {
-	return a.writeRegister(0x04, 0x01)
+	log.Println("Asking ATtiny to power off raspberry pi")
+	return a.writeRegister(triggerSleepReg, 0x01)
 }
 
 func (a *attiny) WriteConnectionState(newState ConnectionState) error {
@@ -344,7 +344,7 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 		if err != nil {
 			return 0, err
 		}
-		log.Printf("%08b\n", val1)
+		//log.Printf("%08b\n", val1)
 		//log.Printf("%08b\n", 1<<7)
 		//log.Printf("%08b\n", val1&(0x01<<7))
 		//log.Printf(
@@ -354,7 +354,7 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 			if err != nil {
 				return 0, err
 			}
-			log.Printf("%08b\n", val2)
+			//log.Printf("%08b\n", val2)
 			// Return voltage by combing the two bytes
 			return (uint16(val1) << 8) | uint16(val2), nil
 		}
@@ -363,12 +363,12 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 }
 
 func (a *attiny) ReadMainBattery() (uint16, error) {
-	log.Println("Reading Main battery voltage.")
+	//log.Println("Reading Main battery voltage.")
 	return a.readBattery(battery1Reg, battery2Reg)
 }
 
 func (a *attiny) ReadRTCBattery() (uint16, error) {
-	log.Println("Reading RTC battery voltage.")
+	//log.Println("Reading RTC battery voltage.")
 	return a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
 }
 
