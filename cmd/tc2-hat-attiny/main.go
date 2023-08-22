@@ -118,6 +118,10 @@ func runMain() error {
 		return err
 	}
 
+	if err := rtc.SetSystemTime(); err != nil {
+		return err
+	}
+
 	if err := rtc.ClearAlarmFlag(); err != nil {
 		return err
 	}

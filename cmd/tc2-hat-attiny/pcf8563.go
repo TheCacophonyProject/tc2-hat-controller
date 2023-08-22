@@ -88,6 +88,27 @@ func (rtc *pcf8563) SetTime(t time.Time) error {
 	return nil
 }
 
+func (rtc *pcf8563) SetSystemTime() error {
+	now, err := rtc.GetTime()
+	if err != nil {
+		return err
+	}
+	if now.Before(time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)) {
+		// TODO make wrong RTC time event to report to user.
+		log.Println("RTC time is before 2023, not writing to system clock.")
+		return nil
+	}
+	timeStr := now.Format("2006-01-02 15:04:05")
+	log.Printf("Writing time to system clock (in UTC): %s", timeStr)
+	cmd := exec.Command("date", "--utc", "--set", timeStr, "+%Y-%m-%d %H:%M:%S")
+	log.Println(strings.Join(cmd.Args, " "))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("error running: %s, err: %v, out: %s", cmd.Args, err, string(out))
+	}
+	return nil
+}
+
 func (rtc *pcf8563) GetTime() (time.Time, error) {
 	// Read the time from the RTC.
 	data := make([]byte, 7)
