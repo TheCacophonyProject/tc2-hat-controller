@@ -62,6 +62,7 @@ nfpms:
   
   dependencies:
     - python3-pip
+    - openocd
   scripts:
     postinstall: "./_release/postinstall.sh"
 
