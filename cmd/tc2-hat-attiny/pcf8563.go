@@ -98,6 +98,12 @@ func (rtc *pcf8563) SetSystemTime() error {
 		log.Println("RTC time is before 2023, not writing to system clock.")
 		return nil
 	}
+	//TODO Find better check for this.
+	if now.After(time.Date(2033, time.January, 1, 0, 0, 0, 0, time.UTC)) {
+		// TODO make wrong RTC time event to report to user.
+		log.Println("RTC time is after 2033, not writing to system clock, sorry if it is after 2033 and this code is still here.")
+		return nil
+	}
 	timeStr := now.Format("2006-01-02 15:04:05")
 	log.Printf("Writing time to system clock (in UTC): %s", timeStr)
 	cmd := exec.Command("date", "--utc", "--set", timeStr, "+%Y-%m-%d %H:%M:%S")
