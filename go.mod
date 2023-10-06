@@ -3,6 +3,7 @@ module github.com/TheCacophonyProject/tc2-hat-controller
 go 1.20
 
 require (
+	github.com/TheCacophonyProject/event-reporter/v3 v3.3.1
 	github.com/TheCacophonyProject/go-config v1.9.0
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
 	github.com/alexflint/go-arg v1.4.3
@@ -13,7 +14,6 @@ require (
 )
 
 require (
-	github.com/TheCacophonyProject/event-reporter/v3 v3.3.1 // indirect
 	github.com/alexflint/go-scalar v1.1.0 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect

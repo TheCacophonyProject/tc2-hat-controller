@@ -39,7 +39,7 @@ const (
 	triggerSleepReg
 	cameraWakeUpReg
 	requestCommunicationReg
-	regPingPi
+	pingPiReg
 )
 
 const (
@@ -81,7 +81,7 @@ const (
 )
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 1
+	attinyFirmwareVersion = 2
 	attinyI2CAddress      = 0x25
 	hexFile               = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal            = 0xCA
@@ -259,8 +259,33 @@ type attiny struct {
 	ConnectionState ConnectionState
 }
 
+func (a *attiny) resetCommsRequestFlag() error {
+	return a.writeRegister(requestCommunicationReg, 0x00)
+}
+
+func (a *attiny) checkAndClearPingFlag() (bool, error) {
+	val, err := a.readRegister(pingPiReg)
+	if err != nil {
+		return false, err
+	}
+	if val == 0x01 {
+		return true, a.writeRegister(pingPiReg, 0x00)
+	}
+	return false, nil
+}
+
+func (a *attiny) checkAndClearRequestComms() (bool, error) {
+	val, err := a.readRegister(requestCommunicationReg)
+	if err != nil {
+		return false, err
+	}
+	if val == 0x01 {
+		return true, a.writeRegister(requestCommunicationReg, 0x00)
+	}
+	return false, nil
+}
+
 func (a *attiny) WriteCameraState(newState CameraState) error {
-	log.Println(uint8(newState))
 	if err := a.writeRegister(cameraStateReg, uint8(newState)); err != nil {
 		return err
 	}
@@ -372,17 +397,20 @@ func (a *attiny) ReadRTCBattery() (uint16, error) {
 	return a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
 }
 
-func (a *attiny) CheckForErrors(clearErrors bool) error {
+func (a *attiny) CheckForErrors(clearErrors bool) ([]string, error) {
 	errorIdCounter := 0
+	errorStrs := []string{}
 	for i := 0; i < errorRegisters; i++ {
 		errorReg := Register(int(regErrors1) + i)
 		errors, err := a.readRegister(errorReg)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for j := 0; j < 8; j++ {
 			if errors&(1<<j) != 0 {
-				log.Printf("ATtiny Error: %s\n", ErrorCode(errorIdCounter))
+				errorStr := fmt.Sprintf("ATtiny Error: %s", ErrorCode(errorIdCounter))
+				errorStrs = append(errorStrs, errorStr)
+				log.Println(errorStr)
 			}
 			errorIdCounter++
 		}
@@ -390,7 +418,7 @@ func (a *attiny) CheckForErrors(clearErrors bool) error {
 			a.writeRegister(errorReg, 0)
 		}
 	}
-	return nil
+	return errorStrs, nil
 }
 
 func (a *attiny) writeRegister(register Register, data uint8) error {

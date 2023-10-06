@@ -23,12 +23,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-config"
 	arg "github.com/alexflint/go-arg"
+	"periph.io/x/conn/v3/gpio"
+	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/conn/v3/i2c/i2creg"
 	"periph.io/x/host/v3"
 )
@@ -111,6 +115,8 @@ func runMain() error {
 	}
 
 	go monitorVoltageLoop(attiny)
+	go checkPingLoop(attiny)
+	go monitorErrorsLoop(attiny)
 
 	log.Println("Connecting to RTC")
 	rtc, err := InitPCF9564(bus)
@@ -131,10 +137,6 @@ func runMain() error {
 		return err
 	}
 	log.Println("RTC time:", t.Format(time.RFC3339))
-
-	if err := attiny.CheckForErrors(false); err != nil {
-		return err
-	}
 
 	attiny.ReadCameraState()
 	log.Println(attiny.CameraState)
@@ -223,6 +225,75 @@ func monitorVoltageLoop(a *attiny) {
 		}
 
 		time.Sleep(time.Minute)
+	}
+}
+
+func checkPingLoop(a *attiny) {
+	pinName := "GPIO16" //TODO add pin to config
+	pin := gpioreg.ByName(pinName)
+	pin.In(gpio.PullUp, gpio.FallingEdge)
+	if pin == nil {
+		log.Printf("Failed to find {%s}", pinName)
+	}
+	for {
+		pin.WaitForEdge(-1)
+		log.Println("Ping from ATtiny")
+		ping, err := a.checkAndClearPingFlag()
+		if err != nil {
+			log.Println("Error checking ping flag:", err)
+			continue
+		}
+		if ping {
+			enableComms, err := a.checkAndClearRequestComms()
+			if err != nil {
+				log.Println("Error checking request comms flag:", err)
+				continue
+			}
+			if enableComms {
+				log.Println("Request comms enabled.")
+				//TODO Make a better way to enable the hotspot/comms rather than just restart management-interface
+				if err := exec.Command("systemctl", "restart", "managementd.service").Run(); err != nil {
+					log.Println("Error restarting managementd.service:", err)
+				}
+			}
+		}
+
+	}
+}
+
+func monitorErrorsLoop(a *attiny) {
+	for {
+		time.Sleep(time.Second * 30)
+		errorStrs, err := a.CheckForErrors(true)
+		if err != nil {
+			log.Println("Error checking for errors on ATtiny:", err)
+		}
+		if len(errorStrs) > 0 {
+			/*
+				event := eventclient.Event{
+					Timestamp: ts,
+					Type:      "systemError",
+					Details: map[string]interface{}{
+						"version":     1,
+						"unitName":    unitName,
+						"logs":        rawLogs,
+						"activeState": activeState,
+					},
+				}
+			*/
+			event := eventclient.Event{
+				Timestamp: time.Now(),
+				Type:      "ATtinyError",
+				Details: map[string]interface{}{
+					"error": errorStrs,
+				},
+			}
+			log.Println("ATtiny Errors:", errorStrs)
+			err := eventclient.AddEvent(event)
+			if err != nil {
+				log.Println("Error adding event:", err)
+			}
+		}
 	}
 }
 
