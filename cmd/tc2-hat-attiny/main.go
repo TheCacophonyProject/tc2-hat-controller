@@ -211,7 +211,7 @@ func monitorVoltageLoop(a *attiny) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		file, err := os.OpenFile("/var/log/battery_voltage.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+		file, err := os.OpenFile("/var/log/battery-readings.csv", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -223,7 +223,7 @@ func monitorVoltageLoop(a *attiny) {
 			log.Fatal(err)
 		}
 
-		time.Sleep(time.Minute)
+		time.Sleep(2 * time.Minute)
 	}
 }
 
