@@ -83,7 +83,7 @@ func (s service) StayOnFor(m int) *dbus.Error {
 
 func (s service) UpdateWifiState() *dbus.Error {
 	log.Println("Update wifi state requested.")
-	if err := s.attiny.UpdateConnectionState(); err != nil {
+	if err := s.attiny.updateConnectionState(); err != nil {
 		log.Println(err)
 		return makeDbusError(".UpdateWifiState", err)
 	}

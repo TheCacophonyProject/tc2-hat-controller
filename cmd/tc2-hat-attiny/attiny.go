@@ -35,11 +35,9 @@ const (
 	versionReg
 	cameraStateReg
 	cameraConnectionReg
-	resetWatchdogReg
+	piCommandsReg
 	triggerSleepReg
-	cameraWakeUpReg
-	requestCommunicationReg
-	pingPiReg
+	piWakeUpReg
 )
 
 const (
@@ -58,6 +56,13 @@ const (
 	regErrors3
 	regErrors4
 	errorRegisters = 4
+)
+
+// PiCommandFlags
+const (
+	WriteCameraStateFlag = 1 << iota
+	ReadErrorsFlag
+	EnableWifiFlag
 )
 
 // Camera states.
@@ -200,8 +205,7 @@ func connectToATtinyWithRetries(retries int, bus i2c.Bus) (*attiny, error) {
 	for {
 		attiny, err := connectToATtiny(bus)
 		if err == nil {
-			attiny.WriteCameraState(statePoweredOn)
-			attiny.pingWatchdogLoop()
+			attiny.writeCameraState(statePoweredOn)
 			return attiny, err
 		}
 		if attempt < retries {
@@ -259,34 +263,8 @@ type attiny struct {
 	ConnectionState ConnectionState
 }
 
-func (a *attiny) resetCommsRequestFlag() error {
-	return a.writeRegister(requestCommunicationReg, 0x00)
-}
-
-func (a *attiny) checkAndClearPingFlag() (bool, error) {
-	val, err := a.readRegister(pingPiReg)
-	if err != nil {
-		return false, err
-	}
-	if val == 0x01 {
-		return true, a.writeRegister(pingPiReg, 0x00)
-	}
-	return false, nil
-}
-
-func (a *attiny) checkAndClearRequestComms() (bool, error) {
-	val, err := a.readRegister(requestCommunicationReg)
-	if err != nil {
-		return false, err
-	}
-	if val == 0x01 {
-		return true, a.writeRegister(requestCommunicationReg, 0x00)
-	}
-	return false, nil
-}
-
-func (a *attiny) WriteCameraState(newState CameraState) error {
-	if err := a.writeRegister(cameraStateReg, uint8(newState)); err != nil {
+func (a *attiny) writeCameraState(newState CameraState) error {
+	if err := a.writeRegister(cameraStateReg, uint8(newState), 3); err != nil {
 		return err
 	}
 	currentState := a.CameraState
@@ -297,26 +275,25 @@ func (a *attiny) WriteCameraState(newState CameraState) error {
 	return nil
 }
 
-func (a *attiny) pingWatchdogLoop() {
-	go func() {
-		log.Println("Starting ping watchdog loop")
-		for {
-			if err := a.writeRegister(resetWatchdogReg, 0x01); err != nil {
-				log.Println("Error with resetting ATtiny watchdog, ", err)
-			}
-			time.Sleep(time.Second * 5)
-		}
-	}()
+func (a *attiny) readPiCommands(clear bool) (uint8, error) {
+	val, err := a.readRegister(piCommandsReg)
+	if err != nil {
+		return 0, err
+	}
+	if clear {
+		return val, a.writeRegister(piCommandsReg, 0x00, -1)
+	}
+	return val, nil
 }
 
 // PowerOff asks the ATtiny to turn the system off.
-func (a *attiny) PoweringOff() error {
+func (a *attiny) poweringOff() error {
 	log.Println("Asking ATtiny to power off raspberry pi")
-	return a.writeRegister(triggerSleepReg, 0x01)
+	return a.writeRegister(triggerSleepReg, 0x01, -1)
 }
 
-func (a *attiny) WriteConnectionState(newState ConnectionState) error {
-	if err := a.writeRegister(cameraConnectionReg, uint8(newState)); err != nil {
+func (a *attiny) writeConnectionState(newState ConnectionState) error {
+	if err := a.writeRegister(cameraConnectionReg, uint8(newState), 3); err != nil {
 		return err
 	}
 	if a.ConnectionState != newState {
@@ -326,7 +303,7 @@ func (a *attiny) WriteConnectionState(newState ConnectionState) error {
 	return nil
 }
 
-func (a *attiny) UpdateConnectionState() error {
+func (a *attiny) updateConnectionState() error {
 	a.wifiMu.Lock()
 	defer a.wifiMu.Unlock()
 
@@ -335,11 +312,11 @@ func (a *attiny) UpdateConnectionState() error {
 		return err
 	}
 	if ssid == "" {
-		a.WriteConnectionState(noConnection)
+		a.writeConnectionState(noConnection)
 	} else if t == "AP" {
-		a.WriteConnectionState(hostingHotspot)
+		a.writeConnectionState(hostingHotspot)
 	} else if t == "managed" {
-		a.WriteConnectionState(connWifi)
+		a.writeConnectionState(connWifi)
 	} else {
 		log.Println("unknown state")
 	}
@@ -347,7 +324,7 @@ func (a *attiny) UpdateConnectionState() error {
 
 }
 
-func (a *attiny) ReadCameraState() error {
+func (a *attiny) readCameraState() error {
 	state, err := a.readRegister(cameraStateReg)
 	if err != nil {
 		return err
@@ -359,7 +336,7 @@ func (a *attiny) ReadCameraState() error {
 // TODO
 func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 	// Write value to trigger reading of voltage.
-	if err := a.writeRegister(reg1, 1<<7); err != nil {
+	if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
 		return 0, err
 	}
 	// Wait for value to be reset indicating a new voltage reading.
@@ -369,37 +346,30 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 		if err != nil {
 			return 0, err
 		}
-		//log.Printf("%08b\n", val1)
-		//log.Printf("%08b\n", 1<<7)
-		//log.Printf("%08b\n", val1&(0x01<<7))
-		//log.Printf(
-		// Check if we have a new reading
 		if val1&(0x01<<7) == 0 {
 			val2, err := a.readRegister(reg2)
 			if err != nil {
 				return 0, err
 			}
-			//log.Printf("%08b\n", val2)
-			// Return voltage by combing the two bytes
 			return (uint16(val1) << 8) | uint16(val2), nil
 		}
 	}
 	return 0, fmt.Errorf("failed to read RTC battery voltage")
 }
 
-func (a *attiny) ReadMainBattery() (uint16, error) {
+func (a *attiny) readMainBattery() (uint16, error) {
 	//log.Println("Reading Main battery voltage.")
 	return a.readBattery(battery1Reg, battery2Reg)
 }
 
-func (a *attiny) ReadRTCBattery() (uint16, error) {
+func (a *attiny) readRTCBattery() (uint16, error) {
 	//log.Println("Reading RTC battery voltage.")
 	return a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
 }
 
-func (a *attiny) CheckForErrors(clearErrors bool) ([]string, error) {
+func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 	errorIdCounter := 0
-	errorStrs := []string{}
+	errorCodes := []ErrorCode{}
 	for i := 0; i < errorRegisters; i++ {
 		errorReg := Register(int(regErrors1) + i)
 		errors, err := a.readRegister(errorReg)
@@ -408,23 +378,49 @@ func (a *attiny) CheckForErrors(clearErrors bool) ([]string, error) {
 		}
 		for j := 0; j < 8; j++ {
 			if errors&(1<<j) != 0 {
-				errorStr := fmt.Sprintf("ATtiny Error: %s", ErrorCode(errorIdCounter))
-				errorStrs = append(errorStrs, errorStr)
-				log.Println(errorStr)
+				errorCodes = append(errorCodes, ErrorCode(errorIdCounter))
 			}
 			errorIdCounter++
 		}
 		if clearErrors {
-			a.writeRegister(errorReg, 0)
+			a.writeRegister(errorReg, 0, -1)
 		}
 	}
-	return errorStrs, nil
+	return errorCodes, nil
 }
 
-func (a *attiny) writeRegister(register Register, data uint8) error {
+// writeRegister writes the specified data to the given register on the attiny device.
+// If retries is 0 or above it will try to verify by reading the register back off the ATtiny.
+// Set retries to -1 if you are not wanting to verify the write operation.
+func (a *attiny) writeRegister(register Register, data uint8, retries int) error {
 	write := []byte{byte(register), data}
 	read := []byte{}
-	return a.tx(write, read)
+	if err := a.tx(write, read); err != nil {
+		if retries <= 0 {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+		return a.writeRegister(register, data, retries-1)
+	}
+
+	if retries <= -1 {
+		return nil
+	}
+
+	registerVal, err := a.readRegister(register)
+	if err != nil {
+		if retries == 0 {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+		return a.writeRegister(register, data, retries-1)
+	}
+	if registerVal != data {
+		if retries == 0 {
+			return fmt.Errorf("error writing 0x%x to register %d. Register is value 0x%x", data, register, registerVal)
+		}
+	}
+	return nil
 }
 
 func (a *attiny) readRegister(register Register) (uint8, error) {

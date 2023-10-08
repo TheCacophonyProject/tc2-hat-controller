@@ -110,13 +110,12 @@ func runMain() error {
 	if err := startService(attiny); err != nil {
 		return err
 	}
-	if err := attiny.UpdateConnectionState(); err != nil {
+	if err := attiny.updateConnectionState(); err != nil {
 		return err
 	}
 
 	go monitorVoltageLoop(attiny)
-	go checkPingLoop(attiny)
-	go monitorErrorsLoop(attiny)
+	go checkATtinySignalLoop(attiny)
 
 	log.Println("Connecting to RTC")
 	rtc, err := InitPCF9564(bus)
@@ -138,7 +137,7 @@ func runMain() error {
 	}
 	log.Println("RTC time:", t.Format(time.RFC3339))
 
-	attiny.ReadCameraState()
+	attiny.readCameraState()
 	log.Println(attiny.CameraState)
 
 	if conf.OnWindow.NoWindow {
@@ -187,7 +186,7 @@ func runMain() error {
 			if err := rtc.SetAlarmEnabled(true); err != nil {
 				return err
 			}
-			attiny.PoweringOff()
+			attiny.poweringOff()
 			log.Println("Shutting down.")
 			time.Sleep(10 * time.Second)
 			shutdown()
@@ -204,11 +203,11 @@ func runMain() error {
 
 func monitorVoltageLoop(a *attiny) {
 	for {
-		mainBat, err := a.ReadMainBattery()
+		mainBat, err := a.readMainBattery()
 		if err != nil {
 			log.Fatal(err)
 		}
-		rtcBat, err := a.ReadRTCBattery()
+		rtcBat, err := a.readRTCBattery()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -228,71 +227,95 @@ func monitorVoltageLoop(a *attiny) {
 	}
 }
 
-func checkPingLoop(a *attiny) {
+func checkATtinySignalLoop(a *attiny) {
 	pinName := "GPIO16" //TODO add pin to config
 	pin := gpioreg.ByName(pinName)
 	pin.In(gpio.PullUp, gpio.FallingEdge)
 	if pin == nil {
 		log.Printf("Failed to find {%s}", pinName)
 	}
+	log.Println("Starting loop")
 	for {
-		pin.WaitForEdge(-1)
-		log.Println("Ping from ATtiny")
-		ping, err := a.checkAndClearPingFlag()
-		if err != nil {
-			log.Println("Error checking ping flag:", err)
+		pin.Read()
+		if pin.Read() == gpio.High {
+			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-		if ping {
-			enableComms, err := a.checkAndClearRequestComms()
-			if err != nil {
-				log.Println("Error checking request comms flag:", err)
-				continue
-			}
-			if enableComms {
-				log.Println("Request comms enabled.")
-				//TODO Make a better way to enable the hotspot/comms rather than just restart management-interface
-				if err := exec.Command("systemctl", "restart", "managementd.service").Run(); err != nil {
-					log.Println("Error restarting managementd.service:", err)
-				}
+
+		log.Println("Signal from ATtiny")
+		log.Println(time.Now().UnixMilli())
+
+		piCommands, err := a.readPiCommands(true)
+		a.readPiCommands(true)
+		a.readPiCommands(true)
+		if err != nil {
+			log.Println("Error reading pi commands:", err)
+			continue
+		}
+		log.Println(piCommands)
+		if isFlagSet(piCommands, WriteCameraStateFlag) {
+			log.Println("write camera state flag")
+			if err := a.writeCameraState(a.CameraState); err != nil {
+				log.Printf("Error writing camera state: %s", err)
 			}
 		}
 
+		if isFlagSet(piCommands, ReadErrorsFlag) {
+			log.Println("write camera state flag 2")
+			readAttinyErrors(a)
+		}
+
+		if isFlagSet(piCommands, EnableWifiFlag) {
+			log.Println("write camera state flag 3")
+			enableWifi()
+		}
+
+		time.Sleep(2000 * time.Millisecond)
 	}
 }
 
-func monitorErrorsLoop(a *attiny) {
-	for {
-		time.Sleep(time.Second * 30)
-		errorStrs, err := a.CheckForErrors(true)
-		if err != nil {
-			log.Println("Error checking for errors on ATtiny:", err)
+func isFlagSet(command, flag uint8) bool {
+	return (command & flag) != 0
+}
+
+func enableWifi() {
+	//TODO Make a better way to enable the hotspot/comms rather than just restart management-interface
+	if err := exec.Command("systemctl", "restart", "managementd.service").Run(); err != nil {
+		log.Println("Error restarting managementd.service:", err)
+	}
+}
+
+func readAttinyErrors(a *attiny) {
+	log.Println("Reading Attiny errors.")
+	errorCodes, err := a.checkForErrorCodes(true)
+	errorStrs := []string{}
+	for _, err := range errorCodes {
+		errorStrs = append(errorStrs, err.String())
+	}
+	if err != nil {
+		log.Println("Error checking for errors on ATtiny:", err)
+	}
+	if len(errorStrs) > 0 {
+		event := eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "ATtinyError",
+			Details: map[string]interface{}{
+				"error": errorStrs,
+			},
 		}
-		if len(errorStrs) > 0 {
-			/*
-				event := eventclient.Event{
-					Timestamp: ts,
-					Type:      "systemError",
-					Details: map[string]interface{}{
-						"version":     1,
-						"unitName":    unitName,
-						"logs":        rawLogs,
-						"activeState": activeState,
-					},
-				}
-			*/
-			event := eventclient.Event{
-				Timestamp: time.Now(),
-				Type:      "ATtinyError",
-				Details: map[string]interface{}{
-					"error": errorStrs,
-				},
-			}
-			log.Println("ATtiny Errors:", errorStrs)
-			err := eventclient.AddEvent(event)
-			if err != nil {
-				log.Println("Error adding event:", err)
-			}
+		log.Println("ATtiny Errors:", errorStrs)
+		err := eventclient.AddEvent(event)
+		if err != nil {
+			log.Println("Error adding event:", err)
+		}
+	}
+
+	// Run specific checks for some errors
+	for _, err := range errorCodes {
+		switch err {
+		case INVALID_CAMERA_STATE:
+			a.readCameraState()
+			log.Printf("Checking camera state: CameraState is %s", a.CameraState)
 		}
 	}
 }
