@@ -73,7 +73,6 @@ const (
 	statePoweredOn
 	statePoweringOff
 	statePoweredOff
-	stateConnectedToNetwork
 	statePowerOnTimeout
 )
 
@@ -108,8 +107,6 @@ func (s CameraState) String() string {
 		return "Powering Off"
 	case statePoweredOff:
 		return "Powered Off"
-	case stateConnectedToNetwork:
-		return "Connected to Network"
 	case statePowerOnTimeout:
 		return "Power On Timeout"
 	default:

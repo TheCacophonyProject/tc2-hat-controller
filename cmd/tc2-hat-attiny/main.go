@@ -311,8 +311,12 @@ func readAttinyErrors(a *attiny) {
 	for _, err := range errorCodes {
 		switch err {
 		case INVALID_CAMERA_STATE:
-			a.readCameraState()
-			log.Printf("Checking camera state: CameraState is %s", a.CameraState)
+			if err := a.readCameraState(); err != nil {
+				log.Println("Error reading camera state:", err)
+			}
+			if err := a.writeCameraState(statePoweredOn); err != nil {
+				log.Println("Error writing camera state:", err)
+			}
 		}
 	}
 }
