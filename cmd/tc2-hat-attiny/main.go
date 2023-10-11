@@ -241,18 +241,15 @@ func checkATtinySignalLoop(a *attiny) {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-
 		log.Println("Signal from ATtiny")
-		log.Println(time.Now().UnixMilli())
-
 		piCommands, err := a.readPiCommands(true)
-		a.readPiCommands(true)
-		a.readPiCommands(true)
 		if err != nil {
 			log.Println("Error reading pi commands:", err)
 			continue
 		}
-		log.Println(piCommands)
+
+		//TODO Fix bug causing this instead to be triggered twice, error is probably in ATtiny code
+		log.Printf("Commands register: %x\n", piCommands)
 		if isFlagSet(piCommands, WriteCameraStateFlag) {
 			log.Println("write camera state flag")
 			if err := a.writeCameraState(a.CameraState); err != nil {
@@ -261,16 +258,16 @@ func checkATtinySignalLoop(a *attiny) {
 		}
 
 		if isFlagSet(piCommands, ReadErrorsFlag) {
-			log.Println("write camera state flag 2")
+			log.Println("Read attiny errors flag set")
 			readAttinyErrors(a)
 		}
 
 		if isFlagSet(piCommands, EnableWifiFlag) {
-			log.Println("write camera state flag 3")
+			log.Println("Enable wifi flag set.")
 			enableWifi()
 		}
 
-		time.Sleep(2000 * time.Millisecond)
+		time.Sleep(time.Second)
 	}
 }
 

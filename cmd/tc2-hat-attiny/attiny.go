@@ -86,7 +86,7 @@ const (
 )
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 2
+	attinyFirmwareVersion = 3
 	attinyI2CAddress      = 0x25
 	hexFile               = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal            = 0xCA
@@ -281,7 +281,7 @@ func (a *attiny) readPiCommands(clear bool) (uint8, error) {
 		return 0, err
 	}
 	if clear {
-		return val, a.writeRegister(piCommandsReg, 0x00, -1)
+		return val, a.writeRegister(piCommandsReg, 0x00, 2)
 	}
 	return val, nil
 }
