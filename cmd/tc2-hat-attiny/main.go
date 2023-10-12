@@ -110,6 +110,8 @@ func runMain() error {
 	if err := startService(attiny); err != nil {
 		return err
 	}
+
+	log.Println("Starting RTC service.")
 	if err := attiny.updateConnectionState(); err != nil {
 		return err
 	}
@@ -122,20 +124,24 @@ func runMain() error {
 	if err != nil {
 		return err
 	}
+	if err := startRTCService(rtc); err != nil {
+		return err
+	}
 
 	if err := rtc.SetSystemTime(); err != nil {
-		return err
+		log.Println(err)
 	}
 
 	if err := rtc.ClearAlarmFlag(); err != nil {
 		return err
 	}
 
-	t, err := rtc.GetTime()
+	t, integrity, err := rtc.GetTime()
 	if err != nil {
 		return err
 	}
 	log.Println("RTC time:", t.Format(time.RFC3339))
+	log.Println("RTC integrity:", integrity)
 
 	attiny.readCameraState()
 	log.Println(attiny.CameraState)

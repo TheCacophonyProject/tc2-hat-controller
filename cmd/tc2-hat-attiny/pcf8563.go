@@ -78,7 +78,10 @@ func (rtc *pcf8563) SetTime(t time.Time) error {
 	}
 
 	// Compare to check that time was written correctly.
-	rtcTime, err := rtc.GetTime()
+	rtcTime, integrity, err := rtc.GetTime()
+	if !integrity {
+		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", rtcTime.Format("2006-01-02 15:04:05"))
+	}
 	if err != nil {
 		return err
 	}
@@ -89,9 +92,12 @@ func (rtc *pcf8563) SetTime(t time.Time) error {
 }
 
 func (rtc *pcf8563) SetSystemTime() error {
-	now, err := rtc.GetTime()
+	now, integrity, err := rtc.GetTime()
 	if err != nil {
 		return err
+	}
+	if integrity {
+		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", now.Format("2006-01-02 15:04:05"))
 	}
 	if now.Before(time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)) {
 		// TODO make wrong RTC time event to report to user.
@@ -115,11 +121,11 @@ func (rtc *pcf8563) SetSystemTime() error {
 	return nil
 }
 
-func (rtc *pcf8563) GetTime() (time.Time, error) {
+func (rtc *pcf8563) GetTime() (time.Time, bool, error) {
 	// Read the time from the RTC.
 	data := make([]byte, 7)
 	if err := readBytes(rtc.dev, 0x02, data); err != nil {
-		return time.Time{}, err
+		return time.Time{}, false, err
 	}
 
 	// Convert the time from BCD to decimal, only reading the appropriate bits from the register.
@@ -129,8 +135,9 @@ func (rtc *pcf8563) GetTime() (time.Time, error) {
 	days := fromBCD(data[3] & 0x3F)
 	months := fromBCD(data[5] & 0x1F)
 	years := 2000 + fromBCD(data[6])
+	integrity := data[0]&(1<<7) == 0
 
-	return time.Date(years, time.Month(months), days, hours, minutes, seconds, 0, time.UTC), nil
+	return time.Date(years, time.Month(months), days, hours, minutes, seconds, 0, time.UTC), integrity, nil
 }
 
 type AlarmTime struct {
