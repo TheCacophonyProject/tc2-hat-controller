@@ -9,7 +9,9 @@ if ! command -v pymcuprog &> /dev/null; then
 fi
 
 systemctl daemon-reload
-systemctl enable tc2-hat-temp.service
-systemctl restart tc2-hat-temp.service
+# TODO Enabe when software is ready
+systemctl disable tc2-hat-temp.service
+systemctl stop tc2-hat-temp.service
+
 systemctl enable tc2-hat-attiny.service
 systemctl restart tc2-hat-attiny.service
