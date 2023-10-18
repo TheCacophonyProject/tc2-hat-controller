@@ -85,7 +85,7 @@ const (
 )
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 3
+	attinyFirmwareVersion = 4
 	attinyI2CAddress      = 0x25
 	hexFile               = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal            = 0xCA

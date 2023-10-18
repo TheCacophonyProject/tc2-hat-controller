@@ -240,7 +240,7 @@ func checkATtinySignalLoop(a *attiny) {
 	if pin == nil {
 		log.Printf("Failed to find {%s}", pinName)
 	}
-	log.Println("Starting loop")
+	log.Println("Starting check ATtiny signal loop")
 	for {
 		pin.Read()
 		if pin.Read() == gpio.High {
