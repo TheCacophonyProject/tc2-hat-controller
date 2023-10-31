@@ -25,6 +25,15 @@ builds:
     - arm64
   ldflags: -s -w -X main.version={{.Version}}
 
+- id: tc2-hat-uart
+  binary: tc2-hat-uart
+  main: ./cmd/tc2-hat-uart
+  goos:
+    - linux
+  goarch:
+    - arm64
+  ldflags: -s -w -X main.version={{.Version}}
+
 - id: tc2-hat-temp
   binary: tc2-hat-temp
   main: ./cmd/tc2-hat-temp
