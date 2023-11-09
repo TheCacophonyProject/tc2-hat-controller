@@ -1,0 +1,13 @@
+
+[Unit]
+Description=Cacophony Project UART
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tc2-hat-uart
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

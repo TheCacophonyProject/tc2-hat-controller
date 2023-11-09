@@ -64,12 +64,16 @@ nfpms:
       dst: /etc/systemd/system/tc2-hat-temp.service
     - src: _release/tc2-hat-attiny.service
       dst: /etc/systemd/system/tc2-hat-attiny.service
+    - src: _release/tc2-hat-uart.service
+      dst: /etc/systemd/system/tc2-hat-uart.service
     - src: _release/stay-on-for
       dst: /usr/bin/stay-on-for
     - src: _release/10-notify-attiny
       dst: /lib/dhcpcd/dhcpcd-hooks/10-notify-attiny
     - src: _release/attiny-firmware.hex
       dst: /etc/cacophony/attiny-firmware.hex
+    - src: _release/org.cacophony.beacon.conf
+      dst: /etc/dbus-1/system.d/org.cacophony.beacon.conf
   
   dependencies:
     - python3-pip

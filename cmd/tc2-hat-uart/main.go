@@ -18,7 +18,9 @@ import (
 )
 
 var (
-	version = "<not set>"
+	version           = "<not set>"
+	activateTrapUntil = time.Now()
+	activeTrapSig     = make(chan string)
 )
 
 type Args struct {
@@ -39,8 +41,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// If no error then keep the background goroutines running.
-	//runtime.Goexit()
 }
 
 // Message represents the data structure for communication with a device connected on UART.
@@ -55,9 +55,14 @@ type Message struct {
 	Data     string `json:"data,omitempty"`
 }
 
+type Command struct {
+	Command string `json:"command"`
+	Args    string `json:"args,omitempty"`
+}
+
 type Write struct {
-	Var string `json:"var,omitempty"`
-	Val string `json:"val,omitempty"`
+	Var string      `json:"var,omitempty"`
+	Val interface{} `json:"val,omitempty"`
 }
 
 type Read struct {
@@ -66,6 +71,24 @@ type Read struct {
 
 type ReadResponse struct {
 	Val string `json:"var,omitempty"`
+}
+
+func checkClassification(data map[byte]byte) error {
+	for k, v := range data {
+		if k == 1 && v > 80 {
+			activateTrap()
+		}
+		if k == 7 && v > 80 {
+			activateTrap()
+		}
+	}
+	return nil
+}
+
+func activateTrap() {
+	log.Println("Activating trap")
+	activateTrapUntil = time.Now().Add(time.Minute)
+	activeTrapSig <- "trap"
 }
 
 func runMain() error {
@@ -77,62 +100,121 @@ func runMain() error {
 
 	// Start dbus to listen for classification messages.
 
+	if err := beep(); err != nil {
+		return err
+	}
+
+	log.Println("Starting UART service")
+	if err := startService(); err != nil {
+		return err
+	}
+
+	trapActive := false
+	if err := sendTrapActiveState(trapActive); err != nil {
+		return err
+	}
+
+	for {
+		waitUntil := time.Now().Add(5 * time.Second)
+		if trapActive {
+			waitUntil = activateTrapUntil
+		}
+
+		select {
+		case <-activeTrapSig:
+		case <-time.After(time.Until(waitUntil)):
+		}
+		trapActive = time.Now().Before(activateTrapUntil)
+
+		if err := sendTrapActiveState(trapActive); err != nil {
+			return err
+		}
+	}
+}
+
+func sendTrapActiveState(active bool) error {
+	return sendWriteMessage("active", active)
+}
+
+func sendWriteMessage(varName string, val interface{}) error {
 	data, err := json.Marshal(&Write{
-		Var: "active",
-		Val: "0",
+		Var: varName,
+		Val: val,
 	})
 	if err != nil {
 		return err
 	}
-	cmd := Message{
+	message := Message{
 		Type: "write",
 		Data: string(data),
 	}
-
-	response, err := sendMessage(cmd)
+	response, err := sendMessage(message)
 	if err != nil {
 		return err
 	}
 	if response.Type == "NACK" {
 		return fmt.Errorf("NACK response")
 	}
-
-	pir := 0
-	// TODO Update when data is available on UART instead of running every second
-	for {
-
-		// Check for change in pir value.
-		pir, err = checkPIR(pir)
-		if err != nil {
-			return err
-		}
-		time.Sleep(time.Second)
-	}
+	return nil
 }
 
-func checkPIR(oldPirVal int) (int, error) {
-	dataBytes, err := json.Marshal(&Read{
-		Var: "pir",
+func beep() error {
+	log.Println("beep")
+	return sendCommandMessage("beep")
+}
+
+func sendCommandMessage(cmd string) error {
+	data, err := json.Marshal(&Command{
+		Command: cmd,
 	})
 	if err != nil {
-		return 0, err
+		return err
 	}
 	message := Message{
-		Type: "read",
-		Data: string(dataBytes),
+		Type: "command",
+		Data: string(data),
 	}
 	response, err := sendMessage(message)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	// TODO Error checking in response
-	// Check if ACK, NACK, check that ID matches, and type
+	if response.Type == "NACK" {
+		return fmt.Errorf("NACK response")
+	}
+	return nil
+}
 
+func sendReadMessage(varName string) (string, error) {
+	data, err := json.Marshal(&Read{
+		Var: varName,
+	})
+	if err != nil {
+		return "", err
+	}
+	message := Message{
+		Type: "read",
+		Data: string(data),
+	}
+	response, err := sendMessage(message)
+	if err != nil {
+		return "", err
+	}
+	if response.Type == "NACK" {
+		return "", fmt.Errorf("NACK response")
+	}
 	readResponse := &ReadResponse{}
 	if err := json.Unmarshal([]byte(response.Data), readResponse); err != nil {
+		return "", err
+	}
+	return readResponse.Val, nil
+}
+
+func checkPIR(oldPirVal int) (int, error) {
+	valStr, err := sendReadMessage("pir")
+	if err != nil {
 		return 0, err
 	}
-	newPirVal, err := strconv.Atoi(readResponse.Val)
+	newPirVal, err := strconv.Atoi(valStr)
 	if err != nil {
 		return 0, err
 	}

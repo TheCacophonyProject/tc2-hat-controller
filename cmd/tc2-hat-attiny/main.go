@@ -273,6 +273,14 @@ func checkATtinySignalLoop(a *attiny) {
 			enableWifi()
 		}
 
+		if isFlagSet(piCommands, PowerDownFlag) {
+			log.Println("Power down flag set.")
+			log.Println("TODO, make sure device has finished its business before powering down.")
+			log.Println("Shutting down.")
+			shutdown()
+			time.Sleep(time.Second * 3)
+		}
+
 		time.Sleep(time.Second)
 	}
 }

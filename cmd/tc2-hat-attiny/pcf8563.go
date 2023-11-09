@@ -96,7 +96,7 @@ func (rtc *pcf8563) SetSystemTime() error {
 	if err != nil {
 		return err
 	}
-	if integrity {
+	if !integrity {
 		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", now.Format("2006-01-02 15:04:05"))
 	}
 	if now.Before(time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)) {
