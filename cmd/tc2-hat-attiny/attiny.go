@@ -337,26 +337,28 @@ func (a *attiny) readCameraState() error {
 func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 	//TODO
 	return 0, nil
-	// Write value to trigger reading of voltage.
-	if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
-		return 0, err
-	}
-	// Wait for value to be reset indicating a new voltage reading.
-	for i := 0; i < 5; i++ {
-		time.Sleep(time.Millisecond * 200)
-		val1, err := a.readRegister(reg1)
-		if err != nil {
+	/*
+		// Write value to trigger reading of voltage.
+		if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
 			return 0, err
 		}
-		if val1&(0x01<<7) == 0 {
-			val2, err := a.readRegister(reg2)
+		// Wait for value to be reset indicating a new voltage reading.
+		for i := 0; i < 5; i++ {
+			time.Sleep(time.Millisecond * 200)
+			val1, err := a.readRegister(reg1)
 			if err != nil {
 				return 0, err
 			}
-			return (uint16(val1) << 8) | uint16(val2), nil
+			if val1&(0x01<<7) == 0 {
+				val2, err := a.readRegister(reg2)
+				if err != nil {
+					return 0, err
+				}
+				return (uint16(val1) << 8) | uint16(val2), nil
+			}
 		}
-	}
-	return 0, fmt.Errorf("failed to read battery voltage from registers %d and %d", reg1, reg2)
+		return 0, fmt.Errorf("failed to read battery voltage from registers %d and %d", reg1, reg2)
+	*/
 }
 
 func (a *attiny) readMainBattery() (uint16, error) {
