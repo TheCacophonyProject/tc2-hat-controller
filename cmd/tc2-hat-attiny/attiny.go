@@ -37,15 +37,17 @@ const (
 	cameraConnectionReg
 	piCommandsReg
 	triggerSleepReg
-	piWakeUpReg
+	tc2AgentReadyReg
 )
 
 const (
-	battery1Reg Register = iota + 0x10
-	battery2Reg
-	battery3Reg
-	battery4Reg
-	battery5Reg
+	batteryCheckCtrlReg Register = iota + 0x10
+	batteryLow1Reg
+	batteryLow2Reg
+	batteryLVDivVal1Reg
+	batteryLVDivVal2Reg
+	batteryHVDivVal1Reg
+	batteryHVDivVal2Reg
 	rtcBattery1Reg
 	rtcBattery2Reg
 )
@@ -86,7 +88,7 @@ const (
 )
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 6
+	attinyFirmwareVersion = 7
 	attinyI2CAddress      = 0x25
 	hexFile               = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal            = 0xCA
@@ -333,6 +335,8 @@ func (a *attiny) readCameraState() error {
 
 // TODO
 func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
+	//TODO
+	return 0, nil
 	// Write value to trigger reading of voltage.
 	if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
 		return 0, err
@@ -352,12 +356,12 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 			return (uint16(val1) << 8) | uint16(val2), nil
 		}
 	}
-	return 0, fmt.Errorf("failed to read RTC battery voltage")
+	return 0, fmt.Errorf("failed to read battery voltage from registers %d and %d", reg1, reg2)
 }
 
 func (a *attiny) readMainBattery() (uint16, error) {
 	//log.Println("Reading Main battery voltage.")
-	return a.readBattery(battery1Reg, battery2Reg)
+	return a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
 }
 
 func (a *attiny) readRTCBattery() (uint16, error) {
