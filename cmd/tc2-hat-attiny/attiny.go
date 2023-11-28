@@ -37,7 +37,7 @@ const (
 	cameraConnectionReg
 	piCommandsReg
 	triggerSleepReg
-	tc2AgentReadyReg
+	tc2AgentReadyReg = 0x07
 )
 
 const (
@@ -88,7 +88,7 @@ const (
 )
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 7
+	attinyFirmwareVersion = 8
 	attinyI2CAddress      = 0x25
 	hexFile               = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal            = 0xCA

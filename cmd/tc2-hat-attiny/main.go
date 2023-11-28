@@ -225,7 +225,7 @@ func monitorVoltageLoop(a *attiny) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		line := fmt.Sprintf("%s, %d, %d, %d", time.Now().Format("2006-01-02 15:04:05"), hvBat, lvBat, rtcBat)
+		line := fmt.Sprintf("%s, %.2f, %.2f, %.2f", time.Now().Format("2006-01-02 15:04:05"), hvBat, lvBat, rtcBat)
 		log.Println("Battery reading:", line)
 		_, err = file.WriteString(line + "\n")
 		file.Close()
