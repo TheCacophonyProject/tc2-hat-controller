@@ -335,40 +335,56 @@ func (a *attiny) readCameraState() error {
 
 // TODO
 func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
-	//TODO
-	return 0, nil
-	/*
-		// Write value to trigger reading of voltage.
-		if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
+
+	//return 0, nil
+
+	// Write value to trigger reading of voltage.
+	if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
+		return 0, err
+	}
+	// Wait for value to be reset indicating a new voltage reading.
+	for i := 0; i < 5; i++ {
+		time.Sleep(time.Millisecond * 200)
+		val1, err := a.readRegister(reg1)
+		if err != nil {
 			return 0, err
 		}
-		// Wait for value to be reset indicating a new voltage reading.
-		for i := 0; i < 5; i++ {
-			time.Sleep(time.Millisecond * 200)
-			val1, err := a.readRegister(reg1)
+		if val1&(0x01<<7) == 0 {
+			val2, err := a.readRegister(reg2)
 			if err != nil {
 				return 0, err
 			}
-			if val1&(0x01<<7) == 0 {
-				val2, err := a.readRegister(reg2)
-				if err != nil {
-					return 0, err
-				}
-				return (uint16(val1) << 8) | uint16(val2), nil
-			}
+			return (uint16(val1) << 8) | uint16(val2), nil
 		}
-		return 0, fmt.Errorf("failed to read battery voltage from registers %d and %d", reg1, reg2)
-	*/
+	}
+	return 0, fmt.Errorf("failed to read battery voltage from registers %d and %d", reg1, reg2)
+
 }
 
-func (a *attiny) readMainBattery() (uint16, error) {
-	//log.Println("Reading Main battery voltage.")
-	return a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
+func (a *attiny) readMainBattery() (float32, error) {
+	raw, err := a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
+	if err != nil {
+		return 0, err
+	}
+	v := float32(raw) * 3.3 / 1023
+	return v * (2000 + 150 + 22) / (150 + 22), nil
 }
 
-func (a *attiny) readRTCBattery() (uint16, error) {
-	//log.Println("Reading RTC battery voltage.")
-	return a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
+func (a *attiny) readRTCBattery() (float32, error) {
+	raw, err := a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
+	if err != nil {
+		return 0, err
+	}
+	return float32(raw) * 3.3 / 1023, nil
+}
+
+func (a *attiny) readLVBattery() (float32, error) {
+	raw, err := a.readBattery(batteryLVDivVal1Reg, batteryLVDivVal2Reg)
+	if err != nil {
+		return 0, err
+	}
+	v := float32(raw) * 3.3 / 1023
+	return v * (2000 + 560 + 33) / (560 + 33), nil
 }
 
 func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
