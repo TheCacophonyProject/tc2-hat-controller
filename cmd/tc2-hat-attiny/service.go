@@ -21,6 +21,8 @@ package main
 import (
 	"errors"
 	"log"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/godbus/dbus"
@@ -76,7 +78,7 @@ func (s service) IsPresent() (bool, *dbus.Error) {
 func (s service) StayOnFor(m int) *dbus.Error {
 	err := setStayOnUntil(time.Now().Add(time.Duration(m) * time.Minute))
 	if err != nil {
-		return makeDbusError(".StayOnForError", err)
+		return dbusErr(err)
 	}
 	return nil
 }
@@ -85,14 +87,31 @@ func (s service) UpdateWifiState() *dbus.Error {
 	log.Println("Update wifi state requested.")
 	if err := s.attiny.updateConnectionState(); err != nil {
 		log.Println(err)
-		return makeDbusError(".UpdateWifiState", err)
+		return dbusErr(err)
 	}
 	return nil
 }
 
-func makeDbusError(name string, err error) *dbus.Error {
+func dbusErr(err error) *dbus.Error {
+	if err == nil {
+		return nil
+	}
 	return &dbus.Error{
-		Name: dbusName + name,
+		Name: dbusName + "." + getCallerName(),
 		Body: []interface{}{err.Error()},
 	}
+}
+
+func getCallerName() string {
+	fpcs := make([]uintptr, 1)
+	n := runtime.Callers(3, fpcs)
+	if n == 0 {
+		return ""
+	}
+	caller := runtime.FuncForPC(fpcs[0] - 1)
+	if caller == nil {
+		return ""
+	}
+	funcNames := strings.Split(caller.Name(), ".")
+	return funcNames[len(funcNames)-1]
 }

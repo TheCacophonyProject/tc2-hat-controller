@@ -60,7 +60,7 @@ func (s rtcService) GetTime() (string, bool, *dbus.Error) {
 	t, integrity, err := s.rtc.GetTime()
 	if err != nil {
 		log.Println(err)
-		return "", false, makeDbusError(".GetTime", err)
+		return "", false, dbusErr(err)
 	}
 	return t.Format("2006-01-02T15:04:05Z07:00"), integrity, nil
 }
@@ -69,11 +69,11 @@ func (s rtcService) SetTime(timeStr string) *dbus.Error {
 	t, err := time.Parse("2006-01-02T15:04:05Z07:00", timeStr)
 	if err != nil {
 		log.Println(err)
-		return makeDbusError(".SetTime", err)
+		return dbusErr(err)
 	}
 	err = s.rtc.SetTime(t)
 	if err != nil {
-		return makeDbusError(".SetTime", err)
+		return dbusErr(err)
 	}
 	return nil
 }

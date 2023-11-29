@@ -16,5 +16,7 @@ systemctl stop tc2-hat-temp.service
 systemctl enable tc2-hat-attiny.service
 systemctl restart tc2-hat-attiny.service
 
+systemctl enable rpi-reboot.service
+
 #systemctl enable tc2-hat-uart.service
 #systemctl restart tc2-hat-uart.service

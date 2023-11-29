@@ -77,6 +77,7 @@ const (
 	statePoweringOff
 	statePoweredOff
 	statePowerOnTimeout
+	stateRebooting
 )
 
 type ConnectionState uint8
@@ -112,6 +113,8 @@ func (s CameraState) String() string {
 		return "Powered Off"
 	case statePowerOnTimeout:
 		return "Power On Timeout"
+	case stateRebooting:
+		return "Rebooting"
 	default:
 		log.Println("Unknown camera state:", int(s))
 		return "Unknown"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Let the ATtiny know that the RPi is rebooting.
+DefaultDependencies=no
+Before=reboot.target
+
+[Service]
+ExecStart=/usr/bin/notify-attiny-reboot
+Type=oneshot
+
+[Install]
+WantedBy=reboot.target

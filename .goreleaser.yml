@@ -74,6 +74,10 @@ nfpms:
       dst: /etc/cacophony/attiny-firmware.hex
     - src: _release/org.cacophony.beacon.conf
       dst: /etc/dbus-1/system.d/org.cacophony.beacon.conf
+    - src: _release/notify-attiny-reboot
+      dst: /usr/bin/notify-attiny-reboot
+    - src: _release/rpi-reboot.service
+      dst: /etc/systemd/system/rpi-reboot.service
   
   dependencies:
     - python3-pip
