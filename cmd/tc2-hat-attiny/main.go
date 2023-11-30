@@ -111,7 +111,6 @@ func runMain() error {
 		return err
 	}
 
-	log.Println("Starting RTC service.")
 	if err := attiny.updateConnectionState(); err != nil {
 		return err
 	}
@@ -124,6 +123,7 @@ func runMain() error {
 	if err != nil {
 		return err
 	}
+	log.Println("Starting RTC service.")
 	if err := startRTCService(rtc); err != nil {
 		return err
 	}

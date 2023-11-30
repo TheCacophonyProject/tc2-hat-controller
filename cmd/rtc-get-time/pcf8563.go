@@ -32,55 +32,7 @@ func InitPCF9564(bus i2c.Bus) (*pcf8563, error) {
 		return nil, fmt.Errorf("failed to find pcf8563 device on i2c bus: %v", err)
 	}
 	rtc := &pcf8563{dev: &i2c.Dev{Bus: bus, Addr: pcf8563Address}}
-	go rtc.checkNtpSyncLoop()
 	return rtc, nil
-}
-
-func (rtc *pcf8563) checkNtpSyncLoop() {
-	hasSynced := false
-	log.Println("Starting ntp sync loop")
-	for {
-		out, err := exec.Command("timedatectl", "status").Output()
-		if err != nil {
-			log.Println("Error executing command:", err)
-		}
-
-		if strings.Contains(string(out), "synchronized: yes") {
-			log.Println("Writing time to RTC")
-
-			rtcTime, integrity, err := rtc.GetTime()
-			if err != nil {
-				log.Println("Error getting RTC time:", err)
-			}
-
-			utc := time.Now().UTC()
-			if 10*time.Minute > rtcTime.Sub(utc) || rtcTime.Sub(utc) > 10*time.Minute {
-				log.Printf("RTC time and ntp time differ by more than 10 minutes. RTC(UTC): %s, NTP(UTC): %s", rtcTime.Format("2006-01-02 15:04:05"), utc.Format("2006-01-02 15:04:05"))
-				eventclient.AddEvent(eventclient.Event{
-					Timestamp: time.Now(),
-					Type:      "rtcNtpMismatch",
-					Details: map[string]interface{}{
-						"rtcTime":      rtcTime.Format("2006-01-02 15:04:05"),
-						"rtcIntegrity": integrity,
-						"ntpTime":      time.Now().Format("2006-01-02 15:04:05"),
-					},
-				})
-			}
-
-			if err := rtc.SetTime(time.Now()); err != nil {
-				log.Println("Error setting time on RTC:", err)
-			} else {
-				hasSynced = true
-			}
-
-		}
-
-		if hasSynced {
-			time.Sleep(time.Hour)
-		} else {
-			time.Sleep(time.Second)
-		}
-	}
 }
 
 func (rtc *pcf8563) SetTime(t time.Time) error {
@@ -101,6 +53,10 @@ func (rtc *pcf8563) SetTime(t time.Time) error {
 	// Compare to check that time was written correctly.
 	rtcTime, integrity, err := rtc.GetTime()
 	if !integrity {
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "rtcIntegrityError",
+		})
 		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", rtcTime.Format("2006-01-02 15:04:05"))
 	}
 	if err != nil {
@@ -113,17 +69,24 @@ func (rtc *pcf8563) SetTime(t time.Time) error {
 }
 
 func (rtc *pcf8563) SetSystemTime() error {
-	now, integrity, err := rtc.GetTime()
+	now1, _, _ := rtc.GetTime()
+	time.Sleep(time.Millisecond)
+	now2, _, _ := rtc.GetTime()
+	time.Sleep(time.Millisecond)
+	now3, integrity, err := rtc.GetTime()
 	if err != nil {
 		return err
 	}
 	if !integrity {
-		eventclient.AddEvent(eventclient.Event{
-			Timestamp: time.Now(),
-			Type:      "rtcIntegrityError",
-		})
-		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", now.Format("2006-01-02 15:04:05"))
+		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", now3.Format("2006-01-02 15:04:05"))
 	}
+
+	if now3.Sub(now1) > time.Second || now3.Sub(now2) > time.Second {
+		return fmt.Errorf("difference in times is more than 1 second when reading time multiple times")
+	}
+
+	now := now3
+
 	if now.Before(time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)) {
 		// TODO make wrong RTC time event to report to user.
 		log.Println("RTC time is before 2023, not writing to system clock.")
@@ -274,4 +237,39 @@ func (rtc *pcf8563) ClearAlarmFlag() error {
 	}
 	alarmState &= ^byte(PCF8563_ALARM_AF) // Clear alarm flag
 	return writeByte(rtc.dev, PCF8563_STAT2_REG, byte(alarmState))
+}
+
+// readByte reads a byte from the I2C device from a given register.
+func readByte(dev *i2c.Dev, register byte) (byte, error) {
+	data := make([]byte, 1)
+	if err := dev.Tx([]byte{register}, data); err != nil {
+		return 0, err
+	}
+	return data[0], nil
+}
+
+// writeByte writes a byte to the I2C device at a given register.
+func writeByte(dev *i2c.Dev, register byte, data byte) error {
+	_, err := dev.Write([]byte{register, data})
+	return err
+}
+
+// toBCD converts a decimal number to binary-coded decimal.
+func toBCD(n int) byte {
+	return byte(n)/10<<4 + byte(n)%10
+}
+
+// writeBytes writes the given bytes to the I2C device.
+func writeBytes(dev *i2c.Dev, data []byte) error {
+	_, err := dev.Write(data)
+	return err
+}
+
+func fromBCD(b byte) int {
+	return int(b&0x0F) + int(b>>4)*10
+}
+
+// readBytes reads bytes from the I2C device starting from a given register.
+func readBytes(dev *i2c.Dev, register byte, data []byte) error {
+	return dev.Tx([]byte{register}, data)
 }

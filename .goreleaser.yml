@@ -43,6 +43,15 @@ builds:
     - arm64
   ldflags: -s -w -X main.version={{.Version}}
 
+- id: rtc-get-time
+  binary: rtc-get-time
+  main: ./cmd/rtc-get-time
+  goos:
+    - linux
+  goarch:
+    - arm64
+  ldflags: -s -w -X main.version={{.Version}}
+
 nfpms:
 - vendor: The Cacophony Project
   homepage: http://cacophony.org.nz/
@@ -78,6 +87,8 @@ nfpms:
       dst: /usr/bin/notify-attiny-reboot
     - src: _release/rpi-reboot.service
       dst: /etc/systemd/system/rpi-reboot.service
+    - src: _release/tc2-hat-rtc.service
+      dst: /etc/systemd/system/tc2-hat-rtc.service
   
   dependencies:
     - python3-pip
