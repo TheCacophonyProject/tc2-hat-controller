@@ -54,7 +54,7 @@ func (rtc *pcf8563) checkNtpSyncLoop() {
 			}
 
 			utc := time.Now().UTC()
-			if 10*time.Minute > rtcTime.Sub(utc) || rtcTime.Sub(utc) > 10*time.Minute {
+			if rtcTime.Sub(utc).Abs() > 10*time.Minute {
 				log.Printf("RTC time and ntp time differ by more than 10 minutes. RTC(UTC): %s, NTP(UTC): %s", rtcTime.Format("2006-01-02 15:04:05"), utc.Format("2006-01-02 15:04:05"))
 				eventclient.AddEvent(eventclient.Event{
 					Timestamp: time.Now(),
