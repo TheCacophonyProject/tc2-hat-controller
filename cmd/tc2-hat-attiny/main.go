@@ -30,6 +30,7 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-config"
+	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	arg "github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
@@ -283,6 +284,22 @@ func checkATtinySignalLoop(a *attiny) {
 			log.Println("Shutting down.")
 			shutdown()
 			time.Sleep(time.Second * 3)
+		}
+
+		if isFlagSet(piCommands, ToggleAuxTerminalFlag) {
+			log.Println("Toggle aux terminal flag set.")
+			if serialhelper.SerialInUseFromTerminal() {
+				_, err := exec.Command("disable-aux-uart").CombinedOutput()
+				if err != nil {
+					log.Println("Error disabling aux uart:", err)
+				}
+			} else {
+				_, err := exec.Command("enable-aux-uart").CombinedOutput()
+				if err != nil {
+					log.Println("Error enabling aux uart:", err)
+				}
+			}
+			a.writeAuxState()
 		}
 
 		time.Sleep(time.Second)

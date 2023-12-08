@@ -5,16 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strconv"
-	"syscall"
 	"time"
 
+	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"github.com/alexflint/go-arg"
-	"github.com/tarm/serial"
 	"periph.io/x/conn/v3/gpio"
-	"periph.io/x/conn/v3/gpio/gpioreg"
-	"periph.io/x/host/v3"
 )
 
 var (
@@ -241,7 +237,8 @@ func sendMessage(cmd Message) (*Message, error) {
 	message := fmt.Sprintf("<%s|%d>", cmdData, computeChecksum(cmdData))
 
 	log.Println("Message: ", message)
-	responseData, err := serialSendReceive([]byte(message))
+	responseData, err := serialhelper.SerialSendReceive(3, gpio.High, gpio.Low, time.Second, []byte(message))
+
 	if err != nil {
 		return nil, err
 	}
@@ -273,83 +270,4 @@ func sendMessage(cmd Message) (*Message, error) {
 	responseMessage := &Message{}
 	log.Println(string(parts[0]))
 	return responseMessage, json.Unmarshal(parts[0], responseMessage)
-}
-
-func serialSendReceive(data []byte) ([]byte, error) {
-	serialFile, err := os.OpenFile("/dev/serial0", os.O_RDWR, 0666)
-	if err != nil {
-		return nil, err
-	}
-	defer serialFile.Close()
-
-	for {
-		err = syscall.Flock(int(serialFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			break
-		}
-
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.EWOULDBLOCK {
-			fmt.Println("Serial port is locked by another process. Retrying in 5 seconds...")
-			time.Sleep(5 * time.Second)
-		} else {
-			return nil, err
-		}
-	}
-	defer func() {
-		err = syscall.Flock(int(serialFile.Fd()), syscall.LOCK_UN)
-		if err != nil {
-			log.Println("Error releasing lock:", err)
-			panic(err)
-		}
-	}()
-
-	c := &serial.Config{Name: "/dev/serial0", Baud: 9600, ReadTimeout: time.Second * 5}
-	//c := &serial.Config{Name: "/dev/serial0", Baud: 9600}
-	serialPort, err := serial.OpenPort(c)
-	if err != nil {
-		return nil, err
-	}
-	defer serialPort.Close()
-
-	// Set GPIO pins to configure UART multiplex to output to trap
-	// GPIO6 high, GPIO12 low
-	log.Print("init gpio")
-	if _, err := host.Init(); err != nil {
-		return nil, err
-	}
-	pin6 := gpioreg.ByName("GPIO6")
-	if pin6 == nil {
-		return nil, fmt.Errorf("failed to init GPIO6 pin")
-	}
-	if err := pin6.Out(gpio.High); err != nil {
-		return nil, err
-	}
-	pin12 := gpioreg.ByName("GPIO12")
-	if pin12 == nil {
-		return nil, fmt.Errorf("failed to init GPIO12 pin")
-	}
-	if err := pin12.Out(gpio.Low); err != nil {
-		return nil, err
-	}
-	log.Println("Finished setting up GPIO")
-
-	n, err := serialPort.Write(data)
-	if err != nil {
-		return nil, err
-	}
-	if n != len(data) {
-		return nil, fmt.Errorf("wrote %d bytes, expected %d", n, len(data))
-	}
-	log.Printf("wrote %d bytes, expected %d", n, len(data))
-
-	time.Sleep(time.Second)
-
-	buf := make([]byte, 256)
-	n, err = serialPort.Read(buf)
-	//log.Println(string())
-	if err != nil {
-		return nil, err
-	}
-
-	return buf[:n], nil
 }

@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
+	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/i2c"
 )
 
@@ -37,7 +39,8 @@ const (
 	cameraConnectionReg
 	piCommandsReg
 	triggerSleepReg
-	tc2AgentReadyReg = 0x07
+	auxTerminalReg
+	tc2AgentReadyReg
 )
 
 const (
@@ -66,6 +69,7 @@ const (
 	ReadErrorsFlag
 	EnableWifiFlag
 	PowerDownFlag
+	ToggleAuxTerminalFlag
 )
 
 // Camera states.
@@ -180,6 +184,12 @@ func attinyUPDIPing() error {
 }
 
 func updateATtinyFirmware() error {
+	serialFile, err := serialhelper.GetSerial(3, gpio.Low, gpio.Low, time.Second)
+	if err != nil {
+		return err
+	}
+	defer serialhelper.ReleaseSerial(serialFile)
+
 	log.Println("Pinging device.")
 	if err := attinyUPDIPing(); err != nil {
 		return err
@@ -209,6 +219,7 @@ func connectToATtinyWithRetries(retries int, bus i2c.Bus) (*attiny, error) {
 		attiny, err := connectToATtiny(bus)
 		if err == nil {
 			attiny.writeCameraState(statePoweredOn)
+			attiny.writeAuxState()
 			return attiny, err
 		}
 		if attempt < retries {
@@ -223,6 +234,14 @@ func connectToATtinyWithRetries(retries int, bus i2c.Bus) (*attiny, error) {
 		time.Sleep(time.Second)
 		attempt++
 	}
+}
+
+func (a *attiny) writeAuxState() error {
+	var regVal uint8 = 0x00
+	if serialhelper.SerialInUseFromTerminal() {
+		regVal = 0x01
+	}
+	return a.writeRegister(auxTerminalReg, regVal, 3)
 }
 
 // connectToATtiny initializes the required drivers and connects to the ATtiny device
