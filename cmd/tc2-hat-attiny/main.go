@@ -112,9 +112,14 @@ func runMain() error {
 		return err
 	}
 
-	if err := attiny.updateConnectionState(); err != nil {
-		return err
-	}
+	go func() {
+		attiny.checkForConnectionStateUpdates()
+	}()
+	/*
+		if err := attiny.updateConnectionState(); err != nil {
+			return err
+		}
+	*/
 
 	go monitorVoltageLoop(attiny)
 	go checkATtinySignalLoop(attiny)

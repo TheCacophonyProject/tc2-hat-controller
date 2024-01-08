@@ -56,8 +56,8 @@ github.com/TheCacophonyProject/go-api v1.0.2/go.mod h1:SH5Jo4bH5UdMetAUpoDeFwMYx
 github.com/TheCacophonyProject/go-config v0.0.0-20190922224052-7c2a21bc6b88/go.mod h1:gPUJLVu408NRz9/P3BrsxzOzLc+KJLrv+jVdDw3RI0Y=
 github.com/TheCacophonyProject/go-config v1.4.0/go.mod h1:oARW/N3eJbcewCqB+Jc7TBwuODawwYgpo56UO6yBdKU=
 github.com/TheCacophonyProject/go-config v1.7.0/go.mod h1:2VGuQR5dATuq8nzdBMQd7mbc6OhCimkSsGHRLWcer2c=
-github.com/TheCacophonyProject/go-config v1.9.0 h1:uangUL8e/76ApGzF2tYGKDm+DoDjezVhuJquTX41rHQ=
-github.com/TheCacophonyProject/go-config v1.9.0/go.mod h1:+y80PSRZudMYuVrYTGOvzc66NxVJWKS4TuU442vmvhY=
+github.com/TheCacophonyProject/go-config v1.9.2 h1:9QEWceOla56SIXPu6gtGmykwDeXwLtbZI1ABwumdU6Q=
+github.com/TheCacophonyProject/go-config v1.9.2/go.mod h1:XZwQmNl2wQXhYR18RQtwZ6LwFwgAx73yzJfymYLz68s=
 github.com/TheCacophonyProject/go-cptv v0.0.0-20200116020937-858bd8b71512/go.mod h1:8H6Aaft5549sIWxcsuCIL2o60/TQkoF93fVoSTpgZb8=
 github.com/TheCacophonyProject/go-cptv v0.0.0-20200616224711-fc633122087a/go.mod h1:Vg73Ezn4kr8qDNP9LNgjki9qgi+5T/0Uc9oDyflaYUY=
 github.com/TheCacophonyProject/go-cptv v0.0.0-20201215230510-ae7134e91a71/go.mod h1:pExPO/gk28kgWnd1z55xJ7YtC0KgQBDKvJoGYExc+l0=
@@ -66,6 +66,8 @@ github.com/TheCacophonyProject/lepton3 v0.0.0-20200213011619-1934a9300bd3/go.mod
 github.com/TheCacophonyProject/lepton3 v0.0.0-20210324024142-003e5546e30f/go.mod h1:+FTQKx63hdEbuTe/nxNv9TQ2EWqdlzMZx7UNLGCX9SE=
 github.com/TheCacophonyProject/lepton3 v0.0.0-20211005194419-22311c15d6ee/go.mod h1:+FTQKx63hdEbuTe/nxNv9TQ2EWqdlzMZx7UNLGCX9SE=
 github.com/TheCacophonyProject/modemd v0.0.0-20190605010435-ae5b0f2eb760/go.mod h1:bfwJ/WcvDY9XtHKC5tcRfVrU8RWaW8DLYAAUfsrJr/4=
+github.com/TheCacophonyProject/rpi-net-manager v0.1.1 h1:Ncqw/WGIkKA4Hf8bjjgImy8B+5Mo2SHRMaangYdp7T8=
+github.com/TheCacophonyProject/rpi-net-manager v0.1.1/go.mod h1:6Xl1Dp7F8IyvufOv0O5EfoXQjqoA/qNLeoWh3Rv1Y0c=
 github.com/TheCacophonyProject/window v0.0.0-20190821235241-ab92c2ee24b6/go.mod h1:Vww417iimOb0s46Ndsm8U/vYtwc0dZUet4uW8QzBo4M=
 github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1 h1:KUHAaNDEWafYdMzbXsKogHcY9Qvnj2oyedNJ2GJyOUM=
 github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1/go.mod h1:YSrUN4uEEUFyz+wxPfRJ0kqKkXPEynTZtj88a4YLt5w=
@@ -143,6 +145,8 @@ github.com/godbus/dbus v0.0.0-20181101234600-2ff6f7ffd60f/go.mod h1:/YcGZj5zSblf
 github.com/godbus/dbus v4.1.0+incompatible h1:WqqLRTsQic3apZUK9qC5sGNfXthmPXzUZ7nQPrNITa4=
 github.com/godbus/dbus v4.1.0+incompatible/go.mod h1:/YcGZj5zSblfDWMMoOzV4fas9FZnQYTkDnsGvmh2Grw=
 github.com/godbus/dbus/v5 v5.0.4/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
+github.com/godbus/dbus/v5 v5.1.0 h1:4KLkAxT3aOY8Li4FRJe/KvhoNFFxo0m6fNuFUO8QJUk=
+github.com/godbus/dbus/v5 v5.1.0/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
 github.com/gofrs/flock v0.7.1/go.mod h1:F1TvTiK9OcQqauNUHlbJvyl9Qa1QvF/gOUDKA14jxHU=
 github.com/gofrs/flock v0.8.1 h1:+gYjHKf32LDeiEEFhQaotPbLuUXjY5ZqxKgXy7n59aw=
 github.com/gofrs/flock v0.8.1/go.mod h1:F1TvTiK9OcQqauNUHlbJvyl9Qa1QvF/gOUDKA14jxHU=
@@ -299,8 +303,9 @@ github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJ
 github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
 github.com/modern-go/reflect2 v1.0.1/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
 github.com/mwitkow/go-conntrack v0.0.0-20161129095857-cc309e4a2223/go.mod h1:qRWi+5nqEBWmkhHvq77mSJWrCKwh8bxhgT7d/eI7P4U=
-github.com/nathan-osman/go-sunrise v0.0.0-20171121204956-7c449e7c690b h1:nWQAhkNZTyV8tfXIpwSGm97Pd0mM1y9tutJiyWoEhw0=
 github.com/nathan-osman/go-sunrise v0.0.0-20171121204956-7c449e7c690b/go.mod h1:kCE4+NvReDuwiJGk03l6QONGmYy805GQP3xGcCm8cBg=
+github.com/nathan-osman/go-sunrise v1.0.0 h1:mvjoVmXjmiHDSwKRA5t4T/1rNuHQDhodfQoxrUU39ck=
+github.com/nathan-osman/go-sunrise v1.0.0/go.mod h1:RcWqhT+5ShCZDev79GuWLayetpJp78RSjSWxiDowmlM=
 github.com/ngdinhtoan/glide-cleanup v0.2.0/go.mod h1:UQzsmiDOb8YV3nOsCxK/c9zPpCZVNoHScRE3EO9pVMM=
 github.com/oklog/ulid v1.3.1/go.mod h1:CirwcVhetQ6Lv90oh/F+FBtV6XMibvdAFo93nm5qn4U=
 github.com/pascaldekloe/goe v0.0.0-20180627143212-57f6aae5913c/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144TG7ZOy1lc=

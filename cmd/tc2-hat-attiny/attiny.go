@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/i2c"
@@ -84,16 +85,9 @@ const (
 	stateRebooting
 )
 
-type ConnectionState uint8
-
-const (
-	noConnection ConnectionState = iota
-	connWifi
-	hostingHotspot
-)
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 8
+	attinyFirmwareVersion = 9
 	attinyI2CAddress      = 0x25
 	hexFile               = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal            = 0xCA
@@ -101,8 +95,6 @@ const (
 	// Parameters for transaction retries.
 	maxTxAttempts   = 5
 	txRetryInterval = time.Second
-
-	wifiInterface = "wlan0" // If this is changed also change it in /_release/10-notify-attiny to match
 )
 
 func (s CameraState) String() string {
@@ -125,14 +117,28 @@ func (s CameraState) String() string {
 	}
 }
 
+type ConnectionState uint8
+
+const (
+	connStateWifiNoConnection ConnectionState = iota
+	connStateWifiConnected
+	connStateHotspot
+	connStateWifiSettingUp
+	connStateHotspotSettingUp
+)
+
 func (s ConnectionState) String() string {
 	switch s {
-	case noConnection:
-		return "No Connection"
-	case connWifi:
-		return "Wifi"
-	case hostingHotspot:
+	case connStateWifiNoConnection:
+		return "WIFI, no connection"
+	case connStateWifiConnected:
+		return "Wifi, connected"
+	case connStateHotspot:
 		return "Hosting Hotspot"
+	case connStateWifiSettingUp:
+		return "Setting up WIFI"
+	case connStateHotspotSettingUp:
+		return "Setting up hotspot"
 	default:
 		log.Println("Unknown connection state:", int(s))
 		return "Unknown"
@@ -325,26 +331,72 @@ func (a *attiny) writeConnectionState(newState ConnectionState) error {
 	return nil
 }
 
+func (a *attiny) checkForConnectionStateUpdates() error {
+	for {
+
+		stateChan, done, err := netmanagerclient.GetStateChanges()
+		defer close(done)
+		if err != nil {
+			return err
+		}
+		state, err := netmanagerclient.ReadState()
+		if err != nil {
+			return nil
+		}
+		if err := a.setConnectionState(state); err != nil {
+			log.Println(err)
+		}
+		for state := range stateChan {
+			log.Println(time.Now().Format(time.TimeOnly), state)
+			if err := a.setConnectionState(state); err != nil {
+				log.Println(err)
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (a *attiny) setConnectionState(state netmanagerclient.NetworkState) error {
+	a.wifiMu.Lock()
+	defer a.wifiMu.Unlock()
+	switch state {
+	case netmanagerclient.NS_WIFI:
+		return a.writeConnectionState(connStateWifiConnected)
+	case netmanagerclient.NS_HOTSPOT:
+		return a.writeConnectionState(connStateHotspot)
+	case netmanagerclient.NS_WIFI_SETUP:
+		return a.writeConnectionState(connStateWifiSettingUp)
+	case netmanagerclient.NS_HOTSPOT_SETUP:
+		return a.writeConnectionState(connStateHotspotSettingUp)
+	default:
+		return fmt.Errorf("unknown connection state: '%s'", string(state))
+	}
+}
+
+/*
 func (a *attiny) updateConnectionState() error {
 	a.wifiMu.Lock()
 	defer a.wifiMu.Unlock()
 
-	ssid, t, err := checkWifiConnection(wifiInterface)
+	state, err := getNetworkState()
 	if err != nil {
 		return err
 	}
-	if ssid == "" {
-		a.writeConnectionState(noConnection)
-	} else if t == "AP" {
-		a.writeConnectionState(hostingHotspot)
-	} else if t == "managed" {
-		a.writeConnectionState(connWifi)
-	} else {
-		log.Println("unknown state")
+	switch state {
+	case "WIFI":
+		return a.writeConnectionState(connStateWifiNoConnection)
+	case "WIFI_CONNECTED":
+		return a.writeConnectionState(connStateWifiConnected)
+	case "HOTSPOT":
+		return a.writeConnectionState(connStateHotspot)
+	case "WIFI_SETUP":
+		return a.writeConnectionState(connStateWifiSettingUp)
+	case "HOTSPOT_SETUP":
+		return a.writeConnectionState(connStateHotspotSettingUp)
 	}
-	return nil
-
+	return fmt.Errorf("unknown network state: '%s'", state)
 }
+*/
 
 func (a *attiny) readCameraState() error {
 	state, err := a.readRegister(cameraStateReg)

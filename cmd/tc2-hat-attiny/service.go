@@ -20,7 +20,6 @@ package main
 
 import (
 	"errors"
-	"log"
 	"runtime"
 	"strings"
 	"time"
@@ -83,6 +82,7 @@ func (s service) StayOnFor(m int) *dbus.Error {
 	return nil
 }
 
+/*
 func (s service) UpdateWifiState() *dbus.Error {
 	log.Println("Update wifi state requested.")
 	if err := s.attiny.updateConnectionState(); err != nil {
@@ -91,6 +91,7 @@ func (s service) UpdateWifiState() *dbus.Error {
 	}
 	return nil
 }
+*/
 
 func dbusErr(err error) *dbus.Error {
 	if err == nil {
