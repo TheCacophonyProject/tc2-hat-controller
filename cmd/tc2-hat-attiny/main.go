@@ -167,48 +167,60 @@ func runMain() error {
 	}
 
 	for {
-		untilNextEnd := time.Until(conf.OnWindow.NextEnd())
-		if conf.OnWindow.Active() && untilNextEnd > waitDuration {
-			waitDuration = untilNextEnd
-			waitReason = fmt.Sprintf("Waiting until end of POWERED ON window %s", durToStr(waitDuration))
-		}
+		/*	//RP2040 will be dealing with this logic now
+			untilNextEnd := time.Until(conf.OnWindow.NextEnd())
+			if conf.OnWindow.Active() && untilNextEnd > waitDuration {
+			/	waitDuration = untilNextEnd
+				waitReason = fmt.Sprintf("Waiting until end of POWERED ON window %s", durToStr(waitDuration))
+			}
+		*/
 
 		stayOnUntilDuration := time.Until(stayOnUntil)
 		if stayOnUntilDuration > waitDuration {
 			waitDuration = stayOnUntilDuration
-			waitReason = fmt.Sprintf("Camera has been requested to stay on for %s", durToStr(waitDuration))
+			waitReason = fmt.Sprintf("Waiting because camera has been requested to stay on for %s", durToStr(waitDuration))
 		}
 
 		if waitDuration < saltCommandWaitDuration && shouldStayOnForSalt() {
 			waitDuration = saltCommandWaitDuration
-			waitReason = fmt.Sprintf("Salt command is running, waiting %s", durToStr(waitDuration))
+			waitReason = fmt.Sprintf("Waiting because salt command is running, waiting %s", durToStr(waitDuration))
 		}
 
+		/* // RP2040 will be dealing with this logic now
 		alarmTime := conf.OnWindow.NextStart()
 		if time.Until(alarmTime) < 5*time.Minute {
 			waitDuration = maxDuration(waitDuration, 5*time.Minute)
 			waitReason = fmt.Sprintf("Waiting %s as the camera will be powering on soon anyway.", durToStr(waitDuration))
 		}
+		*/
 
 		if waitDuration <= time.Duration(0) {
-			log.Println("Alarm time:", alarmTime.Format(time.RFC3339))
-			if err := rtc.SetAlarmTime(AlarmTimeFromTime(alarmTime)); err != nil {
+			// No reason RPi wants to be on, checking if RP2040 wants RPi to be on.
+			log.Println("Checking if RP2040 wants me to stay on.")
+			val, err := attiny.readRegister(rp2040PiPowerCtrlReg)
+			if err != nil {
 				return err
 			}
-			if err := rtc.SetAlarmEnabled(true); err != nil {
-				return err
+			log.Println(val)
+			if (val & 0x01) == 0x00 {
+				log.Println("No longer needed to be powered on, powering off")
+				time.Sleep(10 * time.Second)
+				shutdown(attiny)
+				time.Sleep(time.Second * 3)
+				return nil
+			} else {
+				log.Println("RP2040 wants me to stay powered on!")
 			}
-			attiny.poweringOff()
-			log.Println("Shutting down.")
-			time.Sleep(10 * time.Second)
-			shutdown()
-			time.Sleep(time.Second * 3)
-			return nil
 
+			// TODO make this a switch with a timeout and a channel so the attiny can skip this wait if the register is updated.
+			log.Println("Waiting 10 seconds")
+			time.Sleep(10 * time.Second)
 		}
 
+		// TODO Make this a timeout switch with a channel trigger also so the
 		log.Println(waitReason)
 		time.Sleep(waitDuration)
+		log.Println(333)
 		waitDuration = time.Duration(0)
 	}
 }
@@ -266,6 +278,15 @@ func checkATtinySignalLoop(a *attiny) {
 
 		//TODO Fix bug causing this instead to be triggered twice, error is probably in ATtiny code
 		log.Printf("Commands register: %x\n", piCommands)
+		if piCommands == 0 {
+			log.Println("No command flags set, writing camera state and connection state.")
+			if err := a.writeCameraState(a.CameraState); err != nil {
+				log.Printf("Error writing camera state: %s", err)
+			}
+			if err := a.writeConnectionState(a.ConnectionState); err != nil {
+				log.Printf("Error writing connection state: %s", err)
+			}
+		}
 		if isFlagSet(piCommands, WriteCameraStateFlag) {
 			log.Println("write camera state flag")
 			if err := a.writeCameraState(a.CameraState); err != nil {
@@ -287,7 +308,7 @@ func checkATtinySignalLoop(a *attiny) {
 			log.Println("Power down flag set.")
 			log.Println("TODO, make sure device has finished its business before powering down.")
 			log.Println("Shutting down.")
-			shutdown()
+			shutdown(a)
 			time.Sleep(time.Second * 3)
 		}
 

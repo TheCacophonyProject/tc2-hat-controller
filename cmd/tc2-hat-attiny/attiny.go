@@ -39,7 +39,7 @@ const (
 	cameraStateReg
 	cameraConnectionReg
 	piCommandsReg
-	triggerSleepReg
+	rp2040PiPowerCtrlReg
 	auxTerminalReg
 	tc2AgentReadyReg
 )
@@ -312,12 +312,6 @@ func (a *attiny) readPiCommands(clear bool) (uint8, error) {
 		return val, a.writeRegister(piCommandsReg, 0x00, 2)
 	}
 	return val, nil
-}
-
-// PowerOff asks the ATtiny to turn the system off.
-func (a *attiny) poweringOff() error {
-	log.Println("Asking ATtiny to power off raspberry pi")
-	return a.writeRegister(triggerSleepReg, 0x01, -1)
 }
 
 func (a *attiny) writeConnectionState(newState ConnectionState) error {
