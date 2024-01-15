@@ -201,11 +201,12 @@ func runMain() error {
 			if err != nil {
 				return err
 			}
-			log.Println(val)
 			if (val & 0x01) == 0x00 {
 				log.Println("No longer needed to be powered on, powering off")
-				time.Sleep(10 * time.Second)
-				shutdown(attiny)
+				time.Sleep(1 * time.Second)
+				if err := shutdown(attiny); err != nil {
+					return err
+				}
 				time.Sleep(time.Second * 3)
 				return nil
 			} else {
@@ -269,6 +270,12 @@ func checkATtinySignalLoop(a *attiny) {
 			continue
 		}
 		log.Println("Signal from ATtiny")
+		for {
+			if a.CameraState != statePoweringOff {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 		piCommands, err := a.readPiCommands(true)
 		if err != nil {
 			log.Println("Error reading pi commands:", err)

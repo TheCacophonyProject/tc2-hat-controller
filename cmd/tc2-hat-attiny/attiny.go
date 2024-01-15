@@ -292,6 +292,8 @@ type attiny struct {
 }
 
 func (a *attiny) writeCameraState(newState CameraState) error {
+	mu.Lock()
+	defer mu.Unlock()
 	if err := a.writeRegister(cameraStateReg, uint8(newState), 3); err != nil {
 		return err
 	}
@@ -367,32 +369,9 @@ func (a *attiny) setConnectionState(state netmanagerclient.NetworkState) error {
 	}
 }
 
-/*
-func (a *attiny) updateConnectionState() error {
-	a.wifiMu.Lock()
-	defer a.wifiMu.Unlock()
-
-	state, err := getNetworkState()
-	if err != nil {
-		return err
-	}
-	switch state {
-	case "WIFI":
-		return a.writeConnectionState(connStateWifiNoConnection)
-	case "WIFI_CONNECTED":
-		return a.writeConnectionState(connStateWifiConnected)
-	case "HOTSPOT":
-		return a.writeConnectionState(connStateHotspot)
-	case "WIFI_SETUP":
-		return a.writeConnectionState(connStateWifiSettingUp)
-	case "HOTSPOT_SETUP":
-		return a.writeConnectionState(connStateHotspotSettingUp)
-	}
-	return fmt.Errorf("unknown network state: '%s'", state)
-}
-*/
-
 func (a *attiny) readCameraState() error {
+	mu.Lock()
+	defer mu.Unlock()
 	state, err := a.readRegister(cameraStateReg)
 	if err != nil {
 		return err

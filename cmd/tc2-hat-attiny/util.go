@@ -47,11 +47,12 @@ func writeBytes(dev *i2c.Dev, data []byte) error {
 }
 
 func shutdown(a *attiny) error {
-	log.Println()
 	err := a.writeCameraState(statePoweringOff) // Without setting the state to powering off the ATtiny will automatically reboot the RPi.
 	if err != nil {
 		return err
 	}
+	time.Sleep(5 * time.Second)
+	log.Println("Powering off")
 	output, err := exec.Command("/sbin/poweroff").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("power off failed: %v\n%s", err, output)
