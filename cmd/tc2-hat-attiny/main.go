@@ -220,7 +220,6 @@ func runMain() error {
 		// TODO Make this a timeout switch with a channel trigger also so the
 		log.Println(waitReason)
 		time.Sleep(waitDuration)
-		log.Println(333)
 		waitDuration = time.Duration(0)
 	}
 }
