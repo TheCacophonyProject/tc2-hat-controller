@@ -157,6 +157,10 @@ const (
 	INVALID_ERROR_CODE            ErrorCode = 0x08
 	NO_PING_RESPONSE              ErrorCode = 0x09
 	RTC_TIMEOUT                   ErrorCode = 0x0A
+	CRC_ERROR                     ErrorCode = 0x0B
+	BAD_I2C_LENGTH_SHORT          ErrorCode = 0x0C
+	BAD_I2C_LENGTH_LONG           ErrorCode = 0x0D
+	BAD_I2C                       ErrorCode = 0x0E
 )
 
 func (e ErrorCode) String() string {
@@ -179,6 +183,14 @@ func (e ErrorCode) String() string {
 		return "NO_PING_RESPONSE"
 	case RTC_TIMEOUT:
 		return "RTC_TIMEOUT"
+	case CRC_ERROR:
+		return "CRC_ERROR"
+	case BAD_I2C_LENGTH_LONG:
+		return "BAD_I2C_LENGTH_LONG"
+	case BAD_I2C_LENGTH_SHORT:
+		return "BAD_I2C_LENGTH_SHORT"
+	case BAD_I2C:
+		return "BAD_I2C"
 	default:
 		return "UNKNOWN_ERROR_CODE"
 	}
@@ -190,6 +202,7 @@ func attinyUPDIPing() error {
 }
 
 func updateATtinyFirmware() error {
+	return nil //TODO Remove me after testing
 	serialFile, err := serialhelper.GetSerial(3, gpio.Low, gpio.Low, time.Second)
 	if err != nil {
 		return err
@@ -262,23 +275,35 @@ func connectToATtiny(bus i2c.Bus) (*attiny, error) {
 	}
 
 	// Check that the device at ATtiny address responds with the correct type byte.
-	typeResponse := make([]byte, 1)
-	if err := bus.Tx(attinyI2CAddress, []byte{byte(typeReg)}, typeResponse); err != nil {
+	a := &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: 1}
+	log.Println("Reading type")
+	typeRead, err := a.readRegister(typeReg)
+	if err != nil {
 		return nil, err
 	}
-	if typeResponse[0] != i2cTypeVal {
-		return nil, fmt.Errorf("device responded with '0x%x' instead of the correct type byte '%x'", typeResponse[0], i2cTypeVal)
+	//typeResponse := make([]byte, 3)
+	//if err := bus.Tx(attinyI2CAddress, []byte{byte(typeReg)}, typeResponse); err != nil {
+	//	return nil, err
+	//}
+	//log.Println(typeResponse)
+	if typeRead != i2cTypeVal {
+		return nil, fmt.Errorf("device responded with '0x%x' instead of the correct type byte '%x'", typeRead, i2cTypeVal)
 	}
 
 	// Check that ATtiny is running the right version of firmware.
-	versionResponse := make([]byte, 1)
-	if err := bus.Tx(attinyI2CAddress, []byte{byte(versionReg)}, versionResponse); err != nil {
+	versionResponse, err := a.readRegister(versionReg)
+	if err != nil {
 		return nil, err
 	}
-	if versionResponse[0] != attinyFirmwareVersion {
-		return nil, fmt.Errorf("device version is %d instead of %d", versionResponse[0], attinyFirmwareVersion)
+	//versionResponse := make([]byte, 3)
+	//log.Println(versionResponse)
+	//if err := bus.Tx(attinyI2CAddress, []byte{byte(versionReg)}, versionResponse); err != nil {
+	//	return nil, err
+	//}
+	if versionResponse != attinyFirmwareVersion {
+		return nil, fmt.Errorf("device version is %d instead of %d", versionResponse, attinyFirmwareVersion)
 	}
-	return &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: versionResponse[0]}, nil
+	return &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: versionResponse}, nil
 }
 
 type attiny struct {
@@ -309,6 +334,9 @@ func (a *attiny) readPiCommands(clear bool) (uint8, error) {
 	val, err := a.readRegister(piCommandsReg)
 	if err != nil {
 		return 0, err
+	}
+	if val&0x01 == 0x01 {
+		a.writeCameraState(a.CameraState)
 	}
 	if clear {
 		return val, a.writeRegister(piCommandsReg, 0x00, 2)
@@ -456,13 +484,29 @@ func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 	return errorCodes, nil
 }
 
+func calculateCRC(data []byte) uint16 {
+	var crc uint16 = 0x1D0F // Initial value
+	for _, b := range data {
+		crc ^= uint16(b) << 8 // Shift byte into MSB of 16bit CRC
+		for i := 0; i < 8; i++ {
+			if crc&0x8000 != 0 {
+				crc = (crc << 1) ^ 0x1021 // Polynomial 0x1021
+			} else {
+				crc <<= 1
+			}
+		}
+	}
+	//return 0x0102
+	return crc
+}
+
 // writeRegister writes the specified data to the given register on the attiny device.
 // If retries is 0 or above it will try to verify by reading the register back off the ATtiny.
 // Set retries to -1 if you are not wanting to verify the write operation.
 func (a *attiny) writeRegister(register Register, data uint8, retries int) error {
 	write := []byte{byte(register), data}
-	read := []byte{}
-	if err := a.tx(write, read); err != nil {
+	write = addCRC(write)
+	if err := a.tx(write, nil); err != nil {
 		if retries <= 0 {
 			return err
 		}
@@ -474,6 +518,7 @@ func (a *attiny) writeRegister(register Register, data uint8, retries int) error
 		return nil
 	}
 
+	// Verify the write operation by reading back the data
 	registerVal, err := a.readRegister(register)
 	if err != nil {
 		if retries == 0 {
@@ -484,19 +529,36 @@ func (a *attiny) writeRegister(register Register, data uint8, retries int) error
 	}
 	if registerVal != data {
 		if retries == 0 {
-			return fmt.Errorf("error writing 0x%x to register %d. Register is value 0x%x", data, register, registerVal)
+			return fmt.Errorf("error writing 0x%x to register %d. Register value is 0x%x", data, register, registerVal)
 		}
+		time.Sleep(100 * time.Millisecond)
+		return a.writeRegister(register, data, retries-1)
 	}
 	return nil
 }
 
+func addCRC(data []byte) []byte {
+	crc := calculateCRC(data)
+	return append(data, byte(crc>>8), byte(crc&0xFF))
+}
+
 func (a *attiny) readRegister(register Register) (uint8, error) {
 	write := []byte{byte(register)}
-	read := make([]byte, 1)
+	write = addCRC(write)
+	read := make([]byte, 3) // Expecting 1 byte of data + 2 bytes of CRC
 	if err := a.tx(write, read); err != nil {
 		return 0, err
 	}
-	return uint8(read[0]), nil
+
+	// Verify CRC
+	receivedData := read[:1]
+	receivedCRC := uint16(read[1])<<8 | uint16(read[2])
+	calculatedCRC := calculateCRC(receivedData)
+	if receivedCRC != calculatedCRC {
+		return 0, fmt.Errorf("CRC mismatch: received 0x%x, calculated 0x%x", receivedCRC, calculatedCRC)
+	}
+
+	return uint8(receivedData[0]), nil
 }
 
 func (a *attiny) tx(write, read []byte) error {

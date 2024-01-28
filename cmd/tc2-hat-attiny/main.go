@@ -28,7 +28,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-config"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	arg "github.com/alexflint/go-arg"
@@ -360,18 +359,22 @@ func readAttinyErrors(a *attiny) {
 		log.Println("Error checking for errors on ATtiny:", err)
 	}
 	if len(errorStrs) > 0 {
-		event := eventclient.Event{
-			Timestamp: time.Now(),
-			Type:      "ATtinyError",
-			Details: map[string]interface{}{
-				"error": errorStrs,
-			},
-		}
+		/*
+			event := eventclient.Event{
+				Timestamp: time.Now(),
+				Type:      "ATtinyError",
+				Details: map[string]interface{}{
+					"error": errorStrs,
+				},
+			}
+		*/
 		log.Println("ATtiny Errors:", errorStrs)
-		err := eventclient.AddEvent(event)
-		if err != nil {
-			log.Println("Error adding event:", err)
-		}
+		/*
+			err := eventclient.AddEvent(event)
+			if err != nil {
+				log.Println("Error adding event:", err)
+			}
+		*/
 	}
 
 	// Run specific checks for some errors
