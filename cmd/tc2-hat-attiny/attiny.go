@@ -87,7 +87,7 @@ const (
 
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 11
+	attinyFirmwareVersion = 12
 	attinyI2CAddress      = 0x25
 	hexFile               = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal            = 0xCA
@@ -202,7 +202,6 @@ func attinyUPDIPing() error {
 }
 
 func updateATtinyFirmware() error {
-	return nil //TODO Remove me after testing
 	serialFile, err := serialhelper.GetSerial(3, gpio.Low, gpio.Low, time.Second)
 	if err != nil {
 		return err
