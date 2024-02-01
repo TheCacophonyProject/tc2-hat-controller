@@ -35,13 +35,14 @@ type Register uint8
 
 const (
 	typeReg Register = iota
-	versionReg
+	majorVersionReg
 	cameraStateReg
 	cameraConnectionReg
 	piCommandsReg
 	rp2040PiPowerCtrlReg
 	auxTerminalReg
 	tc2AgentReadyReg
+	minorVersionReg
 )
 
 const (
@@ -87,10 +88,11 @@ const (
 
 const (
 	// Version of firmware that this software works with.
-	attinyFirmwareVersion = 12
-	attinyI2CAddress      = 0x25
-	hexFile               = "/etc/cacophony/attiny-firmware.hex"
-	i2cTypeVal            = 0xCA
+	attinyMajorVersion = 12
+	attinyMinorVersion = 1
+	attinyI2CAddress   = 0x25
+	hexFile            = "/etc/cacophony/attiny-firmware.hex"
+	i2cTypeVal         = 0xCA
 
 	// Parameters for transaction retries.
 	maxTxAttempts   = 5
@@ -275,34 +277,35 @@ func connectToATtiny(bus i2c.Bus) (*attiny, error) {
 
 	// Check that the device at ATtiny address responds with the correct type byte.
 	a := &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: 1}
-	log.Println("Reading type")
 	typeRead, err := a.readRegister(typeReg)
 	if err != nil {
 		return nil, err
 	}
-	//typeResponse := make([]byte, 3)
-	//if err := bus.Tx(attinyI2CAddress, []byte{byte(typeReg)}, typeResponse); err != nil {
-	//	return nil, err
-	//}
-	//log.Println(typeResponse)
+	log.Printf("Type: 0x%X", typeRead)
 	if typeRead != i2cTypeVal {
 		return nil, fmt.Errorf("device responded with '0x%x' instead of the correct type byte '%x'", typeRead, i2cTypeVal)
 	}
 
 	// Check that ATtiny is running the right version of firmware.
-	versionResponse, err := a.readRegister(versionReg)
+	majorVersionResponse, err := a.readRegister(majorVersionReg)
 	if err != nil {
 		return nil, err
 	}
-	//versionResponse := make([]byte, 3)
-	//log.Println(versionResponse)
-	//if err := bus.Tx(attinyI2CAddress, []byte{byte(versionReg)}, versionResponse); err != nil {
-	//	return nil, err
-	//}
-	if versionResponse != attinyFirmwareVersion {
-		return nil, fmt.Errorf("device version is %d instead of %d", versionResponse, attinyFirmwareVersion)
+	log.Printf("Major Version: %d", majorVersionResponse)
+	if majorVersionResponse != attinyMajorVersion {
+		return nil, fmt.Errorf("device version is %d instead of %d", majorVersionResponse, attinyMajorVersion)
 	}
-	return &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: versionResponse}, nil
+
+	minorVersionResponse, err := a.readRegister(minorVersionReg)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("Minor Version: %d", minorVersionResponse)
+	if minorVersionResponse != attinyMinorVersion {
+		return nil, fmt.Errorf("device version is %d instead of %d", minorVersionResponse, attinyMinorVersion)
+	}
+
+	return &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: majorVersionResponse}, nil
 }
 
 type attiny struct {
