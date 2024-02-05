@@ -14,6 +14,8 @@ import (
 	"periph.io/x/host/v3"
 )
 
+const cmdlineFile = "/boot/firmware/cmdline.txt"
+
 type SerialUnavailableError struct {
 	msg string
 }
@@ -27,9 +29,9 @@ func NewSerialUnavailableError(msg string) error {
 }
 
 func SerialInUseFromTerminal() bool {
-	b, err := os.ReadFile("/boot/cmdline.txt")
+	b, err := os.ReadFile(cmdlineFile)
 	if err != nil {
-		log.Println("Error when reading /boot/cmdline.txt: ", err)
+		log.Printf("Error when reading %s: %s", cmdlineFile, err)
 		return false
 	}
 	return strings.Contains(string(b), "console=serial0")

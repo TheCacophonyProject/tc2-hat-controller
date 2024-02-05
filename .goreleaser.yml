@@ -95,7 +95,7 @@ nfpms:
       dst: /etc/systemd/system/tc2-hat-rtc.service
   
   dependencies:
-    - python3-pip
+    #- python3-pip
     - openocd
   scripts:
     postinstall: "./_release/postinstall.sh"

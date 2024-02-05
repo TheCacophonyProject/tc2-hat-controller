@@ -3,10 +3,12 @@
 set -e
 
 # make sure pymcuprog is installed for attiny programming.
-if ! command -v pymcuprog &> /dev/null; then
-    echo "pymcuprog not found, installing now"
-    pip3 install pymcuprog==3.14.2.9
-fi
+#if ! command -v pymcuprog &> /dev/null; then
+#    echo "pymcuprog not found, installing now"
+#    apt-get install pipx -y
+#    pipx ensurepath
+#    pipx install pymcuprog==3.14.2.9
+#fi
 
 systemctl daemon-reload
 # TODO Enabe when software is ready
