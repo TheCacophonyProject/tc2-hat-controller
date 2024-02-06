@@ -1,14 +1,14 @@
 #!/bin/bash
 
-# Remove from /boot/cmdline.txt
-sudo sed -i 's/console=serial0,115200//g' /boot/cmdline.txt
+# Remove from /boot/firmware/cmdline.txt
+sudo sed -i 's/console=serial0,115200//g' /boot/firmware/cmdline.txt
 
-# Remove from /boot/config.txt
+# Remove from /boot/firmware/config.txt
 CONFIG_LINES_TO_REMOVE=(
     "gpio=6=ip,pu"
     "gpio=12=ip,pd"
 )
 
 for line in "${CONFIG_LINES_TO_REMOVE[@]}"; do
-    sudo sed -i "/$(echo "$line" | sed 's/[\/&]/\\&/g')/d" /boot/config.txt
+    sudo sed -i "/$(echo "$line" | sed 's/[\/&]/\\&/g')/d" /boot/firmware/config.txt
 done

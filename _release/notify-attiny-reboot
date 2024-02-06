@@ -1,6 +1,7 @@
 #!/bin/bash
 # This is to notify if the RPi is going to reboot or shutting down.
-## TODO Add retries if i2cset fails
+
+## TODO Fix this for adding the CRC check
 if systemctl list-jobs | grep -q 'reboot.target.*start'; then
   #i2cset -y 1 0x25 0x02 0x05
 else

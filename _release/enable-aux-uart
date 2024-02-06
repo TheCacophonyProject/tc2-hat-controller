@@ -1,18 +1,18 @@
 #!/bin/bash
-if ! grep -q "console=serial0,115200" /boot/cmdline.txt; then
-    echo "Adding console=serial0,115200 to /boot/cmdline.txt"
-    sudo sed -i '$ s/$/ console=serial0,115200/' /boot/cmdline.txt
+if ! grep -q "console=serial0,115200" /boot/firmware/cmdline.txt; then
+    echo "Adding console=serial0,115200 to /boot/firmware/cmdline.txt"
+    sudo sed -i '$ s/$/ console=serial0,115200/' /boot/firmware/cmdline.txt
 fi
 
-# Add to /boot/config.txt
+# Add to /boot/firmware/config.txt
 CONFIG_LINES_TO_ADD=(
     "gpio=6=ip,pu"
     "gpio=12=ip,pd"
 )
 
 for line in "${CONFIG_LINES_TO_ADD[@]}"; do
-    if ! grep -q "$line" /boot/config.txt; then
-        echo "Adding $line to /boot/config.txt"
-        echo "$line" | sudo tee -a /boot/config.txt > /dev/null
+    if ! grep -q "$line" /boot/firmwareconfig.txt; then
+        echo "Adding $line to /boot/firmware/config.txt"
+        echo "$line" | sudo tee -a /boot/firmware/config.txt > /dev/null
     fi
 done
