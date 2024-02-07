@@ -24,7 +24,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"runtime"
 	"sync"
 	"time"
 
@@ -56,6 +55,17 @@ type Args struct {
 	SkipWait           bool   `arg:"-s,--skip-wait" help:"will not wait for the date to update"`
 	Timestamps         bool   `arg:"-t,--timestamps" help:"include timestamps in log output"`
 	SkipSystemShutdown bool   `arg:"--skip-system-shutdown" help:"don't shut down operating system when powering down"`
+	Write              *Write `arg:"subcommand:write"`
+	Read               *Read  `arg:"subcommand:read"`
+}
+
+type Write struct {
+	Reg string `arg:"required" help:"The Register you want to write to, in hex (0xnn)"`
+	Val string `arg:"required" help:"The value you want to write, in hex (0xnn)"`
+}
+
+type Read struct {
+	Reg string `arg:"required" help:"The Register you want to read from, in hex (0xnn)"`
 }
 
 func (Args) Version() string {
@@ -75,8 +85,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// If no error then keep the background goroutines running.
-	runtime.Goexit()
 }
 
 func runMain() error {
@@ -88,16 +96,24 @@ func runMain() error {
 
 	log.Printf("running version: %s", version)
 
-	conf, err := ParseConfig(args.ConfigDir)
-	if err != nil {
-		return err
-	}
-
-	_, err = host.Init()
+	_, err := host.Init()
 	if err != nil {
 		return err
 	}
 	bus, err := i2creg.Open("")
+	if err != nil {
+		return err
+	}
+
+	if args.Read != nil {
+		return readRegister(args, bus)
+	}
+
+	if args.Write != nil {
+		return writeToRegister(args, bus)
+	}
+
+	conf, err := ParseConfig(args.ConfigDir)
 	if err != nil {
 		return err
 	}

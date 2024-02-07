@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -544,6 +546,76 @@ func addCRC(data []byte) []byte {
 	return append(data, byte(crc>>8), byte(crc&0xFF))
 }
 
+func readRegister(args Args, bus i2c.Bus) error {
+	reg, err := hexStringToByte(args.Read.Reg)
+	if err != nil {
+		return err
+	}
+	log.Printf("Reading register 0x%X", reg)
+	a := &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}
+	write := addCRC([]byte{reg})
+	read := make([]byte, 3)
+	err = a.Tx(write, read)
+	if err != nil {
+		return fmt.Errorf("error reading register: %v", err)
+	}
+
+	if err := verifyCRC(read); err != nil {
+		return err
+	}
+
+	log.Printf("Read 0x%X from register 0x%X", read[0], reg)
+
+	return nil
+}
+
+func writeToRegister(args Args, bus i2c.Bus) error {
+	reg, err := hexStringToByte(args.Write.Reg)
+	if err != nil {
+		return err
+	}
+	val, err := hexStringToByte(args.Write.Val)
+	if err != nil {
+		return err
+	}
+	log.Printf("Writing 0x%X to register 0x%X", val, reg)
+	a := &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}
+
+	write := addCRC([]byte{reg, val})
+	err = a.Tx(write, nil)
+	if err != nil {
+		return fmt.Errorf("error writing to register: %v", err)
+	}
+	log.Printf("Wrote 0x%X to register 0x%X", val, reg)
+	return nil
+}
+
+func hexStringToByte(hexStr string) (byte, error) {
+	if len(hexStr) != 4 {
+		return 0, fmt.Errorf("invalid hex string length: %d", len(hexStr))
+	}
+	if !strings.HasPrefix(hexStr, "0x") {
+		return 0, fmt.Errorf("invalid hex string prefix, should be '0x': %s", hexStr)
+	}
+	val, err := strconv.ParseUint(hexStr[2:], 16, 8) // 16 for base, 8 for bit size
+	if err != nil {
+		return 0, err
+	}
+	return byte(val), nil
+}
+
+func verifyCRC(data []byte) error {
+	if len(data) < 3 {
+		return fmt.Errorf("invalid data length for CRC check: %d", len(data))
+	}
+	calculatedCRC := calculateCRC(data[:len(data)-2])
+	receivedCRC := uint16(data[len(data)-2])<<8 | uint16(data[len(data)-1])
+	if calculatedCRC != receivedCRC {
+		return fmt.Errorf("CRC mismatch: received 0x%X, calculated 0x%X", receivedCRC, calculatedCRC)
+	}
+	return nil
+}
+
 func (a *attiny) readRegister(register Register) (uint8, error) {
 	write := []byte{byte(register)}
 	write = addCRC(write)
@@ -553,14 +625,11 @@ func (a *attiny) readRegister(register Register) (uint8, error) {
 	}
 
 	// Verify CRC
-	receivedData := read[:1]
-	receivedCRC := uint16(read[1])<<8 | uint16(read[2])
-	calculatedCRC := calculateCRC(receivedData)
-	if receivedCRC != calculatedCRC {
-		return 0, fmt.Errorf("CRC mismatch: received 0x%x, calculated 0x%x", receivedCRC, calculatedCRC)
+	if err := verifyCRC(read); err != nil {
+		return 0, err
 	}
 
-	return uint8(receivedData[0]), nil
+	return uint8(read[0]), nil
 }
 
 func (a *attiny) tx(write, read []byte) error {
