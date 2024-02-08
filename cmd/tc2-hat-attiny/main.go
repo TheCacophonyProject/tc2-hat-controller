@@ -94,7 +94,7 @@ func runMain() error {
 		log.SetFlags(0)
 	}
 
-	log.Printf("running version: %s", version)
+	log.Printf("Running version: %s", version)
 
 	_, err := host.Init()
 	if err != nil {
@@ -113,10 +113,10 @@ func runMain() error {
 		return writeToRegister(args, bus)
 	}
 
-	conf, err := ParseConfig(args.ConfigDir)
-	if err != nil {
-		return err
-	}
+	//conf, err := ParseConfig(args.ConfigDir)
+	//if err != nil {
+	//	return err
+	//}
 
 	log.Println("Connecting to ATtiny.")
 	attiny, err := connectToATtinyWithRetries(10, bus)
@@ -167,10 +167,10 @@ func runMain() error {
 	attiny.readCameraState()
 	log.Println(attiny.CameraState)
 
-	if conf.OnWindow.NoWindow {
-		log.Println("No Power On window, will stay powered on 24/7.")
-		return nil
-	}
+	//if conf.OnWindow.NoWindow {
+	//	log.Println("No Power On window, will stay powered on 24/7.")
+	//	return nil
+	//}
 
 	waitDuration := time.Duration(0)
 	waitReason := ""
