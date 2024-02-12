@@ -196,7 +196,7 @@ func (e ErrorCode) String() string {
 	case BAD_I2C:
 		return "BAD_I2C"
 	default:
-		return "UNKNOWN_ERROR_CODE"
+		return fmt.Sprintf("UNKNOWN_ERROR_CODE 0x%02X", uint8(e))
 	}
 }
 

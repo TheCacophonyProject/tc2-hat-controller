@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-config"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	arg "github.com/alexflint/go-arg"
@@ -113,11 +114,6 @@ func runMain() error {
 		return writeToRegister(args, bus)
 	}
 
-	//conf, err := ParseConfig(args.ConfigDir)
-	//if err != nil {
-	//	return err
-	//}
-
 	log.Println("Connecting to ATtiny.")
 	attiny, err := connectToATtinyWithRetries(10, bus)
 	if err != nil {
@@ -130,11 +126,6 @@ func runMain() error {
 	go func() {
 		attiny.checkForConnectionStateUpdates()
 	}()
-	/*
-		if err := attiny.updateConnectionState(); err != nil {
-			return err
-		}
-	*/
 
 	go monitorVoltageLoop(attiny)
 	go checkATtinySignalLoop(attiny)
@@ -167,11 +158,6 @@ func runMain() error {
 	attiny.readCameraState()
 	log.Println(attiny.CameraState)
 
-	//if conf.OnWindow.NoWindow {
-	//	log.Println("No Power On window, will stay powered on 24/7.")
-	//	return nil
-	//}
-
 	waitDuration := time.Duration(0)
 	waitReason := ""
 	if args.SkipWait {
@@ -182,14 +168,6 @@ func runMain() error {
 	}
 
 	for {
-		/*	//RP2040 will be dealing with this logic now
-			untilNextEnd := time.Until(conf.OnWindow.NextEnd())
-			if conf.OnWindow.Active() && untilNextEnd > waitDuration {
-			/	waitDuration = untilNextEnd
-				waitReason = fmt.Sprintf("Waiting until end of POWERED ON window %s", durToStr(waitDuration))
-			}
-		*/
-
 		stayOnUntilDuration := time.Until(stayOnUntil)
 		if stayOnUntilDuration > waitDuration {
 			waitDuration = stayOnUntilDuration
@@ -200,14 +178,6 @@ func runMain() error {
 			waitDuration = saltCommandWaitDuration
 			waitReason = fmt.Sprintf("Waiting because salt command is running, waiting %s", durToStr(waitDuration))
 		}
-
-		/* // RP2040 will be dealing with this logic now
-		alarmTime := conf.OnWindow.NextStart()
-		if time.Until(alarmTime) < 5*time.Minute {
-			waitDuration = maxDuration(waitDuration, 5*time.Minute)
-			waitReason = fmt.Sprintf("Waiting %s as the camera will be powering on soon anyway.", durToStr(waitDuration))
-		}
-		*/
 
 		if waitDuration <= time.Duration(0) {
 			// No reason RPi wants to be on, checking if RP2040 wants RPi to be on.
@@ -367,30 +337,28 @@ func enableWifi() {
 func readAttinyErrors(a *attiny) {
 	log.Println("Reading Attiny errors.")
 	errorCodes, err := a.checkForErrorCodes(true)
+	if err != nil {
+		log.Println("Error checking for errors on ATtiny:", err)
+	}
+
 	errorStrs := []string{}
 	for _, err := range errorCodes {
 		errorStrs = append(errorStrs, err.String())
 	}
-	if err != nil {
-		log.Println("Error checking for errors on ATtiny:", err)
-	}
+
 	if len(errorStrs) > 0 {
-		/*
-			event := eventclient.Event{
-				Timestamp: time.Now(),
-				Type:      "ATtinyError",
-				Details: map[string]interface{}{
-					"error": errorStrs,
-				},
-			}
-		*/
+		event := eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "ATtinyError",
+			Details: map[string]interface{}{
+				"error": errorStrs,
+			},
+		}
 		log.Println("ATtiny Errors:", errorStrs)
-		/*
-			err := eventclient.AddEvent(event)
-			if err != nil {
-				log.Println("Error adding event:", err)
-			}
-		*/
+		err := eventclient.AddEvent(event)
+		if err != nil {
+			log.Println("Error adding event:", err)
+		}
 	}
 
 	// Run specific checks for some errors
