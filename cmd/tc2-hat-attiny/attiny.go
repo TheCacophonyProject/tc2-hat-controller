@@ -19,6 +19,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os/exec"
@@ -91,7 +92,7 @@ const (
 const (
 	// Version of firmware that this software works with.
 	attinyMajorVersion = 12
-	attinyMinorVersion = 1
+	attinyMinorVersion = 2
 	attinyI2CAddress   = 0x25
 	hexFile            = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal         = 0xCA
@@ -206,6 +207,28 @@ func attinyUPDIPing() error {
 }
 
 func updateATtinyFirmware() error {
+
+	if serialhelper.SerialInUseFromTerminal() {
+		_, err := exec.Command("disable-aux-uart").CombinedOutput()
+		if err != nil {
+			log.Println("Error disabling aux uart:", err)
+		}
+		if serialhelper.SerialInUseFromTerminal() {
+			return errors.New("failed to disable serial for terminal use")
+		} else {
+			log.Println("Need to restart to have serial affect take place.")
+			time.Sleep(5 * time.Second)
+			log.Println("Powering off")
+			output, err := exec.Command("/sbin/reboot").CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("power off failed: %v\n%s", err, output)
+			}
+			time.Sleep(1 * time.Minute)
+			return nil
+		}
+
+	}
+
 	serialFile, err := serialhelper.GetSerial(3, gpio.Low, gpio.Low, time.Second)
 	if err != nil {
 		return err
@@ -361,7 +384,6 @@ func (a *attiny) writeConnectionState(newState ConnectionState) error {
 
 func (a *attiny) checkForConnectionStateUpdates() error {
 	for {
-
 		stateChan, done, err := netmanagerclient.GetStateChanges()
 		defer close(done)
 		if err != nil {
@@ -369,7 +391,7 @@ func (a *attiny) checkForConnectionStateUpdates() error {
 		}
 		state, err := netmanagerclient.ReadState()
 		if err != nil {
-			return nil
+			return err
 		}
 		if err := a.setConnectionState(state); err != nil {
 			log.Println(err)
@@ -388,14 +410,24 @@ func (a *attiny) setConnectionState(state netmanagerclient.NetworkState) error {
 	a.wifiMu.Lock()
 	defer a.wifiMu.Unlock()
 	switch state {
-	case netmanagerclient.NS_WIFI:
-		return a.writeConnectionState(connStateWifiConnected)
-	case netmanagerclient.NS_HOTSPOT:
-		return a.writeConnectionState(connStateHotspot)
+	case netmanagerclient.NS_INIT:
+		return a.writeConnectionState(connStateWifiNoConnection)
+	case netmanagerclient.NS_WIFI_OFF:
+		return a.writeConnectionState(connStateWifiNoConnection)
 	case netmanagerclient.NS_WIFI_SETUP:
 		return a.writeConnectionState(connStateWifiSettingUp)
-	case netmanagerclient.NS_HOTSPOT_SETUP:
+	case netmanagerclient.NS_WIFI_SCANNING:
+		return a.writeConnectionState(connStateWifiSettingUp)
+	case netmanagerclient.NS_WIFI_CONNECTING:
+		return a.writeConnectionState(connStateWifiSettingUp)
+	case netmanagerclient.NS_WIFI_CONNECTED:
+		return a.writeConnectionState(connStateWifiConnected)
+	case netmanagerclient.NS_HOTSPOT_STARTING:
 		return a.writeConnectionState(connStateHotspotSettingUp)
+	case netmanagerclient.NS_HOTSPOT_RUNNING:
+		return a.writeConnectionState(connStateHotspot)
+	case netmanagerclient.NS_ERROR:
+		return a.writeConnectionState(connStateWifiNoConnection) //TODO change this.
 	default:
 		return fmt.Errorf("unknown connection state: '%s'", string(state))
 	}

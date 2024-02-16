@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/TheCacophonyProject/event-reporter/v3 v3.3.1
 	github.com/TheCacophonyProject/go-config v1.9.2
-	github.com/TheCacophonyProject/rpi-net-manager v0.1.1
+	github.com/TheCacophonyProject/rpi-net-manager v0.3.0-deb12
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
 	github.com/alexflint/go-arg v1.4.3
 	github.com/godbus/dbus v4.1.0+incompatible

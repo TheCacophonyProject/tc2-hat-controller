@@ -29,6 +29,7 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-config"
+	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	arg "github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
@@ -124,7 +125,12 @@ func runMain() error {
 	}
 
 	go func() {
-		attiny.checkForConnectionStateUpdates()
+		for {
+			if err := attiny.checkForConnectionStateUpdates(); err != nil {
+				log.Printf("Error checking for connection state updates: %s", err)
+				time.Sleep(time.Second)
+			}
+		}
 	}()
 
 	go monitorVoltageLoop(attiny)
@@ -328,9 +334,9 @@ func isFlagSet(command, flag uint8) bool {
 }
 
 func enableWifi() {
-	//TODO Make a better way to enable the hotspot/comms rather than just restart management-interface
-	if err := exec.Command("systemctl", "restart", "managementd.service").Run(); err != nil {
-		log.Println("Error restarting managementd.service:", err)
+	err := netmanagerclient.EnableWifi(true)
+	if err != nil {
+		log.Println("Error enabling wifi:", err)
 	}
 }
 
