@@ -92,7 +92,7 @@ const (
 const (
 	// Version of firmware that this software works with.
 	attinyMajorVersion = 12
-	attinyMinorVersion = 2
+	attinyMinorVersion = 3
 	attinyI2CAddress   = 0x25
 	hexFile            = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal         = 0xCA
@@ -318,7 +318,7 @@ func connectToATtiny(bus i2c.Bus) (*attiny, error) {
 	}
 	log.Printf("Major Version: %d", majorVersionResponse)
 	if majorVersionResponse != attinyMajorVersion {
-		return nil, fmt.Errorf("device version is %d instead of %d", majorVersionResponse, attinyMajorVersion)
+		return nil, fmt.Errorf("device major version is %d instead of %d", majorVersionResponse, attinyMajorVersion)
 	}
 
 	minorVersionResponse, err := a.readRegister(minorVersionReg)
@@ -327,7 +327,7 @@ func connectToATtiny(bus i2c.Bus) (*attiny, error) {
 	}
 	log.Printf("Minor Version: %d", minorVersionResponse)
 	if minorVersionResponse != attinyMinorVersion {
-		return nil, fmt.Errorf("device version is %d instead of %d", minorVersionResponse, attinyMinorVersion)
+		return nil, fmt.Errorf("device minor version is %d instead of %d", minorVersionResponse, attinyMinorVersion)
 	}
 
 	return &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: majorVersionResponse}, nil
