@@ -39,13 +39,17 @@ import (
 )
 
 const (
-	initialGracePeriod         = 20 * time.Minute
+	initialGracePeriod         = 5 * time.Minute
 	saltCommandMaxWaitDuration = 30 * time.Minute
 	saltCommandWaitDuration    = time.Minute
 )
 
 var (
 	version = "<not set>"
+
+	maxTxAttempts   = 5
+	txRetryInterval = time.Second
+	i2cMu           sync.Mutex
 
 	mu                 sync.Mutex
 	stayOnUntil        = time.Now()
@@ -141,17 +145,13 @@ func runMain() error {
 	if err != nil {
 		return err
 	}
-	log.Println("Starting RTC service.")
-	if err := startRTCService(rtc); err != nil {
-		return err
-	}
+	//log.Println("Starting RTC service.")
+	//if err := startRTCService(rtc); err != nil {
+	//	return err
+	//}
 
 	if err := rtc.SetSystemTime(); err != nil {
 		log.Println(err)
-	}
-
-	if err := rtc.ClearAlarmFlag(); err != nil {
-		return err
 	}
 
 	t, integrity, err := rtc.GetTime()
@@ -160,6 +160,26 @@ func runMain() error {
 	}
 	log.Println("RTC time:", t.Format(time.RFC3339))
 	log.Println("RTC integrity:", integrity)
+
+	/*
+		go func() {
+			for {
+				alarmTime, err := rtc.ReadAlarmTime()
+				if err != nil {
+					log.Printf("Failed to read alarm time: %s", err)
+				} else {
+					log.Println("Alarm time:", alarmTime)
+				}
+				alarmEnabled, err := rtc.ReadAlarmEnabled()
+				if err != nil {
+					log.Printf("Failed to read alarm enabled: %s", err)
+				} else {
+					log.Println("Alarm enabled:", alarmEnabled)
+				}
+				time.Sleep(time.Minute * 5)
+			}
+		}()
+	*/
 
 	attiny.readCameraState()
 	log.Println(attiny.CameraState)
@@ -194,6 +214,20 @@ func runMain() error {
 			}
 			if (val & 0x01) == 0x00 {
 				log.Println("No longer needed to be powered on, powering off")
+				/*
+					alarmTime, err := rtc.ReadAlarmTime()
+					if err != nil {
+						log.Printf("Failed to read alarm time: %s", err)
+					} else {
+						log.Println("Alarm time:", alarmTime)
+					}
+					alarmEnabled, err := rtc.ReadAlarmEnabled()
+					if err != nil {
+						log.Printf("Failed to read alarm enabled: %s", err)
+					} else {
+						log.Println("Alarm enabled:", alarmEnabled)
+					}
+				*/
 				time.Sleep(1 * time.Second)
 				if err := shutdown(attiny); err != nil {
 					return err

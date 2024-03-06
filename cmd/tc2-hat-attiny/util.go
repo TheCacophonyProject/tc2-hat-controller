@@ -101,3 +101,65 @@ func shouldStayOnForSalt() bool {
 func durToStr(duration time.Duration) string {
 	return duration.Truncate(time.Second).String()
 }
+
+func crcTxWithRetry(dev *i2c.Dev, write, read []byte) error {
+	i2cMu.Lock()
+	defer i2cMu.Unlock()
+
+	attempts := 0
+	for {
+		err := crcTX(dev, write, read)
+		if err == nil {
+			return nil
+		}
+
+		attempts++
+		if attempts >= maxTxAttempts {
+			return err
+		}
+		time.Sleep(txRetryInterval)
+	}
+}
+
+func crcTX(dev *i2c.Dev, write, read []byte) error {
+	writeCRC := calculateCRC(write)
+	writeWithCRC := append(write, byte(writeCRC>>8), byte(writeCRC&0xFF))
+	var readWithCRC []byte
+	if read != nil {
+		readWithCRC = append(read, 0, 0) // Read with 2 extra bytes for the response CRC
+	}
+
+	if err := dev.Tx(writeWithCRC, readWithCRC); err != nil {
+		return err
+	}
+
+	if read != nil {
+		calculatedCRC := calculateCRC(readWithCRC[:len(readWithCRC)-2])
+		receivedCRC := uint16(readWithCRC[len(readWithCRC)-2])<<8 | uint16(readWithCRC[len(readWithCRC)-1])
+		if calculatedCRC != receivedCRC {
+
+			return fmt.Errorf("CRC mismatch: received 0x%X, calculated 0x%X", receivedCRC, calculatedCRC)
+		}
+	}
+
+	for i := 0; i < len(read); i++ {
+		read[i] = readWithCRC[i]
+	}
+
+	return nil
+}
+
+func calculateCRC(data []byte) uint16 {
+	var crc uint16 = 0x1D0F // Initial value
+	for _, b := range data {
+		crc ^= uint16(b) << 8 // Shift byte into MSB of 16bit CRC
+		for i := 0; i < 8; i++ {
+			if crc&0x8000 != 0 {
+				crc = (crc << 1) ^ 0x1021 // Polynomial 0x1021
+			} else {
+				crc <<= 1
+			}
+		}
+	}
+	return crc
+}

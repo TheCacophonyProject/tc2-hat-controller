@@ -92,14 +92,10 @@ const (
 const (
 	// Version of firmware that this software works with.
 	attinyMajorVersion = 12
-	attinyMinorVersion = 3
+	attinyMinorVersion = 4
 	attinyI2CAddress   = 0x25
 	hexFile            = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal         = 0xCA
-
-	// Parameters for transaction retries.
-	maxTxAttempts   = 5
-	txRetryInterval = time.Second
 )
 
 func (s CameraState) String() string {
@@ -334,7 +330,6 @@ func connectToATtiny(bus i2c.Bus) (*attiny, error) {
 }
 
 type attiny struct {
-	mu      sync.Mutex
 	dev     *i2c.Dev
 	version uint8
 
@@ -520,29 +515,12 @@ func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 	return errorCodes, nil
 }
 
-func calculateCRC(data []byte) uint16 {
-	var crc uint16 = 0x1D0F // Initial value
-	for _, b := range data {
-		crc ^= uint16(b) << 8 // Shift byte into MSB of 16bit CRC
-		for i := 0; i < 8; i++ {
-			if crc&0x8000 != 0 {
-				crc = (crc << 1) ^ 0x1021 // Polynomial 0x1021
-			} else {
-				crc <<= 1
-			}
-		}
-	}
-	//return 0x0102
-	return crc
-}
-
 // writeRegister writes the specified data to the given register on the attiny device.
 // If retries is 0 or above it will try to verify by reading the register back off the ATtiny.
 // Set retries to -1 if you are not wanting to verify the write operation.
 func (a *attiny) writeRegister(register Register, data uint8, retries int) error {
 	write := []byte{byte(register), data}
-	write = addCRC(write)
-	if err := a.tx(write, nil); err != nil {
+	if err := crcTxWithRetry(a.dev, write, nil); err != nil {
 		if retries <= 0 {
 			return err
 		}
@@ -573,11 +551,6 @@ func (a *attiny) writeRegister(register Register, data uint8, retries int) error
 	return nil
 }
 
-func addCRC(data []byte) []byte {
-	crc := calculateCRC(data)
-	return append(data, byte(crc>>8), byte(crc&0xFF))
-}
-
 func readRegister(args Args, bus i2c.Bus) error {
 	reg, err := hexStringToByte(args.Read.Reg)
 	if err != nil {
@@ -585,15 +558,10 @@ func readRegister(args Args, bus i2c.Bus) error {
 	}
 	log.Printf("Reading register 0x%X", reg)
 	a := &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}
-	write := addCRC([]byte{reg})
 	read := make([]byte, 3)
-	err = a.Tx(write, read)
+	err = crcTxWithRetry(a, []byte{reg}, read)
 	if err != nil {
 		return fmt.Errorf("error reading register: %v", err)
-	}
-
-	if err := verifyCRC(read); err != nil {
-		return err
 	}
 
 	log.Printf("Read 0x%X from register 0x%X", read[0], reg)
@@ -613,8 +581,7 @@ func writeToRegister(args Args, bus i2c.Bus) error {
 	log.Printf("Writing 0x%X to register 0x%X", val, reg)
 	a := &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}
 
-	write := addCRC([]byte{reg, val})
-	err = a.Tx(write, nil)
+	err = crcTxWithRetry(a, []byte{reg, val}, nil)
 	if err != nil {
 		return fmt.Errorf("error writing to register: %v", err)
 	}
@@ -636,49 +603,12 @@ func hexStringToByte(hexStr string) (byte, error) {
 	return byte(val), nil
 }
 
-func verifyCRC(data []byte) error {
-	if len(data) < 3 {
-		return fmt.Errorf("invalid data length for CRC check: %d", len(data))
-	}
-	calculatedCRC := calculateCRC(data[:len(data)-2])
-	receivedCRC := uint16(data[len(data)-2])<<8 | uint16(data[len(data)-1])
-	if calculatedCRC != receivedCRC {
-		return fmt.Errorf("CRC mismatch: received 0x%X, calculated 0x%X", receivedCRC, calculatedCRC)
-	}
-	return nil
-}
-
 func (a *attiny) readRegister(register Register) (uint8, error) {
 	write := []byte{byte(register)}
-	write = addCRC(write)
-	read := make([]byte, 3) // Expecting 1 byte of data + 2 bytes of CRC
-	if err := a.tx(write, read); err != nil {
-		return 0, err
-	}
-
-	// Verify CRC
-	if err := verifyCRC(read); err != nil {
+	read := make([]byte, 1)
+	if err := crcTxWithRetry(a.dev, write, read); err != nil {
 		return 0, err
 	}
 
 	return uint8(read[0]), nil
-}
-
-func (a *attiny) tx(write, read []byte) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	attempts := 0
-	for {
-		err := a.dev.Tx(write, read)
-		if err == nil {
-			return nil
-		}
-
-		attempts++
-		if attempts >= maxTxAttempts {
-			return err
-		}
-		time.Sleep(txRetryInterval)
-	}
 }

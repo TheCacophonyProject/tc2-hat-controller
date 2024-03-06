@@ -160,13 +160,15 @@ func (rtc *pcf8563) GetTime() (time.Time, bool, error) {
 }
 
 type AlarmTime struct {
-	Minute int
-	Hour   int
-	Day    int
+	Minute int // 0-59
+	Hour   int // 0-23
+	Day    int // Day of month
 }
 
 func (a AlarmTime) String() string {
-	return fmt.Sprintf("day: %02d time: %02d:%02d", a.Day, a.Hour, a.Minute)
+	now := time.Now().UTC()
+	alarmTime := time.Date(now.Year(), now.Month(), a.Day, a.Hour, a.Minute, 0, 0, time.UTC)
+	return fmt.Sprintf("UTC: %s, Local: %s, Day: %02d time: %02d:%02d", alarmTime.Format("15:04:05"), alarmTime.Local().Format("15:04:05"), a.Day, a.Hour, a.Minute)
 }
 
 func AlarmTimeFromTime(t time.Time) AlarmTime {
