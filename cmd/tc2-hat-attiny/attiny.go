@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"periph.io/x/conn/v3/gpio"
@@ -271,9 +272,17 @@ func connectToATtinyWithRetries(retries int, bus i2c.Bus) (*attiny, error) {
 			log.Println("Failed to connect to attiny.")
 			return nil, err
 		}
-		if err := updateATtinyFirmware(); err != nil {
+		err = updateATtinyFirmware()
+		if err != nil {
 			log.Printf("Error updating firmware: %v\n.", err)
 		}
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "attiny-firmware-update",
+			Details: map[string]interface{}{
+				"success": err == nil,
+			},
+		})
 		time.Sleep(time.Second)
 		attempt++
 	}
