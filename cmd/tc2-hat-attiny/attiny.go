@@ -46,6 +46,8 @@ const (
 	auxTerminalReg
 	tc2AgentReadyReg
 	minorVersionReg
+	flashErrorsReg
+	clearErrorReg
 )
 
 const (
@@ -92,7 +94,7 @@ const (
 const (
 	// Version of firmware that this software works with.
 	attinyMajorVersion = 12
-	attinyMinorVersion = 4
+	attinyMinorVersion = 5
 	attinyI2CAddress   = 0x25
 	hexFile            = "/etc/cacophony/attiny-firmware.hex"
 	i2cTypeVal         = 0xCA
@@ -508,8 +510,10 @@ func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 			}
 			errorIdCounter++
 		}
-		if clearErrors {
-			a.writeRegister(errorReg, 0, -1)
+	}
+	if clearErrors {
+		if err := a.writeRegister(clearErrorReg, 0, 3); err != nil {
+			return nil, err
 		}
 	}
 	return errorCodes, nil
