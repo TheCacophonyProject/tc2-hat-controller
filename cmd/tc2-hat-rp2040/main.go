@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
@@ -100,6 +101,7 @@ func runMain() error {
 
 	log.Println("RP2400 read for programming.")
 
+	success := true
 	if args.ELF == "" {
 		log.Println("No elf program provided so assuming programming is done manually.")
 		log.Println("Press enter when programming is done.")
@@ -111,7 +113,8 @@ func runMain() error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			return errors.New("error programming RP2040")
+			success = false
+			log.Printf("Error programming RP2040: %s\n", err)
 		}
 	}
 
@@ -122,6 +125,12 @@ func runMain() error {
 	if err := bootModePin.In(gpio.Float, gpio.NoEdge); err != nil {
 		return err
 	}
+
+	eventclient.AddEvent(eventclient.Event{
+		Timestamp: time.Now(),
+		Type:      "rp2040Programming",
+		Details:   map[string]interface{}{"success": success},
+	})
 
 	log.Println("Done.")
 	return nil
