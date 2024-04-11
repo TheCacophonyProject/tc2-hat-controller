@@ -278,7 +278,7 @@ func connectToATtinyWithRetries(retries int, bus i2c.Bus) (*attiny, error) {
 		}
 		eventclient.AddEvent(eventclient.Event{
 			Timestamp: time.Now(),
-			Type:      "attiny-firmware-update",
+			Type:      "programmingAttiny",
 			Details: map[string]interface{}{
 				"success": err == nil,
 			},

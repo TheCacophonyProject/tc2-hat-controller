@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -20,6 +22,8 @@ const (
 	PCF8563_TIMER_TF  = 0x01 << 2
 	PCF8563_ALARM_AIE = 0x01 << 1
 	PCF8563_TIMER_TIE = 0x01 << 0
+
+	lastRtcWriteTimeFile = "/etc/cacophony/last-rtc-write-time"
 )
 
 type pcf8563 struct {
@@ -51,28 +55,18 @@ func (rtc *pcf8563) checkNtpSyncLoop() {
 			rtcTime, integrity, err := rtc.GetTime()
 			if err != nil {
 				log.Println("Error getting RTC time:", err)
+				time.Sleep(time.Second)
+				continue
 			}
+			ntpTime := time.Now().UTC() // Close enough to NTP time as it has synchronized. //TODO find a way of checking how long ago the RPi did the NTP sync.
+			checkRtcDrift(ntpTime, rtcTime, integrity)
 
-			utc := time.Now().UTC()
-			if rtcTime.Sub(utc).Abs() > 10*time.Minute {
-				log.Printf("RTC time and ntp time differ by more than 10 minutes. RTC(UTC): %s, NTP(UTC): %s", rtcTime.Format("2006-01-02 15:04:05"), utc.Format("2006-01-02 15:04:05"))
-				eventclient.AddEvent(eventclient.Event{
-					Timestamp: time.Now(),
-					Type:      "rtcNtpMismatch",
-					Details: map[string]interface{}{
-						"rtcTime":      rtcTime.Format("2006-01-02 15:04:05"),
-						"rtcIntegrity": integrity,
-						"ntpTime":      time.Now().Format("2006-01-02 15:04:05"),
-					},
-				})
-			}
-
-			if err := rtc.SetTime(time.Now()); err != nil {
+			// Write the time to the RTC
+			if err := rtc.SetTime(ntpTime); err != nil {
 				log.Println("Error setting time on RTC:", err)
 			} else {
 				hasSynced = true
 			}
-
 		}
 
 		if hasSynced {
@@ -83,8 +77,68 @@ func (rtc *pcf8563) checkNtpSyncLoop() {
 	}
 }
 
+func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) error {
+	// Get last time RTC was updated
+	timeRaw, err := os.ReadFile(lastRtcWriteTimeFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Println("No previous RTC write time")
+			return nil
+		}
+		log.Printf("Error reading file: %v", err)
+		return err
+	}
+	previousRtcWriteTime, err := time.Parse(time.DateTime, string(timeRaw))
+	if err != nil {
+		log.Println("Error parsing previous rtc write time:", err)
+	}
+
+	timeFromLastWrite := ntpTime.Sub(previousRtcWriteTime).Truncate(time.Second)
+	rtcDriftSeconds := ntpTime.Sub(rtcTime).Truncate(time.Second).Seconds()
+
+	// RTC only has a resolution of one second so we should reduce the
+	// drift by 1 second when checking the drift over a time period
+	// or else if the RTC is written to twice in a short period being off by 1 second
+	// could account for a lot over a month.
+	if rtcDriftSeconds >= 1 {
+		rtcDriftSeconds -= 1
+	} else if rtcDriftSeconds <= -1 {
+		rtcDriftSeconds += 1
+	}
+	log.Println("RTC drift seconds:", rtcDriftSeconds)
+
+	secondsInMonth := float64(60 * 60 * 24 * 30)
+	rtcDriftSecondsPerMonth := rtcDriftSeconds * (secondsInMonth / timeFromLastWrite.Seconds())
+
+	driftPerMonthError := secondsInMonth / timeFromLastWrite.Seconds()
+
+	if math.Abs(rtcDriftSecondsPerMonth) >= 10 {
+		log.Println("Previous NTP write time:", previousRtcWriteTime)
+		log.Println("Current rtc time:", rtcTime)
+		log.Println("New NTP write time:", ntpTime)
+		log.Println("Time from last write:", timeFromLastWrite)
+		log.Println("RTC drift:", secondsToDuration(rtcDriftSeconds))
+		log.Println("RTC drift per month in seconds:", secondsToDuration(rtcDriftSecondsPerMonth))
+		log.Println("RTC drift per month error +-", secondsToDuration(driftPerMonthError))
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "rtcNtpDrift",
+			Details: map[string]interface{}{
+				"rtcDriftSecondsPerMonth": secondsToDuration(rtcDriftSecondsPerMonth),
+				"rtcDriftSeconds":         secondsToDuration(rtcDriftSeconds),
+				"integrity":               rtcIntegrity,
+			},
+		})
+	}
+	return nil
+}
+
+func secondsToDuration(seconds float64) time.Duration {
+	return time.Duration(time.Second * time.Duration(seconds))
+}
+
 func (rtc *pcf8563) SetTime(t time.Time) error {
-	t = t.UTC()
+	t = t.UTC().Truncate(time.Second)
 	err := writeBytes(rtc.dev, []byte{
 		0x02,
 		toBCD(t.Second()),
@@ -108,6 +162,15 @@ func (rtc *pcf8563) SetTime(t time.Time) error {
 	}
 	if rtcTime.Sub(t) > time.Second {
 		return fmt.Errorf("error setting time. RTC time %s. Time it was set to %s", rtcTime.Format("2006-01-02 15:04:05"), t.Format("2006-01-02 15:04:05"))
+	}
+
+	// Save the time that was written to the RTC, this is used to calculate the drift of the RTC.
+	f, err := os.OpenFile(lastRtcWriteTimeFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Println("Error creating file:", err)
+	} else {
+		_, _ = f.WriteString(t.Format(time.DateTime))
+		_ = f.Close()
 	}
 	return nil
 }

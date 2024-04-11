@@ -128,7 +128,7 @@ func runMain() error {
 
 	eventclient.AddEvent(eventclient.Event{
 		Timestamp: time.Now(),
-		Type:      "rp2040Programming",
+		Type:      "programmingRP2040",
 		Details:   map[string]interface{}{"success": success},
 	})
 
