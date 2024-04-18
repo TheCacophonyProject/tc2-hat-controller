@@ -9,6 +9,7 @@ require (
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
 	github.com/alexflint/go-arg v1.4.3
 	github.com/godbus/dbus v4.1.0+incompatible
+	github.com/sirupsen/logrus v1.2.0
 	github.com/snksoft/crc v1.1.0
 	github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
 	periph.io/x/conn/v3 v3.7.0
@@ -22,6 +23,7 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
+	github.com/konsorten/go-windows-terminal-sequences v1.0.1 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mitchellh/mapstructure v1.4.2 // indirect
 	github.com/nathan-osman/go-sunrise v1.0.0 // indirect
@@ -32,7 +34,9 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.9.0 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
+	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5 // indirect
 	golang.org/x/sys v0.0.0-20211117180635-dee7805ff2e1 // indirect
+	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/ini.v1 v1.64.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

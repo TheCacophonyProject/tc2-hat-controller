@@ -16,36 +16,45 @@ builds:
     - arm64
   ldflags: -s -w -X main.version={{.Version}}
 
-- id: tc2-hat-rp2040
-  binary: tc2-hat-rp2040
-  main: ./cmd/tc2-hat-rp2040
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
+# - id: tc2-hat-rp2040
+#   binary: tc2-hat-rp2040
+#   main: ./cmd/tc2-hat-rp2040
+#   goos:
+#     - linux
+#   goarch:
+#     - arm64
+#   ldflags: -s -w -X main.version={{.Version}}
 
-- id: tc2-hat-uart
-  binary: tc2-hat-uart
-  main: ./cmd/tc2-hat-uart
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
+# - id: tc2-hat-uart
+#   binary: tc2-hat-uart
+#   main: ./cmd/tc2-hat-uart
+#   goos:
+#     - linux
+#   goarch:
+#     - arm64
+#   ldflags: -s -w -X main.version={{.Version}}
+# 
+# - id: tc2-hat-temp
+#   binary: tc2-hat-temp
+#   main: ./cmd/tc2-hat-temp
+#   goos:
+#     - linux
+#   goarch:
+#     - arm64
+#   ldflags: -s -w -X main.version={{.Version}}
 
-- id: tc2-hat-temp
-  binary: tc2-hat-temp
-  main: ./cmd/tc2-hat-temp
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
+# - id: rtc-get-time
+#   binary: rtc-get-time
+#   main: ./cmd/rtc-get-time
+#   goos:
+#     - linux
+#   goarch:
+#     - arm64
+#   ldflags: -s -w -X main.version={{.Version}}
 
-- id: rtc-get-time
-  binary: rtc-get-time
-  main: ./cmd/rtc-get-time
+- id: tc2-i2c
+  binary: tc2-hat-i2c
+  main: ./cmd/tc2-hat-i2c
   goos:
     - linux
   goarch:
@@ -69,6 +78,8 @@ nfpms:
       dst: /etc/dbus-1/system.d/org.cacophony.ATtiny.conf
     - src: _release/org.cacophony.RTC.conf
       dst: /etc/dbus-1/system.d/org.cacophony.RTC.conf
+    - src: _release/org.cacophony.i2c.conf
+      dst: /etc/dbus-1/system.d/org.cacophony.i2c.conf
     - src: _release/tc2-hat-temp.service
       dst: /etc/systemd/system/tc2-hat-temp.service
     - src: _release/tc2-hat-attiny.service
@@ -93,6 +104,8 @@ nfpms:
       dst: /etc/systemd/system/rpi-reboot.service
     - src: _release/tc2-hat-rtc.service
       dst: /etc/systemd/system/tc2-hat-rtc.service
+    - src: _release/tc2-hat-i2c.service
+      dst: /etc/systemd/system/tc2-hat-i2c.service
   
   dependencies:
     #- python3-pip

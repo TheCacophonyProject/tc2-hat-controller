@@ -1,0 +1,13 @@
+
+[Unit]
+Description=Cacophony Project I2C
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tc2-hat-i2c service
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

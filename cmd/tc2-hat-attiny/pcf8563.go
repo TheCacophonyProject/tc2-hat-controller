@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
-	"periph.io/x/conn/v3/i2c"
+	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 )
 
 const (
@@ -26,16 +26,14 @@ const (
 	lastRtcWriteTimeFile = "/etc/cacophony/last-rtc-write-time"
 )
 
-type pcf8563 struct {
-	dev *i2c.Dev
-}
+type pcf8563 struct{}
 
-func InitPCF9564(bus i2c.Bus) (*pcf8563, error) {
+func InitPCF9564() (*pcf8563, error) {
 	// Check that a device is present on I2C bus at the PCF8563 address.
-	if err := bus.Tx(pcf8563Address, nil, nil); err != nil {
+	if err := i2crequest.CheckAddress(pcf8563Address, 1000); err != nil {
 		return nil, fmt.Errorf("failed to find pcf8563 device on i2c bus: %v", err)
 	}
-	rtc := &pcf8563{dev: &i2c.Dev{Bus: bus, Addr: pcf8563Address}}
+	rtc := &pcf8563{}
 	go rtc.checkNtpSyncLoop()
 	return rtc, nil
 }
@@ -139,7 +137,7 @@ func secondsToDuration(seconds float64) time.Duration {
 
 func (rtc *pcf8563) SetTime(t time.Time) error {
 	t = t.UTC().Truncate(time.Second)
-	err := writeBytes(rtc.dev, []byte{
+	err := writeBytes(pcf8563Address, []byte{
 		0x02,
 		toBCD(t.Second()),
 		toBCD(t.Minute()),
@@ -206,7 +204,7 @@ func (rtc *pcf8563) SetSystemTime() error {
 func (rtc *pcf8563) GetTime() (time.Time, bool, error) {
 	// Read the time from the RTC.
 	data := make([]byte, 7)
-	if err := readBytes(rtc.dev, 0x02, data); err != nil {
+	if err := readBytes(pcf8563Address, 0x02, data); err != nil {
 		return time.Time{}, false, err
 	}
 
@@ -246,7 +244,7 @@ func AlarmTimeFromTime(t time.Time) AlarmTime {
 // setAlarm sets the alarm on the PCF8563 RTC to the given time.
 func (rtc *pcf8563) SetAlarmTime(a AlarmTime) error {
 	log.Println("Setting alarm time to (UTC time):", a)
-	err := writeBytes(rtc.dev, []byte{
+	err := writeBytes(pcf8563Address, []byte{
 		0x09,
 		toBCD(a.Minute),
 		toBCD(a.Hour),
@@ -270,7 +268,7 @@ func (rtc *pcf8563) SetAlarmTime(a AlarmTime) error {
 
 func (rtc *pcf8563) ReadAlarmTime() (AlarmTime, error) {
 	b := make([]byte, 4)
-	if err := readBytes(rtc.dev, 0x09, b); err != nil {
+	if err := readBytes(pcf8563Address, 0x09, b); err != nil {
 		return AlarmTime{}, err
 	}
 
@@ -286,7 +284,7 @@ func (rtc *pcf8563) ReadAlarmTime() (AlarmTime, error) {
 }
 
 func (rtc *pcf8563) SetAlarmEnabled(alarmEnabled bool) error {
-	alarmState, err := readByte(rtc.dev, PCF8563_STAT2_REG)
+	alarmState, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
 	if err != nil {
 		return err
 	}
@@ -299,7 +297,7 @@ func (rtc *pcf8563) SetAlarmEnabled(alarmEnabled bool) error {
 		alarmState &= ^byte(PCF8563_ALARM_AIE) // Alarm interrupt disabled
 	}
 
-	if err := writeByte(rtc.dev, PCF8563_STAT2_REG, byte(alarmState)); err != nil {
+	if err := writeByte(pcf8563Address, PCF8563_STAT2_REG, byte(alarmState)); err != nil {
 		return err
 	}
 
@@ -315,7 +313,7 @@ func (rtc *pcf8563) SetAlarmEnabled(alarmEnabled bool) error {
 }
 
 func (rtc *pcf8563) ReadAlarmEnabled() (bool, error) {
-	state, err := readByte(rtc.dev, PCF8563_STAT2_REG)
+	state, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
 	if err != nil {
 		return false, err
 	}
@@ -323,7 +321,7 @@ func (rtc *pcf8563) ReadAlarmEnabled() (bool, error) {
 }
 
 func (rtc *pcf8563) ReadAlarmFlag() (bool, error) {
-	alarmState, err := readByte(rtc.dev, PCF8563_STAT2_REG)
+	alarmState, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
 	//log.Printf("%08b\n", alarmState)
 	if err != nil {
 		return false, err
@@ -333,10 +331,10 @@ func (rtc *pcf8563) ReadAlarmFlag() (bool, error) {
 }
 
 func (rtc *pcf8563) ClearAlarmFlag() error {
-	alarmState, err := readByte(rtc.dev, PCF8563_STAT2_REG)
+	alarmState, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
 	if err != nil {
 		return err
 	}
 	alarmState &= ^byte(PCF8563_ALARM_AF) // Clear alarm flag
-	return writeByte(rtc.dev, PCF8563_STAT2_REG, byte(alarmState))
+	return writeByte(pcf8563Address, PCF8563_STAT2_REG, byte(alarmState))
 }

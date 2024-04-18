@@ -20,9 +20,6 @@ package main
 
 import (
 	"log"
-
-	"periph.io/x/conn/v3/i2c/i2creg"
-	"periph.io/x/host/v3"
 )
 
 var (
@@ -40,17 +37,8 @@ func runMain() error {
 	log.SetFlags(0)
 	log.Printf("running version: %s", version)
 
-	_, err := host.Init()
-	if err != nil {
-		return err
-	}
-	bus, err := i2creg.Open("")
-	if err != nil {
-		return err
-	}
-
 	log.Println("Connecting to RTC")
-	rtc, err := InitPCF9564(bus)
+	rtc, err := InitPCF9564()
 	if err != nil {
 		return err
 	}

@@ -34,7 +34,6 @@ import (
 	arg "github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
-	"periph.io/x/conn/v3/i2c/i2creg"
 	"periph.io/x/host/v3"
 )
 
@@ -106,21 +105,17 @@ func runMain() error {
 	if err != nil {
 		return err
 	}
-	bus, err := i2creg.Open("")
-	if err != nil {
-		return err
-	}
 
-	if args.Read != nil {
-		return readRegister(args, bus)
-	}
+	//if args.Read != nil {
+	//	return readRegister(args)
+	//}
 
-	if args.Write != nil {
-		return writeToRegister(args, bus)
-	}
+	//if args.Write != nil {
+	//	return writeToRegister(args)
+	//}
 
 	log.Println("Connecting to ATtiny.")
-	attiny, err := connectToATtinyWithRetries(10, bus)
+	attiny, err := connectToATtinyWithRetries(10)
 	if err != nil {
 		return err
 	}
@@ -141,7 +136,7 @@ func runMain() error {
 	go checkATtinySignalLoop(attiny)
 
 	log.Println("Connecting to RTC")
-	rtc, err := InitPCF9564(bus)
+	rtc, err := InitPCF9564()
 	if err != nil {
 		return err
 	}
@@ -288,10 +283,10 @@ func monitorVoltageLoop(a *attiny) {
 func checkATtinySignalLoop(a *attiny) {
 	pinName := "GPIO16" //TODO add pin to config
 	pin := gpioreg.ByName(pinName)
-	pin.In(gpio.PullUp, gpio.FallingEdge)
 	if pin == nil {
 		log.Printf("Failed to find {%s}", pinName)
 	}
+	pin.In(gpio.PullUp, gpio.FallingEdge)
 	log.Println("Starting check ATtiny signal loop")
 	for {
 		pin.Read()

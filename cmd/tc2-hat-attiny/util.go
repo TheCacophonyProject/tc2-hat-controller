@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"periph.io/x/conn/v3/i2c"
+	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 )
 
 func fromBCD(b byte) int {
@@ -16,22 +16,27 @@ func fromBCD(b byte) int {
 }
 
 // readBytes reads bytes from the I2C device starting from a given register.
-func readBytes(dev *i2c.Dev, register byte, data []byte) error {
-	return dev.Tx([]byte{register}, data)
+func readBytes(address, register byte, data []byte) error {
+	response, err := i2crequest.Tx(address, []byte{register}, len(data), 1000)
+	if err != nil {
+		return err
+	}
+	copy(data, response)
+	return nil
 }
 
 // readByte reads a byte from the I2C device from a given register.
-func readByte(dev *i2c.Dev, register byte) (byte, error) {
-	data := make([]byte, 1)
-	if err := dev.Tx([]byte{register}, data); err != nil {
+func readByte(address, register byte) (byte, error) {
+	response, err := i2crequest.Tx(address, []byte{register}, 1, 1000)
+	if err != nil {
 		return 0, err
 	}
-	return data[0], nil
+	return response[0], nil
 }
 
 // writeByte writes a byte to the I2C device at a given register.
-func writeByte(dev *i2c.Dev, register byte, data byte) error {
-	_, err := dev.Write([]byte{register, data})
+func writeByte(address, register byte, data byte) error {
+	_, err := i2crequest.Tx(address, []byte{register, data}, 0, 1000)
 	return err
 }
 
@@ -41,8 +46,8 @@ func toBCD(n int) byte {
 }
 
 // writeBytes writes the given bytes to the I2C device.
-func writeBytes(dev *i2c.Dev, data []byte) error {
-	_, err := dev.Write(data)
+func writeBytes(address byte, data []byte) error {
+	_, err := i2crequest.Tx(address, data, 0, 1000)
 	return err
 }
 
@@ -102,13 +107,13 @@ func durToStr(duration time.Duration) string {
 	return duration.Truncate(time.Second).String()
 }
 
-func crcTxWithRetry(dev *i2c.Dev, write, read []byte) error {
+func crcTxWithRetry(write, read []byte) error {
 	i2cMu.Lock()
 	defer i2cMu.Unlock()
 
 	attempts := 0
 	for {
-		err := crcTX(dev, write, read)
+		err := crcTX(write, read)
 		if err == nil {
 			return nil
 		}
@@ -121,34 +126,45 @@ func crcTxWithRetry(dev *i2c.Dev, write, read []byte) error {
 	}
 }
 
-func crcTX(dev *i2c.Dev, write, read []byte) error {
-	writeCRC := calculateCRC(write)
-	writeWithCRC := append(write, byte(writeCRC>>8), byte(writeCRC&0xFF))
-	var readWithCRC []byte
-	if read != nil {
-		readWithCRC = append(read, 0, 0) // Read with 2 extra bytes for the response CRC
-	}
-
-	if err := dev.Tx(writeWithCRC, readWithCRC); err != nil {
+func crcTX(write, read []byte) error {
+	response, err := i2crequest.TxWithCRC(0x25, write, len(read), 1000)
+	if err != nil {
 		return err
 	}
-
-	if read != nil {
-		calculatedCRC := calculateCRC(readWithCRC[:len(readWithCRC)-2])
-		receivedCRC := uint16(readWithCRC[len(readWithCRC)-2])<<8 | uint16(readWithCRC[len(readWithCRC)-1])
-		if calculatedCRC != receivedCRC {
-
-			return fmt.Errorf("CRC mismatch: received 0x%X, calculated 0x%X", receivedCRC, calculatedCRC)
-		}
-	}
-
 	for i := 0; i < len(read); i++ {
-		read[i] = readWithCRC[i]
+		read[i] = response[i]
 	}
-
 	return nil
+	/*
+		writeCRC := calculateCRC(write)
+		writeWithCRC := append(write, byte(writeCRC>>8), byte(writeCRC&0xFF))
+		var readWithCRC []byte
+		if read != nil {
+			readWithCRC = append(read, 0, 0) // Read with 2 extra bytes for the response CRC
+		}
+
+		if err := dev.Tx(writeWithCRC, readWithCRC); err != nil {
+			return err
+		}
+
+		if read != nil {
+			calculatedCRC := calculateCRC(readWithCRC[:len(readWithCRC)-2])
+			receivedCRC := uint16(readWithCRC[len(readWithCRC)-2])<<8 | uint16(readWithCRC[len(readWithCRC)-1])
+			if calculatedCRC != receivedCRC {
+
+				return fmt.Errorf("CRC mismatch: received 0x%X, calculated 0x%X", receivedCRC, calculatedCRC)
+			}
+		}
+
+		for i := 0; i < len(read); i++ {
+			read[i] = readWithCRC[i]
+		}
+
+		return nil
+	*/
 }
 
+/*
 func calculateCRC(data []byte) uint16 {
 	var crc uint16 = 0x1D0F // Initial value
 	for _, b := range data {
@@ -163,3 +179,4 @@ func calculateCRC(data []byte) uint16 {
 	}
 	return crc
 }
+*/

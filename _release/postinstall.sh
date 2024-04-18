@@ -10,6 +10,9 @@ set -e
 #    pipx install pymcuprog==3.14.2.9
 #fi
 
+systemctl enable tc2-hat-i2c
+systemctl restart tc2-hat-i2c
+
 systemctl daemon-reload
 # TODO Enabe when software is ready
 systemctl disable tc2-hat-temp.service

@@ -23,16 +23,14 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
+	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 	"periph.io/x/conn/v3/gpio"
-	"periph.io/x/conn/v3/i2c"
 )
 
 type Register uint8
@@ -257,10 +255,10 @@ func updateATtinyFirmware() error {
 // connectToATtinyWithRetries tries to connect to an ATtiny device a certain number
 // of times. If it fails to connect it logs an error message, attempts to update the
 // ATtiny firmware, and will then repeat the process (retries) times.
-func connectToATtinyWithRetries(retries int, bus i2c.Bus) (*attiny, error) {
+func connectToATtinyWithRetries(retries int) (*attiny, error) {
 	attempt := 0
 	for {
-		attiny, err := connectToATtiny(bus)
+		attiny, err := connectToATtiny()
 		if err == nil {
 			attiny.writeCameraState(statePoweredOn)
 			attiny.writeAuxState()
@@ -301,17 +299,18 @@ func (a *attiny) writeAuxState() error {
 // that it responds correctly with the expected type byte and firmware version byte
 // ensuring that it is running the correct firmware.
 // If this fails, updating the ATtiny with updateATTinyFirmware() might resolve the issue.
-func connectToATtiny(bus i2c.Bus) (*attiny, error) {
+func connectToATtiny() (*attiny, error) {
 	// Check that a device is present on I2C bus at the attiny address.
-	if err := bus.Tx(attinyI2CAddress, nil, nil); err != nil {
+
+	if err := i2crequest.CheckAddress(attinyI2CAddress, 1000); err != nil {
 		return nil, fmt.Errorf("failed to find attiny device on i2c bus: %v", err)
 	}
 
 	// Check that the device at ATtiny address responds with the correct type byte.
-	a := &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: 1}
+	a := &attiny{version: 1}
 	typeRead, err := a.readRegister(typeReg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading type register %s", err)
 	}
 	log.Printf("Type: 0x%X", typeRead)
 	if typeRead != i2cTypeVal {
@@ -337,11 +336,10 @@ func connectToATtiny(bus i2c.Bus) (*attiny, error) {
 		return nil, fmt.Errorf("device minor version is %d instead of %d", minorVersionResponse, attinyMinorVersion)
 	}
 
-	return &attiny{dev: &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}, version: majorVersionResponse}, nil
+	return &attiny{version: majorVersionResponse}, nil
 }
 
 type attiny struct {
-	dev     *i2c.Dev
 	version uint8
 
 	wifiMu          sync.Mutex
@@ -533,7 +531,7 @@ func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 // Set retries to -1 if you are not wanting to verify the write operation.
 func (a *attiny) writeRegister(register Register, data uint8, retries int) error {
 	write := []byte{byte(register), data}
-	if err := crcTxWithRetry(a.dev, write, nil); err != nil {
+	if err := crcTxWithRetry(write, nil); err != nil {
 		if retries <= 0 {
 			return err
 		}
@@ -564,15 +562,15 @@ func (a *attiny) writeRegister(register Register, data uint8, retries int) error
 	return nil
 }
 
-func readRegister(args Args, bus i2c.Bus) error {
+/*
+func readRegister(args Args) error {
 	reg, err := hexStringToByte(args.Read.Reg)
 	if err != nil {
 		return err
 	}
 	log.Printf("Reading register 0x%X", reg)
-	a := &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}
 	read := make([]byte, 3)
-	err = crcTxWithRetry(a, []byte{reg}, read)
+	err = crcTxWithRetry([]byte{reg}, read)
 	if err != nil {
 		return fmt.Errorf("error reading register: %v", err)
 	}
@@ -581,8 +579,10 @@ func readRegister(args Args, bus i2c.Bus) error {
 
 	return nil
 }
+*/
 
-func writeToRegister(args Args, bus i2c.Bus) error {
+/*
+func writeToRegister(args Args) error {
 	reg, err := hexStringToByte(args.Write.Reg)
 	if err != nil {
 		return err
@@ -592,16 +592,17 @@ func writeToRegister(args Args, bus i2c.Bus) error {
 		return err
 	}
 	log.Printf("Writing 0x%X to register 0x%X", val, reg)
-	a := &i2c.Dev{Bus: bus, Addr: attinyI2CAddress}
 
-	err = crcTxWithRetry(a, []byte{reg, val}, nil)
+	err = crcTxWithRetry([]byte{reg, val}, nil)
 	if err != nil {
 		return fmt.Errorf("error writing to register: %v", err)
 	}
 	log.Printf("Wrote 0x%X to register 0x%X", val, reg)
 	return nil
 }
+*/
 
+/*
 func hexStringToByte(hexStr string) (byte, error) {
 	if len(hexStr) != 4 {
 		return 0, fmt.Errorf("invalid hex string length: %d", len(hexStr))
@@ -615,11 +616,12 @@ func hexStringToByte(hexStr string) (byte, error) {
 	}
 	return byte(val), nil
 }
+*/
 
 func (a *attiny) readRegister(register Register) (uint8, error) {
 	write := []byte{byte(register)}
 	read := make([]byte, 1)
-	if err := crcTxWithRetry(a.dev, write, read); err != nil {
+	if err := crcTxWithRetry(write, read); err != nil {
 		return 0, err
 	}
 
