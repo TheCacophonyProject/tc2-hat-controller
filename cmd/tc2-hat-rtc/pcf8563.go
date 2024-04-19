@@ -49,15 +49,7 @@ func (rtc *pcf8563) checkNtpSyncLoop() {
 
 		if strings.Contains(string(out), "synchronized: yes") {
 			log.Println("Writing time to RTC")
-
-			rtcTime, integrity, err := rtc.GetTime()
-			if err != nil {
-				log.Println("Error getting RTC time:", err)
-				time.Sleep(time.Second)
-				continue
-			}
 			ntpTime := time.Now().UTC() // Close enough to NTP time as it has synchronized. //TODO find a way of checking how long ago the RPi did the NTP sync.
-			checkRtcDrift(ntpTime, rtcTime, integrity)
 
 			// Write the time to the RTC
 			if err := rtc.SetTime(ntpTime); err != nil {
@@ -135,31 +127,41 @@ func secondsToDuration(seconds float64) time.Duration {
 	return time.Duration(time.Second * time.Duration(seconds))
 }
 
-func (rtc *pcf8563) SetTime(t time.Time) error {
-	t = t.UTC().Truncate(time.Second)
-	err := writeBytes(pcf8563Address, []byte{
+// SetTime will set the time on the PCF8563 RTC
+// This is first done by getting the current time on the RTC, the last time the RTC was updated
+func (rtc *pcf8563) SetTime(newTime time.Time) error {
+	rtcTime, integrity, err := rtc.GetTime()
+	if err != nil {
+		return err
+	}
+	if err := checkRtcDrift(newTime, rtcTime, integrity); err != nil {
+		log.Println("Error checking RTC drift:", err)
+	}
+
+	newTime = newTime.UTC().Truncate(time.Second)
+	err = writeBytes([]byte{
 		0x02,
-		toBCD(t.Second()),
-		toBCD(t.Minute()),
-		toBCD(t.Hour()),
-		toBCD(t.Day()),
-		toBCD(int(t.Weekday())),
-		toBCD(int(t.Month())),
-		toBCD(t.Year() % 100)}) // PCF8563 RTC is only 2-digit year
+		toBCD(newTime.Second()),
+		toBCD(newTime.Minute()),
+		toBCD(newTime.Hour()),
+		toBCD(newTime.Day()),
+		toBCD(int(newTime.Weekday())),
+		toBCD(int(newTime.Month())),
+		toBCD(newTime.Year() % 100)}) // PCF8563 RTC is only 2-digit year
 	if err != nil {
 		return err
 	}
 
 	// Compare to check that time was written correctly.
-	rtcTime, integrity, err := rtc.GetTime()
+	rtcTime, integrity, err = rtc.GetTime()
 	if !integrity {
 		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", rtcTime.Format("2006-01-02 15:04:05"))
 	}
 	if err != nil {
 		return err
 	}
-	if rtcTime.Sub(t) > time.Second {
-		return fmt.Errorf("error setting time. RTC time %s. Time it was set to %s", rtcTime.Format("2006-01-02 15:04:05"), t.Format("2006-01-02 15:04:05"))
+	if rtcTime.Sub(newTime) > time.Second {
+		return fmt.Errorf("error setting time. RTC time %s. Time it was set to %s", rtcTime.Format("2006-01-02 15:04:05"), newTime.Format("2006-01-02 15:04:05"))
 	}
 
 	// Save the time that was written to the RTC, this is used to calculate the drift of the RTC.
@@ -167,7 +169,7 @@ func (rtc *pcf8563) SetTime(t time.Time) error {
 	if err != nil {
 		log.Println("Error creating file:", err)
 	} else {
-		_, _ = f.WriteString(t.Format(time.DateTime))
+		_, _ = f.WriteString(newTime.Format(time.DateTime))
 		_ = f.Close()
 	}
 	return nil
@@ -203,8 +205,8 @@ func (rtc *pcf8563) SetSystemTime() error {
 
 func (rtc *pcf8563) GetTime() (time.Time, bool, error) {
 	// Read the time from the RTC.
-	data := make([]byte, 7)
-	if err := readBytes(pcf8563Address, 0x02, data); err != nil {
+	data, err := readBytes(0x02, 7)
+	if err != nil {
 		return time.Time{}, false, err
 	}
 
@@ -244,7 +246,7 @@ func AlarmTimeFromTime(t time.Time) AlarmTime {
 // setAlarm sets the alarm on the PCF8563 RTC to the given time.
 func (rtc *pcf8563) SetAlarmTime(a AlarmTime) error {
 	log.Println("Setting alarm time to (UTC time):", a)
-	err := writeBytes(pcf8563Address, []byte{
+	err := writeBytes([]byte{
 		0x09,
 		toBCD(a.Minute),
 		toBCD(a.Hour),
@@ -267,8 +269,8 @@ func (rtc *pcf8563) SetAlarmTime(a AlarmTime) error {
 }
 
 func (rtc *pcf8563) ReadAlarmTime() (AlarmTime, error) {
-	b := make([]byte, 4)
-	if err := readBytes(pcf8563Address, 0x09, b); err != nil {
+	b, err := readBytes(0x09, 4)
+	if err != nil {
 		return AlarmTime{}, err
 	}
 
@@ -284,7 +286,7 @@ func (rtc *pcf8563) ReadAlarmTime() (AlarmTime, error) {
 }
 
 func (rtc *pcf8563) SetAlarmEnabled(alarmEnabled bool) error {
-	alarmState, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
+	alarmState, err := readByte(PCF8563_STAT2_REG)
 	if err != nil {
 		return err
 	}
@@ -297,7 +299,7 @@ func (rtc *pcf8563) SetAlarmEnabled(alarmEnabled bool) error {
 		alarmState &= ^byte(PCF8563_ALARM_AIE) // Alarm interrupt disabled
 	}
 
-	if err := writeByte(pcf8563Address, PCF8563_STAT2_REG, byte(alarmState)); err != nil {
+	if err := writeByte(PCF8563_STAT2_REG, byte(alarmState)); err != nil {
 		return err
 	}
 
@@ -313,7 +315,7 @@ func (rtc *pcf8563) SetAlarmEnabled(alarmEnabled bool) error {
 }
 
 func (rtc *pcf8563) ReadAlarmEnabled() (bool, error) {
-	state, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
+	state, err := readByte(PCF8563_STAT2_REG)
 	if err != nil {
 		return false, err
 	}
@@ -321,7 +323,7 @@ func (rtc *pcf8563) ReadAlarmEnabled() (bool, error) {
 }
 
 func (rtc *pcf8563) ReadAlarmFlag() (bool, error) {
-	alarmState, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
+	alarmState, err := readByte(PCF8563_STAT2_REG)
 	//log.Printf("%08b\n", alarmState)
 	if err != nil {
 		return false, err
@@ -331,10 +333,44 @@ func (rtc *pcf8563) ReadAlarmFlag() (bool, error) {
 }
 
 func (rtc *pcf8563) ClearAlarmFlag() error {
-	alarmState, err := readByte(pcf8563Address, PCF8563_STAT2_REG)
+	alarmState, err := readByte(PCF8563_STAT2_REG)
 	if err != nil {
 		return err
 	}
 	alarmState &= ^byte(PCF8563_ALARM_AF) // Clear alarm flag
-	return writeByte(pcf8563Address, PCF8563_STAT2_REG, byte(alarmState))
+	return writeByte(PCF8563_STAT2_REG, byte(alarmState))
+}
+
+// toBCD converts a decimal number to binary-coded decimal.
+func toBCD(n int) byte {
+	return byte(n)/10<<4 + byte(n)%10
+}
+
+// writeBytes writes the given bytes to the I2C device.
+func writeBytes(data []byte) error {
+	_, err := i2crequest.Tx(pcf8563Address, data, 0, 1000)
+	return err
+}
+
+func fromBCD(b byte) int {
+	return int(b&0x0F) + int(b>>4)*10
+}
+
+// readByte reads a byte from the I2C device from a given register.
+func readByte(register byte) (byte, error) {
+	response, err := i2crequest.Tx(pcf8563Address, []byte{register}, 1, 1000)
+	if err != nil {
+		return 0, err
+	}
+	return response[0], nil
+}
+
+// writeByte writes a byte to the I2C device at a given register.
+func writeByte(register byte, data byte) error {
+	return writeBytes([]byte{register, data})
+}
+
+// readBytes reads bytes from the I2C device starting from a given register.
+func readBytes(register byte, length int) ([]byte, error) {
+	return i2crequest.Tx(pcf8563Address, []byte{register}, length, 1000)
 }

@@ -21,14 +21,17 @@ package main
 import (
 	"errors"
 	"log"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/godbus/dbus"
+	"github.com/godbus/dbus/introspect"
 )
 
 const (
-	rtcDbusName = "org.cacophony.RTC"
-	rtcDbusPath = "/org/cacophony/RTC"
+	dbusName = "org.cacophony.RTC"
+	dbusPath = "/org/cacophony/RTC"
 )
 
 type rtcService struct {
@@ -40,7 +43,7 @@ func startRTCService(a *pcf8563) error {
 	if err != nil {
 		return err
 	}
-	reply, err := conn.RequestName(rtcDbusName, dbus.NameFlagDoNotQueue)
+	reply, err := conn.RequestName(dbusName, dbus.NameFlagDoNotQueue)
 	if err != nil {
 		return err
 	}
@@ -51,8 +54,8 @@ func startRTCService(a *pcf8563) error {
 	s := &rtcService{
 		rtc: a,
 	}
-	conn.Export(s, rtcDbusPath, rtcDbusName)
-	conn.Export(genIntrospectable(s), rtcDbusPath, "org.freedesktop.DBus.Introspectable")
+	conn.Export(s, dbusPath, dbusName)
+	conn.Export(genIntrospectable(s), dbusPath, "org.freedesktop.DBus.Introspectable")
 	return nil
 }
 
@@ -76,4 +79,38 @@ func (s rtcService) SetTime(timeStr string) *dbus.Error {
 		return dbusErr(err)
 	}
 	return nil
+}
+
+func genIntrospectable(v interface{}) introspect.Introspectable {
+	node := &introspect.Node{
+		Interfaces: []introspect.Interface{{
+			Name:    dbusName,
+			Methods: introspect.Methods(v),
+		}},
+	}
+	return introspect.NewIntrospectable(node)
+}
+
+func dbusErr(err error) *dbus.Error {
+	if err == nil {
+		return nil
+	}
+	return &dbus.Error{
+		Name: dbusName + "." + getCallerName(),
+		Body: []interface{}{err.Error()},
+	}
+}
+
+func getCallerName() string {
+	fpcs := make([]uintptr, 1)
+	n := runtime.Callers(3, fpcs)
+	if n == 0 {
+		return ""
+	}
+	caller := runtime.FuncForPC(fpcs[0] - 1)
+	if caller == nil {
+		return ""
+	}
+	funcNames := strings.Split(caller.Name(), ".")
+	return funcNames[len(funcNames)-1]
 }

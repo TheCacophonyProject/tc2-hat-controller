@@ -48,7 +48,6 @@ var (
 
 	maxTxAttempts   = 5
 	txRetryInterval = time.Second
-	i2cMu           sync.Mutex
 
 	mu                 sync.Mutex
 	stayOnUntil        = time.Now()
@@ -106,14 +105,6 @@ func runMain() error {
 		return err
 	}
 
-	//if args.Read != nil {
-	//	return readRegister(args)
-	//}
-
-	//if args.Write != nil {
-	//	return writeToRegister(args)
-	//}
-
 	log.Println("Connecting to ATtiny.")
 	attiny, err := connectToATtinyWithRetries(10)
 	if err != nil {
@@ -134,32 +125,6 @@ func runMain() error {
 
 	go monitorVoltageLoop(attiny)
 	go checkATtinySignalLoop(attiny)
-
-	log.Println("Connecting to RTC")
-	rtc, err := InitPCF9564()
-	if err != nil {
-		return err
-	}
-	log.Println("Starting RTC service.")
-	if err := startRTCService(rtc); err != nil {
-		return err
-	}
-
-	if err := rtc.SetSystemTime(); err != nil {
-		log.Println(err)
-	}
-
-	t, integrity, err := rtc.GetTime()
-	if err != nil {
-		return err
-	}
-	log.Println("RTC time:", t.Format(time.RFC3339))
-	log.Println("RTC integrity:", integrity)
-	alarmTime, err := rtc.ReadAlarmTime()
-	if err != nil {
-		return err
-	}
-	log.Println("RTC alarm:", alarmTime)
 
 	/*
 		go func() {

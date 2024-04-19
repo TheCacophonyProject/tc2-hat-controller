@@ -16,10 +16,11 @@ import (
 var version = "<not set>"
 
 type Args struct {
-	Write   *Write      `arg:"subcommand:write"   help:"Write to a register."`
-	Read    *Read       `arg:"subcommand:read"    help:"Read from a register."`
-	Service *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
-	Find    *Find       `arg:"subcommand:find"    help:"Find i2c devices."`
+	Write    *Write      `arg:"subcommand:write"   help:"Write to a register."`
+	Read     *Read       `arg:"subcommand:read"    help:"Read from a register."`
+	Service  *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
+	Find     *Find       `arg:"subcommand:find"    help:"Find i2c devices."`
+	LogLevel string      `arg:"-l, --loglevel" default:"info" help:"Set the logging level (debug, info, warn, error)"`
 }
 
 type subcommand struct {
@@ -52,6 +53,31 @@ func procArgs() Args {
 	return args
 }
 
+func setLogLevel(log *logrus.Logger, level string) {
+	switch level {
+	case "debug":
+		log.SetLevel(logrus.DebugLevel)
+	case "info":
+		log.SetLevel(logrus.InfoLevel)
+	case "warn":
+		log.SetLevel(logrus.WarnLevel)
+	case "error":
+		log.SetLevel(logrus.ErrorLevel)
+	default:
+		log.SetLevel(logrus.InfoLevel)
+		log.Warn("Unknown log level, defaulting to info")
+	}
+}
+
+// customFormatter defines a new logrus formatter.
+type customFormatter struct{}
+
+// Format builds the log message string from the log entry.
+func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	// Create a custom log message format here.
+	return []byte(fmt.Sprintf("[%s] %s\n", strings.ToUpper(entry.Level.String()), entry.Message)), nil
+}
+
 func main() {
 	err := runMain()
 	if err != nil {
@@ -61,8 +87,9 @@ func main() {
 
 func runMain() error {
 	log := logrus.New()
-	log.SetLevel(logrus.InfoLevel)
+	log.SetFormatter(new(customFormatter))
 	args := procArgs()
+	setLogLevel(log, args.LogLevel)
 
 	log.Printf("Running version: %s", version)
 

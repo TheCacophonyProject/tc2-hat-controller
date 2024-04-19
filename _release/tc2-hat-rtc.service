@@ -3,7 +3,7 @@ Description=Set system time from RTC
 Before=network.target tc2-hat-attiny.service
 
 [Service]
-ExecStart=/usr/bin/rtc-get-time
+ExecStart=/usr/bin/tc2-hat-rtc service
 
 [Install]
 WantedBy=multi-user.target

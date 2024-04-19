@@ -11,46 +11,6 @@ import (
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 )
 
-func fromBCD(b byte) int {
-	return int(b&0x0F) + int(b>>4)*10
-}
-
-// readBytes reads bytes from the I2C device starting from a given register.
-func readBytes(address, register byte, data []byte) error {
-	response, err := i2crequest.Tx(address, []byte{register}, len(data), 1000)
-	if err != nil {
-		return err
-	}
-	copy(data, response)
-	return nil
-}
-
-// readByte reads a byte from the I2C device from a given register.
-func readByte(address, register byte) (byte, error) {
-	response, err := i2crequest.Tx(address, []byte{register}, 1, 1000)
-	if err != nil {
-		return 0, err
-	}
-	return response[0], nil
-}
-
-// writeByte writes a byte to the I2C device at a given register.
-func writeByte(address, register byte, data byte) error {
-	_, err := i2crequest.Tx(address, []byte{register, data}, 0, 1000)
-	return err
-}
-
-// toBCD converts a decimal number to binary-coded decimal.
-func toBCD(n int) byte {
-	return byte(n)/10<<4 + byte(n)%10
-}
-
-// writeBytes writes the given bytes to the I2C device.
-func writeBytes(address byte, data []byte) error {
-	_, err := i2crequest.Tx(address, data, 0, 1000)
-	return err
-}
-
 func shutdown(a *attiny) error {
 	err := a.writeCameraState(statePoweringOff) // Without setting the state to powering off the ATtiny will automatically reboot the RPi.
 	if err != nil {
@@ -64,15 +24,6 @@ func shutdown(a *attiny) error {
 	}
 	return nil
 }
-
-/*
-func maxDuration(a, b time.Duration) time.Duration {
-	if a > b {
-		return a
-	}
-	return b
-}
-*/
 
 // shouldStayOnForSalt will check if a salt command is running via checking the output from `salt-call saltutil.running`
 // If a device is being kept on for too long because of salt commands it will ignore the salt command check.
@@ -108,9 +59,6 @@ func durToStr(duration time.Duration) string {
 }
 
 func crcTxWithRetry(write, read []byte) error {
-	i2cMu.Lock()
-	defer i2cMu.Unlock()
-
 	attempts := 0
 	for {
 		err := crcTX(write, read)
@@ -135,48 +83,4 @@ func crcTX(write, read []byte) error {
 		read[i] = response[i]
 	}
 	return nil
-	/*
-		writeCRC := calculateCRC(write)
-		writeWithCRC := append(write, byte(writeCRC>>8), byte(writeCRC&0xFF))
-		var readWithCRC []byte
-		if read != nil {
-			readWithCRC = append(read, 0, 0) // Read with 2 extra bytes for the response CRC
-		}
-
-		if err := dev.Tx(writeWithCRC, readWithCRC); err != nil {
-			return err
-		}
-
-		if read != nil {
-			calculatedCRC := calculateCRC(readWithCRC[:len(readWithCRC)-2])
-			receivedCRC := uint16(readWithCRC[len(readWithCRC)-2])<<8 | uint16(readWithCRC[len(readWithCRC)-1])
-			if calculatedCRC != receivedCRC {
-
-				return fmt.Errorf("CRC mismatch: received 0x%X, calculated 0x%X", receivedCRC, calculatedCRC)
-			}
-		}
-
-		for i := 0; i < len(read); i++ {
-			read[i] = readWithCRC[i]
-		}
-
-		return nil
-	*/
 }
-
-/*
-func calculateCRC(data []byte) uint16 {
-	var crc uint16 = 0x1D0F // Initial value
-	for _, b := range data {
-		crc ^= uint16(b) << 8 // Shift byte into MSB of 16bit CRC
-		for i := 0; i < 8; i++ {
-			if crc&0x8000 != 0 {
-				crc = (crc << 1) ^ 0x1021 // Polynomial 0x1021
-			} else {
-				crc <<= 1
-			}
-		}
-	}
-	return crc
-}
-*/

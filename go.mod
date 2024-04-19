@@ -1,6 +1,6 @@
 module github.com/TheCacophonyProject/tc2-hat-controller
 
-go 1.20
+go 1.22
 
 require (
 	github.com/TheCacophonyProject/event-reporter/v3 v3.3.1
