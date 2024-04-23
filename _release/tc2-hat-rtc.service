@@ -4,6 +4,8 @@ Before=network.target tc2-hat-attiny.service
 
 [Service]
 ExecStart=/usr/bin/tc2-hat-rtc service
+Restart=on-failure
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
