@@ -94,6 +94,22 @@ func genIntrospectable(v interface{}) introspect.Introspectable {
 	return introspect.NewIntrospectable(node)
 }
 
+/*
+// I2C example to read a register from the ATtiny1616.
+// Address: 		0x25
+// Register:	 	0x00
+// CRC: 				0xcc,0x9c
+// Read length: 3
+// Timeout: 		100ms
+dbus-send --system --print-reply --dest=org.cacophony.i2c /org/cacophony/i2c org.cacophony.i2c.Tx \
+byte:0x25 \
+array:byte:0x00,0xcc,0x9c \
+int32:3 \
+int32:100
+*/
+
+// Tx sends a transaction to the I2C device, used for reading and writing to registers.
+// If reading/writing to the ATtiny remember the CRC bytes.
 func (s *service) Tx(address byte, write []byte, readLen int, timeout int) ([]byte, *dbus.Error) {
 	s.mutex.Lock()
 	requestID := s.requestCount

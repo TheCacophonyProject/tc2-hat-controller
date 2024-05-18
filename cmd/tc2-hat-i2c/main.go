@@ -107,6 +107,11 @@ func runMain() error {
 		if err := startService(log); err != nil {
 			return err
 		}
+
+		if err := initEEPROM(); err != nil {
+			log.Println(err)
+		}
+
 		for {
 			time.Sleep(time.Second) // Sleep to prevent spinning
 		}
