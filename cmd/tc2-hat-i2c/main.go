@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 )
 
 var version = "<not set>"
+var log = logrus.New()
 
 type Args struct {
 	Write    *Write      `arg:"subcommand:write"   help:"Write to a register."`
@@ -53,7 +53,7 @@ func procArgs() Args {
 	return args
 }
 
-func setLogLevel(log *logrus.Logger, level string) {
+func setLogLevel(level string) {
 	switch level {
 	case "debug":
 		log.SetLevel(logrus.DebugLevel)
@@ -86,12 +86,11 @@ func main() {
 }
 
 func runMain() error {
-	log := logrus.New()
 	log.SetFormatter(new(customFormatter))
 	args := procArgs()
-	setLogLevel(log, args.LogLevel)
+	setLogLevel(args.LogLevel)
 
-	log.Printf("Running version: %s", version)
+	log.Infof("Running version: %s", version)
 
 	if args.Write != nil {
 		return write(args.Write)
@@ -104,12 +103,12 @@ func runMain() error {
 	}
 
 	if args.Service != nil {
-		if err := startService(log); err != nil {
+		if err := startService(); err != nil {
 			return err
 		}
 
 		if err := initEEPROM(); err != nil {
-			log.Println(err)
+			log.Error(err)
 		}
 
 		for {

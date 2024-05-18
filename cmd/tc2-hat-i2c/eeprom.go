@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 )
 
 const (
-	EEPROM_ADDRESS    = 0x60
+	EEPROM_ADDRESS    = 0x50
 	EEPROM_FIRST_BYTE = 0xCA
 	EEPROM_FILE       = "/etc/cacophony/eeprom-data.json"
 )
@@ -71,20 +70,17 @@ var errEepromEmptyError = errors.New("eeprom no data found")
 // EEPROM chip found, data. File exists.			    	// Success.																	// Done
 // EEPROM chip found, wrong data.							    	// Should error.
 
-func clearEEPROM() error {
-	a := []byte{
-		0x00,
-	}
-	for i := 0; i < 16; i++ {
-		a = append(a, 0xFF)
-	}
-	log.Println(i2crequest.Tx(EEPROM_ADDRESS, a, 0, 1000))
-
-	return nil
-}
-
 func initEEPROM() error {
-	//clearEEPROM()
+	// Clear EEPROM for testing
+	/*
+		a := []byte{
+			0x00,
+		}
+		for i := 0; i < 16; i++ {
+			a = append(a, 0xFF)
+		}
+		log.Println(i2crequest.Tx(EEPROM_ADDRESS, a, 0, 1000))
+	*/
 
 	_, err := os.Stat(EEPROM_FILE)
 	if os.IsNotExist(err) {
@@ -124,7 +120,7 @@ func initEEPROM() error {
 		}
 	}
 
-	log.Println("Reading EEPROM data.")
+	log.Info("Reading EEPROM data.")
 	eepromFromChip, err := getEepromDataFromChip()
 	if err != nil {
 		return fmt.Errorf("failed to get eeprom data from chip: %v", err)
@@ -140,10 +136,7 @@ func initEEPROM() error {
 		return nil
 	}
 
-	// TODO
-	log.Println("EEPROM data does not match what is saved to file. Not too sure what we should do here...")
-
-	return nil
+	return fmt.Errorf("EEPROM data does not match what is saved to file. Not too sure what we should do here")
 }
 
 func (eeprom *eepromData) Equal(other *eepromData) bool {
