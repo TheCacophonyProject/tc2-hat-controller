@@ -9,7 +9,6 @@ require (
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
 	github.com/alexflint/go-arg v1.4.3
 	github.com/godbus/dbus v4.1.0+incompatible
-	github.com/google/uuid v1.1.2
 	github.com/sirupsen/logrus v1.2.0
 	github.com/snksoft/crc v1.1.0
 	github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
