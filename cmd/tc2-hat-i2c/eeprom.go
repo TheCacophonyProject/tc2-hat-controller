@@ -32,18 +32,18 @@ type eepromData struct {
 // file when the camera is put together.
 var defaultEEPROM = &eepromData{
 	Major: 0,
-	Minor: 1,
-	Patch: 4,
+	Minor: 4,
+	Patch: 1,
 	ID:    generateRandomID(),
 	Time:  time.Now().Truncate(time.Second),
 }
 
 // Hardware version if no EEPROM chip is found.
-// If no EEPROM chip is found then it is a earlier version of the PCB so we set it to 0.1.3
+// If no EEPROM chip is found then it is a earlier version of the PCB so we set it to 0.1.4
 var noEEPROMChip = &eepromData{
 	Major: 0,
 	Minor: 1,
-	Patch: 3,
+	Patch: 4,
 	ID:    generateRandomID(),
 	Time:  time.Now().Truncate(time.Second),
 }

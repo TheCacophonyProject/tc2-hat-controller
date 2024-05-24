@@ -19,9 +19,11 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -96,6 +98,7 @@ const (
 	attinyMinorVersion = 8
 	attinyI2CAddress   = 0x25
 	hexFile            = "/etc/cacophony/attiny-firmware.hex"
+	eepromData         = "/etc/cacophony/eeprom-data.json"
 	i2cTypeVal         = 0xCA
 )
 
@@ -476,13 +479,43 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 
 }
 
+/*
+ Voltage Divider Circuit Diagram
+
+  V_bat
+   |
+  R1
+   |-- V_out
+  R2
+   |
+  GND
+
+ V_bat = V_in * ((R1 + R2)/R2)
+*/
+
 func (a *attiny) readMainBattery() (float32, error) {
 	raw, err := a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
 	if err != nil {
 		return 0, err
 	}
-	v := float32(raw) * 3.3 / 1023
-	return v * (2000 + 150 + 22) / (150 + 22), nil
+	var r1, r2, vref float32
+	hardwareVersion, err := getHardwareVersion()
+	if err != nil {
+		return 0, err
+	}
+	if hardwareVersion == "0.1.4" {
+		r1 = 2000
+		r2 = 172
+		vref = 3.3
+	} else {
+		r1 = 2000
+		r2 = 168
+		vref = 3.3
+	}
+
+	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
+	log.Println(raw)
+	return v * (r1 + r2) / (r2), nil
 }
 
 func (a *attiny) readRTCBattery() (float32, error) {
@@ -498,8 +531,48 @@ func (a *attiny) readLVBattery() (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-	v := float32(raw) * 3.3 / 1023
-	return v * (2000 + 560 + 33) / (560 + 33), nil
+
+	var r1, r2, vref float32
+	hardwareVersion, err := getHardwareVersion()
+	if err != nil {
+		return 0, err
+	}
+	if hardwareVersion == "0.1.4" {
+		r1 = 2000
+		r2 = 560 + 33
+		vref = 3.3
+	} else {
+		r1 = 2000
+		r2 = 680
+		vref = 3.325
+	}
+
+	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
+	log.Println(raw)
+	return v * (r1 + r2) / (r2), nil
+}
+
+func getHardwareVersion() (string, error) {
+	// Read json from file to get hardware version
+	data, err := os.ReadFile(eepromData)
+	if err != nil {
+		return "", err
+	}
+	type HardwareVersion struct {
+		Major int `json:"major"`
+		Minor int `json:"minor"`
+		Patch int `json:"patch"`
+	}
+
+	hardwareVersion := &HardwareVersion{}
+	if err := json.Unmarshal(data, hardwareVersion); err != nil {
+		return "", err
+	}
+	if hardwareVersion.Major == 0 && hardwareVersion.Minor == 0 && hardwareVersion.Patch == 0 {
+		return "", fmt.Errorf("failed to get hardware version")
+	}
+
+	return fmt.Sprintf("%d.%d.%d", hardwareVersion.Major, hardwareVersion.Minor, hardwareVersion.Patch), nil
 }
 
 func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
