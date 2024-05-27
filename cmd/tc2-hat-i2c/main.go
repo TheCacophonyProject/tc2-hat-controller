@@ -17,12 +17,11 @@ var version = "<not set>"
 var log = logrus.New()
 
 type Args struct {
-	Write       *Write              `arg:"subcommand:write"   help:"Write to a register."`
-	Read        *Read               `arg:"subcommand:read"    help:"Read from a register."`
-	Service     *subcommand         `arg:"subcommand:service" help:"Start the dbus service."`
-	Find        *Find               `arg:"subcommand:find"    help:"Find i2c devices."`
-	LogLevel    string              `arg:"-l, --loglevel" default:"info" help:"Set the logging level (debug, info, warn, error)"`
-	WriteEEPROM *writeEEPROMCommand `arg:"subcommand:write-eeprom" help:"Program the EEPROM, this should only be used when setting up devices."`
+	Write    *Write      `arg:"subcommand:write"   help:"Write to a register."`
+	Read     *Read       `arg:"subcommand:read"    help:"Read from a register."`
+	Service  *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
+	Find     *Find       `arg:"subcommand:find"    help:"Find i2c devices."`
+	LogLevel string      `arg:"-l, --loglevel" default:"info" help:"Set the logging level (debug, info, warn, error)"`
 }
 
 type writeEEPROMCommand struct {
@@ -106,9 +105,6 @@ func runMain() error {
 	}
 	if args.Find != nil {
 		return find(args.Find)
-	}
-	if args.WriteEEPROM != nil {
-		return writeEEPROM(args.WriteEEPROM)
 	}
 
 	if args.Service != nil {
