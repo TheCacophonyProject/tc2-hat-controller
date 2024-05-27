@@ -1,4 +1,4 @@
-package main
+package eeprom
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -19,7 +20,7 @@ const (
 	EEPROM_FILE       = "/etc/cacophony/eeprom-data.json"
 )
 
-type eepromData struct {
+type EepromData struct {
 	Version byte      `json:"version"`
 	Major   byte      `json:"major"`
 	Minor   byte      `json:"minor"`
@@ -31,28 +32,28 @@ type eepromData struct {
 // Retroactively add data to eeprom if it doesn't exist.
 // This should be removed at a future point and the data should be written to the flash
 // file when the camera is put together.
-var defaultEEPROM = &eepromData{
+var defaultEEPROM = &EepromData{
 	Version: 1,
 	Major:   0,
 	Minor:   4,
 	Patch:   1,
-	ID:      generateRandomID(),
+	ID:      GenerateRandomID(),
 	Time:    time.Now().Truncate(time.Second),
 }
 
 // Hardware version if no EEPROM chip is found.
 // If no EEPROM chip is found then it is a earlier version of the PCB so we set it to 0.1.4
-var noEEPROMChip = &eepromData{
+var noEEPROMChip = &EepromData{
 	Version: 1,
 	Major:   0,
 	Minor:   1,
 	Patch:   4,
-	ID:      generateRandomID(),
+	ID:      GenerateRandomID(),
 	Time:    time.Now().Truncate(time.Second),
 }
 
-// generateRandomID generates a 64-bit random identifier
-func generateRandomID() uint64 {
+// GenerateRandomID generates a 64-bit random identifier
+func GenerateRandomID() uint64 {
 	var id [8]byte
 	_, err := rand.Read(id[:])
 	if err != nil {
@@ -74,7 +75,7 @@ var errEepromCRCFail = errors.New("eeprom CRC check failed")
 // EEPROM chip found, data. File exists.			    	// Success.																	// Done
 // EEPROM chip found, wrong data.							    	// Should error.
 
-func initEEPROM() error {
+func InitEEPROM() error {
 	// Clear EEPROM for testing
 	/*
 		a := []byte{
@@ -99,7 +100,7 @@ func initEEPROM() error {
 			if err := writeEEPROMToFile(defaultEEPROM); err != nil {
 				return fmt.Errorf("failed to write eeprom data to file: %v", err)
 			}
-			return writeStateToEEPROM(defaultEEPROM)
+			return WriteStateToEEPROM(defaultEEPROM)
 		} else if err != nil {
 			return fmt.Errorf("failed to get eeprom data from chip: %v", err)
 		}
@@ -124,7 +125,7 @@ func initEEPROM() error {
 		}
 	}
 
-	log.Info("Reading EEPROM data.")
+	log.Println("Reading EEPROM data.")
 	eepromFromChip, err := getEepromDataFromChip()
 	if err == errEepromCRCFail && eepromFromChip != nil && eepromFromChip.Version == 0 {
 		log.Println("EEPROM does not have a version number, adding it.")
@@ -133,7 +134,7 @@ func initEEPROM() error {
 			if err := writeEEPROMToFile(defaultEEPROM); err != nil {
 				return fmt.Errorf("failed to write eeprom data to file: %v", err)
 			}
-			return writeStateToEEPROM(defaultEEPROM)
+			return WriteStateToEEPROM(defaultEEPROM)
 		}
 	} else if err != nil {
 		return fmt.Errorf("failed to get eeprom data from chip: %v", err)
@@ -152,7 +153,7 @@ func initEEPROM() error {
 	return fmt.Errorf("EEPROM data does not match what is saved to file. Not too sure what we should do here")
 }
 
-func (eeprom *eepromData) Equal(other *eepromData) bool {
+func (eeprom *EepromData) Equal(other *EepromData) bool {
 	return eeprom.Major == other.Major &&
 		eeprom.Minor == other.Minor &&
 		eeprom.Patch == other.Patch &&
@@ -160,7 +161,7 @@ func (eeprom *eepromData) Equal(other *eepromData) bool {
 		eeprom.Time.Equal(other.Time)
 }
 
-func getEepromDataFromChip() (*eepromData, error) {
+func getEepromDataFromChip() (*EepromData, error) {
 	// TODO Get length depending on the version of the data on the eeprom.
 	// Length of data:
 	// Magic: 1
@@ -219,7 +220,7 @@ func getEepromDataFromChip() (*eepromData, error) {
 	readTime := time.Unix(int64(timestamp), 0)
 	readTime = readTime.Truncate(time.Second)
 
-	e := &eepromData{
+	e := &EepromData{
 		Version: version,
 		Major:   major,
 		Minor:   minor,
@@ -234,7 +235,7 @@ func getEepromDataFromChip() (*eepromData, error) {
 	return e, nil
 }
 
-func writeStateToEEPROM(eeprom *eepromData) error {
+func WriteStateToEEPROM(eeprom *EepromData) error {
 	// Check that the device has a eeprom chip
 	err := i2crequest.CheckAddress(EEPROM_ADDRESS, 1000)
 	if err != nil {
@@ -300,7 +301,7 @@ func writeStateToEEPROM(eeprom *eepromData) error {
 	return nil
 }
 
-func writeEEPROMToFile(eeprom *eepromData) error {
+func writeEEPROMToFile(eeprom *EepromData) error {
 	eeprom.Time = eeprom.Time.Truncate(time.Second)
 	data, err := json.MarshalIndent(eeprom, "", "  ")
 	if err != nil {
@@ -315,13 +316,13 @@ func writeEEPROMToFile(eeprom *eepromData) error {
 	return nil
 }
 
-func readEEPROMFromFile() (*eepromData, error) {
+func readEEPROMFromFile() (*EepromData, error) {
 	data, err := os.ReadFile(EEPROM_FILE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read eeprom data from file: %v", err)
 	}
 
-	var eeprom eepromData
+	var eeprom EepromData
 	err = json.Unmarshal(data, &eeprom)
 	eeprom.Time = eeprom.Time.Truncate(time.Second)
 	if err != nil {

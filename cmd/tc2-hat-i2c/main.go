@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheCacophonyProject/tc2-hat-controller/eeprom"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 	"github.com/alexflint/go-arg"
 	"github.com/sirupsen/logrus"
@@ -16,11 +17,16 @@ var version = "<not set>"
 var log = logrus.New()
 
 type Args struct {
-	Write    *Write      `arg:"subcommand:write"   help:"Write to a register."`
-	Read     *Read       `arg:"subcommand:read"    help:"Read from a register."`
-	Service  *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
-	Find     *Find       `arg:"subcommand:find"    help:"Find i2c devices."`
-	LogLevel string      `arg:"-l, --loglevel" default:"info" help:"Set the logging level (debug, info, warn, error)"`
+	Write       *Write              `arg:"subcommand:write"   help:"Write to a register."`
+	Read        *Read               `arg:"subcommand:read"    help:"Read from a register."`
+	Service     *subcommand         `arg:"subcommand:service" help:"Start the dbus service."`
+	Find        *Find               `arg:"subcommand:find"    help:"Find i2c devices."`
+	LogLevel    string              `arg:"-l, --loglevel" default:"info" help:"Set the logging level (debug, info, warn, error)"`
+	WriteEEPROM *writeEEPROMCommand `arg:"subcommand:write-eeprom" help:"Program the EEPROM, this should only be used when setting up devices."`
+}
+
+type writeEEPROMCommand struct {
+	HardwareVersion string `arg:"required" help:"The hardware version of the device you want to program"`
 }
 
 type subcommand struct {
@@ -101,13 +107,16 @@ func runMain() error {
 	if args.Find != nil {
 		return find(args.Find)
 	}
+	if args.WriteEEPROM != nil {
+		return writeEEPROM(args.WriteEEPROM)
+	}
 
 	if args.Service != nil {
 		if err := startService(); err != nil {
 			return err
 		}
 
-		if err := initEEPROM(); err != nil {
+		if err := eeprom.InitEEPROM(); err != nil {
 			log.Error(err)
 		}
 
@@ -116,6 +125,42 @@ func runMain() error {
 		}
 	}
 
+	return nil
+}
+
+func writeEEPROM(args *writeEEPROMCommand) error {
+
+	parts := strings.Split(args.HardwareVersion, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid hardware version '%s'", args.HardwareVersion)
+	}
+
+	major, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return err
+	}
+	minor, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return err
+	}
+	patch, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return err
+	}
+
+	eepromData := &eeprom.EepromData{
+		Version: 1,
+		Major:   byte(major),
+		Minor:   byte(minor),
+		Patch:   byte(patch),
+		ID:      eeprom.GenerateRandomID(),
+		Time:    time.Now().Truncate(time.Second),
+	}
+
+	log.Printf("Writing EEPROM data: %+v", eepromData)
+	eeprom.WriteStateToEEPROM(eepromData)
+
+	log.Println("EEPROM data written to file.")
 	return nil
 }
 
