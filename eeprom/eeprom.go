@@ -235,6 +235,34 @@ func getEepromDataFromChip() (*EepromData, error) {
 	return e, nil
 }
 
+func (e *EepromData) WriteData() []byte {
+	// Hardware version data
+	hardwareVersionData := []byte{
+		e.Major,
+		e.Minor,
+		e.Patch,
+	}
+
+	// ID data
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, e.ID)
+
+	// Current time as Unix timestamp (32-bit)
+	currentTime := uint32(e.Time.Unix())
+	timeBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(timeBytes, currentTime)
+
+	// Combine all parts into a single byte slice. Set first byte as EEPROM_FIRST_BYTE
+	dataToWrite := append([]byte{EEPROM_FIRST_BYTE}, e.Version)
+	dataToWrite = append(dataToWrite, hardwareVersionData...)
+	dataToWrite = append(dataToWrite, idBytes...)
+	dataToWrite = append(dataToWrite, timeBytes...)
+	crc := i2crequest.CalculateCRC(dataToWrite)
+	dataToWrite = append(dataToWrite, byte(crc>>8), byte(crc&0xFF))
+
+	return dataToWrite
+}
+
 func WriteStateToEEPROM(eeprom *EepromData) error {
 	// Check that the device has a eeprom chip
 	err := i2crequest.CheckAddress(EEPROM_ADDRESS, 1000)
@@ -242,29 +270,7 @@ func WriteStateToEEPROM(eeprom *EepromData) error {
 		return err
 	}
 
-	// Hardware version data
-	hardwareVersionData := []byte{
-		eeprom.Major,
-		eeprom.Minor,
-		eeprom.Patch,
-	}
-
-	// ID data
-	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, eeprom.ID)
-
-	// Current time as Unix timestamp (32-bit)
-	currentTime := uint32(eeprom.Time.Unix())
-	timeBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(timeBytes, currentTime)
-
-	// Combine all parts into a single byte slice. Set first byte as EEPROM_FIRST_BYTE
-	dataToWrite := append([]byte{EEPROM_FIRST_BYTE}, eeprom.Version)
-	dataToWrite = append(dataToWrite, hardwareVersionData...)
-	dataToWrite = append(dataToWrite, idBytes...)
-	dataToWrite = append(dataToWrite, timeBytes...)
-	crc := i2crequest.CalculateCRC(dataToWrite)
-	dataToWrite = append(dataToWrite, byte(crc>>8), byte(crc&0xFF))
+	dataToWrite := eeprom.WriteData()
 
 	// Append the address of 0x00 to the start of the data
 	pageLength := 16 // Can only read one page on the eeprom chip at a time

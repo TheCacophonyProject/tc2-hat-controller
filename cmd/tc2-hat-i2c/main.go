@@ -24,10 +24,6 @@ type Args struct {
 	LogLevel string      `arg:"-l, --loglevel" default:"info" help:"Set the logging level (debug, info, warn, error)"`
 }
 
-type writeEEPROMCommand struct {
-	HardwareVersion string `arg:"required" help:"The hardware version of the device you want to program"`
-}
-
 type subcommand struct {
 }
 
@@ -121,42 +117,6 @@ func runMain() error {
 		}
 	}
 
-	return nil
-}
-
-func writeEEPROM(args *writeEEPROMCommand) error {
-
-	parts := strings.Split(args.HardwareVersion, ".")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid hardware version '%s'", args.HardwareVersion)
-	}
-
-	major, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return err
-	}
-	minor, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return err
-	}
-	patch, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
-		return err
-	}
-
-	eepromData := &eeprom.EepromData{
-		Version: 1,
-		Major:   byte(major),
-		Minor:   byte(minor),
-		Patch:   byte(patch),
-		ID:      eeprom.GenerateRandomID(),
-		Time:    time.Now().Truncate(time.Second),
-	}
-
-	log.Printf("Writing EEPROM data: %+v", eepromData)
-	eeprom.WriteStateToEEPROM(eepromData)
-
-	log.Println("EEPROM data written to file.")
 	return nil
 }
 
