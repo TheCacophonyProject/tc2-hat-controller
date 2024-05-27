@@ -20,32 +20,35 @@ const (
 )
 
 type eepromData struct {
-	Major byte      `json:"major"`
-	Minor byte      `json:"minor"`
-	Patch byte      `json:"patch"`
-	ID    uint64    `json:"id"`
-	Time  time.Time `json:"time"`
+	Version byte      `json:"version"`
+	Major   byte      `json:"major"`
+	Minor   byte      `json:"minor"`
+	Patch   byte      `json:"patch"`
+	ID      uint64    `json:"id"`
+	Time    time.Time `json:"time"`
 }
 
 // Retroactively add data to eeprom if it doesn't exist.
 // This should be removed at a future point and the data should be written to the flash
 // file when the camera is put together.
 var defaultEEPROM = &eepromData{
-	Major: 0,
-	Minor: 4,
-	Patch: 1,
-	ID:    generateRandomID(),
-	Time:  time.Now().Truncate(time.Second),
+	Version: 1,
+	Major:   0,
+	Minor:   4,
+	Patch:   1,
+	ID:      generateRandomID(),
+	Time:    time.Now().Truncate(time.Second),
 }
 
 // Hardware version if no EEPROM chip is found.
 // If no EEPROM chip is found then it is a earlier version of the PCB so we set it to 0.1.4
 var noEEPROMChip = &eepromData{
-	Major: 0,
-	Minor: 1,
-	Patch: 4,
-	ID:    generateRandomID(),
-	Time:  time.Now().Truncate(time.Second),
+	Version: 1,
+	Major:   0,
+	Minor:   1,
+	Patch:   4,
+	ID:      generateRandomID(),
+	Time:    time.Now().Truncate(time.Second),
 }
 
 // generateRandomID generates a 64-bit random identifier
@@ -59,6 +62,7 @@ func generateRandomID() uint64 {
 }
 
 var errEepromEmptyError = errors.New("eeprom no data found")
+var errEepromCRCFail = errors.New("eeprom CRC check failed")
 
 // Things to test.
 // No EEPROM chip found. No file exists.				    // Should make default eeprom data file.		// Done
@@ -122,7 +126,16 @@ func initEEPROM() error {
 
 	log.Info("Reading EEPROM data.")
 	eepromFromChip, err := getEepromDataFromChip()
-	if err != nil {
+	if err == errEepromCRCFail && eepromFromChip != nil && eepromFromChip.Version == 0 {
+		log.Println("EEPROM does not have a version number, adding it.")
+		if eepromFromChip.Version == 0 {
+			log.Println("EEPROM version is 0. Creating it with default values.")
+			if err := writeEEPROMToFile(defaultEEPROM); err != nil {
+				return fmt.Errorf("failed to write eeprom data to file: %v", err)
+			}
+			return writeStateToEEPROM(defaultEEPROM)
+		}
+	} else if err != nil {
 		return fmt.Errorf("failed to get eeprom data from chip: %v", err)
 	}
 
@@ -148,9 +161,28 @@ func (eeprom *eepromData) Equal(other *eepromData) bool {
 }
 
 func getEepromDataFromChip() (*eepromData, error) {
-	data, err := i2crequest.Tx(EEPROM_ADDRESS, []byte{0x00}, 16, 1000)
-	if err != nil {
-		return nil, err
+	// TODO Get length depending on the version of the data on the eeprom.
+	// Length of data:
+	// Magic: 1
+	// Version: 1
+	// HardwareVersion 3
+	// ID: 8
+	// Time: 4
+	// CRC: 2
+	eepromDataLength := 1 + 1 + 3 + 8 + 4 + 2
+
+	pageLength := 16 // Can only read one page on the eeprom chip at a time
+	data := []byte{}
+	for i := 0; i < eepromDataLength; i += pageLength {
+		readLen := min(pageLength, eepromDataLength-i)
+		pageData, err := i2crequest.Tx(EEPROM_ADDRESS, []byte{byte(i)}, readLen, 1000)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, pageData...)
+	}
+	if len(data) != eepromDataLength {
+		return nil, fmt.Errorf("expected %d bytes, got %d", eepromDataLength, len(data))
 	}
 	all0xFF := true
 	for _, b := range data {
@@ -163,35 +195,43 @@ func getEepromDataFromChip() (*eepromData, error) {
 		return nil, errEepromEmptyError
 	}
 
-	if len(data) != 16 {
-		return nil, fmt.Errorf("invalid data length: %d, should be 16", len(data))
-	}
+	calculatedCRC := i2crequest.CalculateCRC(data[:len(data)-2])
+	receivedCRC := uint16(data[len(data)-2])<<8 | uint16(data[len(data)-1])
+
 	if data[0] != EEPROM_FIRST_BYTE {
 		return nil, fmt.Errorf("invalid first byte: %#02X, expecting %#02X", data[0], EEPROM_FIRST_BYTE)
 	}
 	data = data[1:] // Remove the first byte
 
+	version := data[0]
+
 	// Extract hardware version
-	major := data[0]
-	minor := data[1]
-	patch := data[2]
+	major := data[1]
+	minor := data[2]
+	patch := data[3]
 
 	// Extract id
-	id := binary.BigEndian.Uint64(data[3:11])
+	id := binary.BigEndian.Uint64(data[4:12])
 
 	// Extract timestamp
-	timeBytes := data[11:15]
+	timeBytes := data[12:16]
 	timestamp := binary.BigEndian.Uint32(timeBytes)
 	readTime := time.Unix(int64(timestamp), 0)
 	readTime = readTime.Truncate(time.Second)
 
-	return &eepromData{
-		Major: major,
-		Minor: minor,
-		Patch: patch,
-		ID:    id,
-		Time:  readTime,
-	}, nil
+	e := &eepromData{
+		Version: version,
+		Major:   major,
+		Minor:   minor,
+		Patch:   patch,
+		ID:      id,
+		Time:    readTime,
+	}
+
+	if calculatedCRC != receivedCRC {
+		return e, errEepromCRCFail
+	}
+	return e, nil
 }
 
 func writeStateToEEPROM(eeprom *eepromData) error {
@@ -218,22 +258,39 @@ func writeStateToEEPROM(eeprom *eepromData) error {
 	binary.BigEndian.PutUint32(timeBytes, currentTime)
 
 	// Combine all parts into a single byte slice. Set first byte as EEPROM_FIRST_BYTE
-	dataToWrite := append([]byte{EEPROM_FIRST_BYTE}, hardwareVersionData...)
+	dataToWrite := append([]byte{EEPROM_FIRST_BYTE}, eeprom.Version)
+	dataToWrite = append(dataToWrite, hardwareVersionData...)
 	dataToWrite = append(dataToWrite, idBytes...)
 	dataToWrite = append(dataToWrite, timeBytes...)
+	crc := i2crequest.CalculateCRC(dataToWrite)
+	dataToWrite = append(dataToWrite, byte(crc>>8), byte(crc&0xFF))
 
 	// Append the address of 0x00 to the start of the data
-	_, err = i2crequest.Tx(EEPROM_ADDRESS, append([]byte{0x00}, dataToWrite...), 0, 1000)
-	if err != nil {
-		return err
+	pageLength := 16 // Can only read one page on the eeprom chip at a time
+	dataLength := len(dataToWrite)
+	for i := 0; i < dataLength; i += pageLength {
+		writeLen := min(pageLength, dataLength-i)
+		pageWriteData := dataToWrite[i : i+writeLen]
+		_, err = i2crequest.Tx(EEPROM_ADDRESS, append([]byte{byte(i)}, pageWriteData...), 0, 1000)
+		if err != nil {
+			return err
+		}
 	}
 	log.Println("Data written to EEPROM", dataToWrite)
 
-	// Check that the data has been written correctly
-	readData, err := i2crequest.Tx(EEPROM_ADDRESS, []byte{0x00}, len(dataToWrite), 1000)
-	if err != nil {
-		return err
+	eepromDataLength := 1 + 1 + 3 + 8 + 4 + 2
+
+	pageLength = 16 // Can only read one page on the eeprom chip at a time
+	readData := []byte{}
+	for i := 0; i < eepromDataLength; i += pageLength {
+		readLen := min(pageLength, eepromDataLength-i)
+		pageData, err := i2crequest.Tx(EEPROM_ADDRESS, []byte{byte(i)}, readLen, 1000)
+		if err != nil {
+			return err
+		}
+		readData = append(readData, pageData...)
 	}
+	// Check that the data has been written correctly
 
 	log.Println("Data read from EEPROM", readData)
 	if !bytes.Equal(readData, dataToWrite) {
