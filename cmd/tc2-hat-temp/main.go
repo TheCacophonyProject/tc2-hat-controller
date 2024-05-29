@@ -1,6 +1,6 @@
 /*
-SHT3x - Connecting to the SHT3x sensor.
-Copyright (C) 2023, The Cacophony Project
+SHT3x - Connecting to the AHT20 sensor.
+Copyright (C) 2024, The Cacophony Project
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -20,32 +20,38 @@ package main
 
 import (
 	"errors"
-	"log"
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
+	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 	arg "github.com/alexflint/go-arg"
-	"github.com/snksoft/crc"
-	"periph.io/x/conn/v3/i2c"
-	"periph.io/x/conn/v3/i2c/i2creg"
-	"periph.io/x/host/v3"
+	"github.com/sigurn/crc8"
+	"github.com/sirupsen/logrus"
 )
 
 const (
-	i2cAddress      = 0x44
+	AHT20Address    = 0x38
 	maxTxAttempts   = 3
 	txRetryInterval = time.Second
-
-	// TODO make this configurable and check what are sensible values.
-	// TODO make the service restart if the config changes.
-	TEMP_MAX     = 50.0
-	HUMIDITY_MAX = 50.0
-	TEMP_MIN     = -10
 )
 
 var version = "No version provided"
 
+var log = logrus.New()
+
 type argSpec struct {
-	I2cAddress uint16 `arg:"--address" help:"Address of MMC5603NJ sensor"`
+	LowTemp               int    `arg:"--low-temp" help:"Temperatures below this will be reported as low"`
+	MinTemp               int    `arg:"--min-temp" help:"Temperatures below this will result in powering off the system //TODO"` //TODO
+	HighTemp              int    `arg:"--high-temp" help:"Temperatures above this will be reported as high"`
+	MaxTemp               int    `arg:"--max-temp" help:"Temperatures above this will result is powering off the system //TODO"` //TODO
+	HighHumidity          int    `arg:"--high-humidity" help:"Humidities above this will be reported as high"`
+	MaxHumidity           int    `arg:"--max-humidity" help:"Humidities above this will result in powering off the system //TODO"` //TODO
+	SampleRateSeconds     int    `arg:"--sample-rate" help:"Sample rate in seconds"`
+	LogRateMinutes        int    `arg:"--log-rate" help:"Log rate in minutes"`
+	ReportIntervalMinutes int    `arg:"--report-interval" help:"Max time between temperature reports in minutes"`
+	LogLevel              string `arg:"-l, --log-level" default:"info" help:"Set the logging level (debug, info, warn, error)"`
 }
 
 func (argSpec) Version() string {
@@ -54,10 +60,40 @@ func (argSpec) Version() string {
 
 func procArgs() argSpec {
 	args := argSpec{
-		I2cAddress: i2cAddress,
+		LowTemp:               -10,
+		MinTemp:               5,
+		HighTemp:              50,
+		MaxTemp:               80,
+		HighHumidity:          50,
+		MaxHumidity:           80,
+		SampleRateSeconds:     60,
+		LogRateMinutes:        5,
+		ReportIntervalMinutes: 120,
 	}
 	arg.MustParse(&args)
 	return args
+}
+
+func setLogLevel(level string) {
+	switch level {
+	case "debug":
+		log.SetLevel(logrus.DebugLevel)
+	case "info":
+		log.SetLevel(logrus.InfoLevel)
+	case "warn":
+		log.SetLevel(logrus.WarnLevel)
+	case "error":
+		log.SetLevel(logrus.ErrorLevel)
+	default:
+		log.SetLevel(logrus.InfoLevel)
+		log.Warn("Unknown log level, defaulting to info")
+	}
+}
+
+type customFormatter struct{}
+
+func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	return []byte(fmt.Sprintf("[%s] %s\n", strings.ToUpper(entry.Level.String()), entry.Message)), nil
 }
 
 func main() {
@@ -68,110 +104,135 @@ func main() {
 }
 
 func runMain() error {
+	log.SetFormatter(new(customFormatter))
 	args := procArgs()
-	log.SetFlags(0) // Removes default timestamp flag
-	log.Printf("Running version: %s", version)
+	setLogLevel(args.LogLevel)
 
-	if _, err := host.Init(); err != nil {
-		return err
-	}
-	log.Println("Connecting to I2C bus.")
-	bus, err := i2creg.Open("")
-	if err != nil {
-		return err
-	}
+	log.Info("Running version: ", version)
 
-	log.Printf("Connecting to humidity and temperature sensor at I2C address '0x%x'", args.I2cAddress)
-	dev := &i2c.Dev{Bus: bus, Addr: args.I2cAddress}
-	defer bus.Close()
-	// Perform a dummy read to check if device is present.
-	//TODO this check isn't working at the moment.
-	//if err := dev.Tx([]byte{}, []byte{0}); err != nil {
-	//	return fmt.Errorf("failed to connect to device: %w", err)
-	//}
+	lastReportTime := time.Time{}
+	reportInterval := time.Duration(args.ReportIntervalMinutes) * time.Minute
+	log.Debug("Setting report interval to", reportInterval)
 
-	log.Println("Connected.")
-	s := SHT3x{
-		dev: dev,
-	}
+	lastLogTime := time.Time{}
+	logRate := time.Duration(args.LogRateMinutes) * time.Minute
+	log.Debug("Setting log rate to", logRate)
+
+	sampleRateDuration := time.Duration(args.SampleRateSeconds) * time.Second
+
 	for {
-		temp, humidity, err := s.MakeReading()
+		temp, humidity, err := makeReading()
 		if err != nil {
 			return err
 		}
-		log.Printf("Temp: %.2f, Humidity: %.2f", temp, humidity)
 
-		if temp > TEMP_MAX {
-			log.Println("Temp too high!")
-			//TODO do something..
-		}
-		if temp < TEMP_MIN {
-			log.Println("Temp too low!")
-			//TODO do something..
-		}
-		if humidity > HUMIDITY_MAX {
-			log.Println("Humidity too high!")
-			//TOOD do something..
+		if time.Since(lastLogTime) > logRate {
+			log.Infof("Temp: %.2f, Humidity: %.2f", temp, humidity)
+			lastLogTime = time.Now()
+		} else {
+			log.Debugf("Temp: %.2f, Humidity: %.2f", temp, humidity)
 		}
 
-		time.Sleep(time.Minute)
+		reportType := ""
+
+		if time.Since(lastReportTime) > reportInterval {
+			reportType = "tempHumidity"
+		}
+
+		if temp > float32(args.HighTemp) {
+			log.Info("Temp too high!")
+			reportType = "tempTooHigh"
+		}
+		if temp < float32(args.LowTemp) {
+			log.Info("Temp too low!")
+			reportType = "tempTooLow"
+		}
+		if humidity > float32(args.HighHumidity) {
+			log.Info("Humidity too high!")
+			reportType = "humidityTooHigh"
+		}
+
+		if reportType != "" {
+			log.Println("Reporting", reportType)
+			err := eventclient.AddEvent(eventclient.Event{
+				Timestamp: time.Now(),
+				Type:      reportType,
+				Details: map[string]interface{}{
+					"temp":     temp,
+					"humidity": humidity,
+				},
+			})
+			if err != nil {
+				return err
+			}
+			lastReportTime = time.Now()
+		}
+
+		time.Sleep(sampleRateDuration)
 	}
 }
 
-type SHT3x struct {
-	dev *i2c.Dev
-}
-
-func (s *SHT3x) MakeReading() (float32, float32, error) {
-	//Send make reading command
-	if err := s.tx([]byte{0x24, 0x00}, nil); err != nil {
+func makeReading() (float32, float32, error) {
+	// Get status
+	statusResult, err := i2crequest.Tx(AHT20Address, []byte{0x71}, 1, 1000)
+	if err != nil {
 		return 0, 0, err
 	}
-	time.Sleep(30 * time.Millisecond)
-	data := make([]byte, 6)
-	if err := s.tx(nil, data); err != nil {
+	if (statusResult[0] & 0x18) != 0x18 {
+		return 0, 0, fmt.Errorf("status check failed: 0x%x", statusResult[0])
+	}
+
+	// Trigger reading
+	_, err = i2crequest.Tx(AHT20Address, []byte{0xAC, 0x33, 0x00}, 0, 1000)
+	if err != nil {
 		return 0, 0, err
 	}
-	crcTable := crc.NewTable(&crc.Parameters{
-		Width:      8,
-		Polynomial: 0x31,
-		ReflectIn:  false,
-		ReflectOut: false,
-		Init:       0xFF,
-		FinalXor:   0x00,
-	})
 
-	// Check CRC
-	if crcTable.CalculateCRC(data[0:2]) != uint64(data[2]) {
-		return 0, 0, errors.New("crc for temp does not match")
+	// Wait for measurement to be made.
+	time.Sleep(100 * time.Millisecond)
+	ready := false
+	var rawData []byte
+	for i := 0; i < maxTxAttempts; i++ {
+		// Check reading is ready by checking bit[7] is 0 of the status register (0x71).
+		rawData, err = i2crequest.Tx(AHT20Address, []byte{0x71}, 7, 1000)
+		if err != nil {
+			return 0, 0, err
+		}
+		if rawData[0]&0x80 == 0x00 {
+			ready = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	if crcTable.CalculateCRC(data[3:5]) != uint64(data[5]) {
-		return 0, 0, errors.New("crc for humidity does not match")
+	if !ready {
+		return 0, 0, errors.New("reading not ready")
 	}
-	var tempRaw, humidityRaw uint16
-	tempRaw |= uint16(data[0]) << 8
-	tempRaw |= uint16(data[1])
 
-	humidityRaw |= uint16(data[3]) << 8
-	humidityRaw |= uint16(data[4])
+	if len(rawData) != 7 {
+		return 0, 0, fmt.Errorf("reading length: %d", len(rawData))
+	}
 
-	temp := float32(-45 + 175*float32(tempRaw)/float32(65535))
-	humidity := float32(-45 + 175*float32(humidityRaw)/float32(65535))
+	humidityRaw := uint32(rawData[1])<<12 | uint32(rawData[2])<<4 | uint32(rawData[3]>>4)
+	humidity := float32(humidityRaw) / float32(1<<20) * 100
 
+	temperatureRaw := uint32(rawData[3]&0x0F)<<16 | uint32(rawData[4])<<8 | uint32(rawData[5])
+	temp := float32(temperatureRaw)/float32(1<<20)*200 - 50
+
+	crc := calculateCRC(rawData[:6])
+	if rawData[6] != crc {
+		return 0, 0, fmt.Errorf("crc failed, got: 0x%x calculated: 0x%x", rawData[6], crc)
+	}
 	return temp, humidity, nil
 }
 
-func (m *SHT3x) tx(write, read []byte) error {
-	attempts := 0
-	for {
-		err := m.dev.Tx(write, read)
-		if err == nil {
-			return nil
-		}
-		attempts++
-		if attempts >= maxTxAttempts {
-			return err
-		}
-		time.Sleep(txRetryInterval)
-	}
+func calculateCRC(data []byte) byte {
+	crcTable := crc8.MakeTable(crc8.Params{
+		Poly:   0x31, // Polynomial 1 + x^4 + x^5 + x^8
+		Init:   0xFF,
+		RefIn:  false,
+		RefOut: false,
+		XorOut: 0x00,
+	})
+	crc := crc8.Checksum(data, crcTable)
+	return crc
 }
