@@ -75,7 +75,6 @@ type customFormatter struct{}
 
 // Format builds the log message string from the log entry.
 func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	// Create a custom log message format here.
 	return []byte(fmt.Sprintf("[%s] %s\n", strings.ToUpper(entry.Level.String()), entry.Message)), nil
 }
 

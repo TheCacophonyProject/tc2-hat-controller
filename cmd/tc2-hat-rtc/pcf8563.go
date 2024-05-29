@@ -114,8 +114,8 @@ func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) erro
 			Timestamp: time.Now(),
 			Type:      "rtcNtpDrift",
 			Details: map[string]interface{}{
-				"rtcDriftSecondsPerMonth": secondsToDuration(rtcDriftSecondsPerMonth),
-				"rtcDriftSeconds":         secondsToDuration(rtcDriftSeconds),
+				"rtcDriftSecondsPerMonth": int(rtcDriftSecondsPerMonth),
+				"rtcDriftSeconds":         int(rtcDriftSeconds),
 				"integrity":               rtcIntegrity,
 			},
 		})
