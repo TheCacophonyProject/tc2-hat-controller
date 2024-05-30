@@ -514,7 +514,6 @@ func (a *attiny) readMainBattery() (float32, error) {
 	}
 
 	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
-	log.Println(raw)
 	return v * (r1 + r2) / (r2), nil
 }
 
@@ -548,7 +547,6 @@ func (a *attiny) readLVBattery() (float32, error) {
 	}
 
 	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
-	log.Println(raw)
 	return v * (r1 + r2) / (r2), nil
 }
 

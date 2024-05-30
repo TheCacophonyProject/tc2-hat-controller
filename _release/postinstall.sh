@@ -9,9 +9,8 @@ systemctl restart tc2-hat-i2c
 systemctl enable tc2-hat-rtc
 systemctl restart tc2-hat-rtc
 
-# TODO Enabe when software is ready
-systemctl disable tc2-hat-temp.service
-systemctl stop tc2-hat-temp.service
+systemctl enable tc2-hat-temp.service
+systemctl restart tc2-hat-temp.service
 
 systemctl enable tc2-hat-attiny.service
 systemctl restart tc2-hat-attiny.service
