@@ -24,8 +24,9 @@ import (
 )
 
 type AttinyConfig struct {
-	OnWindow *window.Window
-	Battery  config.Battery
+	OnWindow     *window.Window
+	Battery      config.Battery
+	LowPowerMode bool
 }
 
 func ParseConfig(configDir string) (*AttinyConfig, error) {
@@ -47,6 +48,11 @@ func ParseConfig(configDir string) (*AttinyConfig, error) {
 		return nil, err
 	}
 
+	recorder := config.DefaultThermalRecorder()
+	if err := rawConfig.Unmarshal(config.ThermalRecorderKey, &recorder); err != nil {
+		return nil, err
+	}
+
 	w, err := window.New(
 		windows.PowerOn,
 		windows.PowerOff,
@@ -57,7 +63,8 @@ func ParseConfig(configDir string) (*AttinyConfig, error) {
 	}
 
 	return &AttinyConfig{
-		OnWindow: w,
-		Battery:  battery,
+		OnWindow:     w,
+		Battery:      battery,
+		LowPowerMode: recorder.UseLowPowerMode,
 	}, nil
 }

@@ -99,8 +99,9 @@ func runMain() error {
 	}
 
 	log.Printf("Running version: %s", version)
+	conf, err := ParseConfig(args.ConfigDir)
 
-	_, err := host.Init()
+	_, err = host.Init()
 	if err != nil {
 		return err
 	}
@@ -126,6 +127,10 @@ func runMain() error {
 	go monitorVoltageLoop(attiny)
 	go checkATtinySignalLoop(attiny)
 
+	nextEnd := conf.OnWindow.NextEnd()
+	if !conf.LowPowerMode {
+		go heartBeatLoop(conf.OnWindow)
+	}
 	/*
 		go func() {
 			for {
@@ -159,6 +164,13 @@ func runMain() error {
 	}
 
 	for {
+		if !conf.LowPowerMode && time.Now().After(nextEnd) {
+			//support for non stop cameras
+			go heartBeatLoop(conf.OnWindow)
+			nextEnd = conf.OnWindow.NextEnd()
+
+		}
+
 		stayOnUntilDuration := time.Until(stayOnUntil)
 		if stayOnUntilDuration > waitDuration {
 			waitDuration = stayOnUntilDuration
