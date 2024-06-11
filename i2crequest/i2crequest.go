@@ -32,7 +32,7 @@ func CheckAddress(address byte, timeout int) error {
 }
 
 func TxWithCRC(address byte, write []byte, readLen, timeout int) ([]byte, error) {
-	writeCRC := calculateCRC(write)
+	writeCRC := CalculateCRC(write)
 	writeWithCRC := append(write, byte(writeCRC>>8), byte(writeCRC&0xFF))
 
 	if readLen != 0 {
@@ -43,7 +43,7 @@ func TxWithCRC(address byte, write []byte, readLen, timeout int) ([]byte, error)
 		return nil, err
 	}
 	if readLen > 0 {
-		calculatedCRC := calculateCRC(response[:len(response)-2])
+		calculatedCRC := CalculateCRC(response[:len(response)-2])
 		receivedCRC := uint16(response[len(response)-2])<<8 | uint16(response[len(response)-1])
 		if calculatedCRC != receivedCRC {
 			return nil, fmt.Errorf("CRC mismatch: received 0x%X, calculated 0x%X", receivedCRC, calculatedCRC)
@@ -56,7 +56,7 @@ func TxWithCRC(address byte, write []byte, readLen, timeout int) ([]byte, error)
 	}
 }
 
-func calculateCRC(data []byte) uint16 {
+func CalculateCRC(data []byte) uint16 {
 	var crc uint16 = 0x1D0F // Initial value
 	for _, b := range data {
 		crc ^= uint16(b) << 8 // Shift byte into MSB of 16bit CRC

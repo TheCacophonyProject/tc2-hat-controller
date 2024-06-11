@@ -3,17 +3,18 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/TheCacophonyProject/tc2-hat-controller/eeprom"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 	"github.com/alexflint/go-arg"
 	"github.com/sirupsen/logrus"
 )
 
 var version = "<not set>"
+var log = logrus.New()
 
 type Args struct {
 	Write    *Write      `arg:"subcommand:write"   help:"Write to a register."`
@@ -53,7 +54,7 @@ func procArgs() Args {
 	return args
 }
 
-func setLogLevel(log *logrus.Logger, level string) {
+func setLogLevel(level string) {
 	switch level {
 	case "debug":
 		log.SetLevel(logrus.DebugLevel)
@@ -74,7 +75,6 @@ type customFormatter struct{}
 
 // Format builds the log message string from the log entry.
 func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	// Create a custom log message format here.
 	return []byte(fmt.Sprintf("[%s] %s\n", strings.ToUpper(entry.Level.String()), entry.Message)), nil
 }
 
@@ -86,12 +86,11 @@ func main() {
 }
 
 func runMain() error {
-	log := logrus.New()
 	log.SetFormatter(new(customFormatter))
 	args := procArgs()
-	setLogLevel(log, args.LogLevel)
+	setLogLevel(args.LogLevel)
 
-	log.Printf("Running version: %s", version)
+	log.Infof("Running version: %s", version)
 
 	if args.Write != nil {
 		return write(args.Write)
@@ -104,9 +103,14 @@ func runMain() error {
 	}
 
 	if args.Service != nil {
-		if err := startService(log); err != nil {
+		if err := startService(); err != nil {
 			return err
 		}
+
+		if err := eeprom.InitEEPROM(); err != nil {
+			log.Error(err)
+		}
+
 		for {
 			time.Sleep(time.Second) // Sleep to prevent spinning
 		}

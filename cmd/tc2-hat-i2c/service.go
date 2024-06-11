@@ -8,7 +8,6 @@ import (
 
 	"github.com/godbus/dbus"
 	"github.com/godbus/dbus/introspect"
-	"github.com/sirupsen/logrus"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/conn/v3/i2c"
@@ -26,11 +25,10 @@ type service struct {
 	busyPin      gpio.PinIO
 	bus          i2c.Bus
 	mutex        sync.Mutex
-	log          *logrus.Logger
 	requestCount int
 }
 
-func startService(log *logrus.Logger) error {
+func startService() error {
 	log.Info("Starting I2C service")
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -67,7 +65,6 @@ func startService(log *logrus.Logger) error {
 		busyPin:  pin,
 		bus:      bus,
 		mutex:    sync.Mutex{},
-		log:      log,
 		requests: make(chan Request, 20),
 	}
 
@@ -94,6 +91,22 @@ func genIntrospectable(v interface{}) introspect.Introspectable {
 	return introspect.NewIntrospectable(node)
 }
 
+/*
+// I2C example to read a register from the ATtiny1616.
+// Address: 		0x25
+// Register:	 	0x00
+// CRC: 				0xcc,0x9c
+// Read length: 3
+// Timeout: 		100ms
+dbus-send --system --print-reply --dest=org.cacophony.i2c /org/cacophony/i2c org.cacophony.i2c.Tx \
+byte:0x25 \
+array:byte:0x00,0xcc,0x9c \
+int32:3 \
+int32:100
+*/
+
+// Tx sends a transaction to the I2C device, used for reading and writing to registers.
+// If reading/writing to the ATtiny remember the CRC bytes.
 func (s *service) Tx(address byte, write []byte, readLen int, timeout int) ([]byte, *dbus.Error) {
 	s.mutex.Lock()
 	requestID := s.requestCount
@@ -110,7 +123,7 @@ func (s *service) Tx(address byte, write []byte, readLen int, timeout int) ([]by
 		Timeout:     timeout,
 		Response:    responseChan,
 	}
-	s.log.Debugf("Adding request '%d' to the queue", requestID)
+	log.Debugf("Adding request '%d' to the queue", requestID)
 	s.requests <- request // Enqueue the request
 
 	// Wait for the response
@@ -135,13 +148,13 @@ type Response struct {
 
 func (s *service) processTransaction(req Request) Response {
 	startTime := time.Now()
-	s.log.Debugf("Waited %s for request to be processed.", startTime.Sub(req.RequestTime))
-	s.log.Debugf("Processing request '%d'", req.RequestID)
-	s.log.Debug("Waiting for I2C busy pin to go low.")
+	log.Debugf("Waited %s for request to be processed.", startTime.Sub(req.RequestTime))
+	log.Debugf("Processing request '%d'", req.RequestID)
+	log.Debug("Waiting for I2C busy pin to go low.")
 	for {
 		if s.busyPin.Read() == gpio.Low {
-			s.log.Debugf("Waited %s for I2C busy pin to go low.", time.Since(startTime))
-			s.log.Debug("I2C busy pin went low.")
+			log.Debugf("Waited %s for I2C busy pin to go low.", time.Since(startTime))
+			log.Debug("I2C busy pin went low.")
 			if err := s.busyPin.Out(gpio.High); err != nil {
 				return Response{
 					Err: dbus.NewError("org.cacophony.i2c.ErrorUsingBusyBusPin ", nil),
@@ -150,7 +163,7 @@ func (s *service) processTransaction(req Request) Response {
 			break
 		}
 		if time.Since(startTime) > time.Duration(req.Timeout)*time.Millisecond {
-			s.log.Debugf("Request '%d' timed out waiting for bus pin", req.RequestID)
+			log.Debugf("Request '%d' timed out waiting for bus pin", req.RequestID)
 			return Response{
 				Err: dbus.NewError("org.cacophony.i2c.BusyTimeout", nil),
 			}
@@ -159,32 +172,32 @@ func (s *service) processTransaction(req Request) Response {
 	}
 
 	defer s.busyPin.In(gpio.Float, gpio.NoEdge)
-	s.log.Debug("Driving pin high and locked the transaction.")
+	log.Debug("Driving pin high and locked the transaction.")
 
 	read := make([]byte, req.ReadLen)
 	retries := 2
-	s.log.Debugf("Writing %v", req.Write)
-	s.log.Debugf("Reading %d bytes", len(read))
+	log.Debugf("Writing %v", req.Write)
+	log.Debugf("Reading %d bytes", len(read))
 	for i := 0; i <= retries; i++ {
 		txStartTime := time.Now()
 		err := s.bus.Tx(uint16(req.Address), req.Write, read)
 		if err == nil {
 			endTime := time.Now()
-			s.log.Debugf("I2C Tx succeeded after %d retries", i)
-			s.log.Debugf("Total request took (including queue time) %s", endTime.Sub(req.RequestTime))
-			s.log.Debugf("I2C Tx took %s", endTime.Sub(txStartTime))
-			s.log.Debugf("Response %v", read)
+			log.Debugf("I2C Tx succeeded after %d retries", i)
+			log.Debugf("Total request took (including queue time) %s", endTime.Sub(req.RequestTime))
+			log.Debugf("I2C Tx took %s", endTime.Sub(txStartTime))
+			log.Debugf("Response %v", read)
 			return Response{
 				Data: read,
 			}
 		}
 
 		if i < retries {
-			s.log.Debugf("I2C Tx failed, retrying %d more times: %s", retries-i, err)
+			log.Debugf("I2C Tx failed, retrying %d more times: %s", retries-i, err)
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	s.log.Errorf("I2C Tx failed. Address 0x%x, Write %v, ReadLen %d, ", req.Address, req.Write, req.ReadLen)
+	log.Errorf("I2C Tx failed. Address 0x%x, Write %v, ReadLen %d, ", req.Address, req.Write, req.ReadLen)
 	return Response{
 		Err: dbus.NewError("org.cacophony.i2c.ErrorUsingI2CBus", nil),
 	}
