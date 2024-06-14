@@ -66,8 +66,8 @@ github.com/TheCacophonyProject/lepton3 v0.0.0-20200213011619-1934a9300bd3/go.mod
 github.com/TheCacophonyProject/lepton3 v0.0.0-20210324024142-003e5546e30f/go.mod h1:+FTQKx63hdEbuTe/nxNv9TQ2EWqdlzMZx7UNLGCX9SE=
 github.com/TheCacophonyProject/lepton3 v0.0.0-20211005194419-22311c15d6ee/go.mod h1:+FTQKx63hdEbuTe/nxNv9TQ2EWqdlzMZx7UNLGCX9SE=
 github.com/TheCacophonyProject/modemd v0.0.0-20190605010435-ae5b0f2eb760/go.mod h1:bfwJ/WcvDY9XtHKC5tcRfVrU8RWaW8DLYAAUfsrJr/4=
-github.com/TheCacophonyProject/rpi-net-manager v0.3.0-deb12 h1:a9Bs7qkaDIXDXGh+NSx2wtV/D8/KHx2UlskGpIUG0R4=
-github.com/TheCacophonyProject/rpi-net-manager v0.3.0-deb12/go.mod h1:6Xl1Dp7F8IyvufOv0O5EfoXQjqoA/qNLeoWh3Rv1Y0c=
+github.com/TheCacophonyProject/rpi-net-manager v0.5.3 h1:hIaFnMP3qZf+edeCIQ4cW3LvBLqOQag7wh3EYlP7MP4=
+github.com/TheCacophonyProject/rpi-net-manager v0.5.3/go.mod h1:6Xl1Dp7F8IyvufOv0O5EfoXQjqoA/qNLeoWh3Rv1Y0c=
 github.com/TheCacophonyProject/window v0.0.0-20190821235241-ab92c2ee24b6/go.mod h1:Vww417iimOb0s46Ndsm8U/vYtwc0dZUet4uW8QzBo4M=
 github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1 h1:KUHAaNDEWafYdMzbXsKogHcY9Qvnj2oyedNJ2GJyOUM=
 github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1/go.mod h1:YSrUN4uEEUFyz+wxPfRJ0kqKkXPEynTZtj88a4YLt5w=

@@ -11,7 +11,7 @@ CONFIG_LINES_TO_ADD=(
 )
 
 for line in "${CONFIG_LINES_TO_ADD[@]}"; do
-    if ! grep -q "$line" /boot/firmwareconfig.txt; then
+    if ! grep -q "$line" /boot/firmware/config.txt; then
         echo "Adding $line to /boot/firmware/config.txt"
         echo "$line" | sudo tee -a /boot/firmware/config.txt > /dev/null
     fi
