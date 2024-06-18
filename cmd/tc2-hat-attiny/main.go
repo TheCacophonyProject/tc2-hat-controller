@@ -150,66 +150,54 @@ func runMain() error {
 	log.Println(attiny.CameraState)
 
 	waitDuration := time.Duration(0)
-	waitReason := ""
+	previousOnReason := ""
+	onReason := ""
 	if args.SkipWait {
 		log.Println("Not waiting initial grace period.")
 	} else {
 		waitDuration = initialGracePeriod
-		waitReason = fmt.Sprintf("Waiting initial grace period of %s", durToStr(waitDuration))
+		onReason = fmt.Sprintf("Waiting initial grace period of %s", durToStr(waitDuration))
 	}
 
 	for {
 		stayOnUntilDuration := time.Until(stayOnUntil)
 		if stayOnUntilDuration > waitDuration {
 			waitDuration = stayOnUntilDuration
-			waitReason = fmt.Sprintf("Waiting because camera has been requested to stay on for %s", durToStr(waitDuration))
+			onReason = fmt.Sprintf("Staying on because camera has been requested to stay on for %s", durToStr(waitDuration))
 		}
 
 		if waitDuration < saltCommandWaitDuration && shouldStayOnForSalt() {
 			waitDuration = saltCommandWaitDuration
-			waitReason = fmt.Sprintf("Waiting because salt command is running, waiting %s", durToStr(waitDuration))
+			onReason = "Staying on because salt command is running"
 		}
 
+		// Check if the RP2040 wants the RPi to stay on
 		if waitDuration <= time.Duration(0) {
-			// No reason RPi wants to be on, checking if RP2040 wants RPi to be on.
-			log.Println("Checking if RP2040 wants me to stay on.")
 			val, err := attiny.readRegister(rp2040PiPowerCtrlReg)
 			if err != nil {
 				return err
 			}
-			if (val & 0x01) == 0x00 {
-				log.Println("No longer needed to be powered on, powering off")
-				/*
-					alarmTime, err := rtc.ReadAlarmTime()
-					if err != nil {
-						log.Printf("Failed to read alarm time: %s", err)
-					} else {
-						log.Println("Alarm time:", alarmTime)
-					}
-					alarmEnabled, err := rtc.ReadAlarmEnabled()
-					if err != nil {
-						log.Printf("Failed to read alarm enabled: %s", err)
-					} else {
-						log.Println("Alarm enabled:", alarmEnabled)
-					}
-				*/
-				time.Sleep(1 * time.Second)
-				if err := shutdown(attiny); err != nil {
-					return err
-				}
-				time.Sleep(time.Second * 3)
-				return nil
-			} else {
-				log.Println("RP2040 wants me to stay powered on!")
+			if (val & 0x01) == 0x01 {
+				onReason = "Staying on because RP2040 wants me to stay on"
+				waitDuration = 10 * time.Second
 			}
+		}
 
-			// TODO make this a switch with a timeout and a channel so the attiny can skip this wait if the register is updated.
-			log.Println("Waiting 10 seconds")
-			time.Sleep(10 * time.Second)
+		if waitDuration <= time.Duration(0) {
+			log.Println("No longer needed to be powered on, powering off")
+			time.Sleep(1 * time.Second)
+			if err := shutdown(attiny); err != nil {
+				return err
+			}
+			time.Sleep(time.Second * 3)
+			return nil
 		}
 
 		// TODO Make this a timeout switch with a channel trigger also so the
-		log.Println(waitReason)
+		if previousOnReason != onReason {
+			log.Println(onReason)
+			previousOnReason = onReason
+		}
 		time.Sleep(waitDuration)
 		waitDuration = time.Duration(0)
 	}
