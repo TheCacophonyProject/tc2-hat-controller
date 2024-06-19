@@ -45,6 +45,7 @@ const (
 	saltCommandMaxWaitDuration = 30 * time.Minute
 	saltCommandWaitDuration    = time.Minute
 	batteryMaxLines            = 20000
+	lvBatThresh                = 15
 )
 
 var (
@@ -224,20 +225,14 @@ func keepLastLines(filePath string, maxLines int) error {
 	return os.Rename(tmpFile, filePath)
 }
 
-const (
-	limeBatteryThreshV = 10
-	noBatteryThreshV   = 0.2
-	lvBatThresh        = 15
-)
-
 func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat float32) (float32, string, float32) {
 	var batVolt float32
 	if hvBat <= lvBatThresh {
 		batVolt = lvBat
 	} else {
 		batVolt = hvBat
-
 	}
+
 	batType, voltConfig := batteryConfig.GetBatteryVoltageThresholds(batVolt)
 
 	var upper float32 = 0
