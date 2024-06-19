@@ -39,7 +39,7 @@ const (
 	maxTxAttempts      = 3
 	txRetryInterval    = time.Second
 	maxTempReadings    = 2000
-	temperatureCSVFile = "/var/log/temp.csv"
+	temperatureCSVFile = "/var/log/temperature.csv"
 )
 
 var version = "No version provided"
