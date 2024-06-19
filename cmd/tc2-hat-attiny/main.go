@@ -269,6 +269,7 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 	}
 	var batteryPercent float32 = -1.0
 	startTime := time.Now()
+	i := 5
 	for {
 		hvBat, err := a.readMainBattery()
 		if err != nil {
@@ -296,7 +297,11 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 			log.Fatal(err)
 		}
 		line := fmt.Sprintf("%s, %.2f, %.2f, %.2f", time.Now().Format("2006-01-02 15:04:05"), hvBat, lvBat, rtcBat)
-		log.Println("Battery reading:", line)
+		if i >= 5 {
+			log.Println("Battery reading:", line)
+			i = 0
+		}
+		i++
 		_, err = file.WriteString(line + "\n")
 		file.Close()
 		if err != nil {
@@ -460,7 +465,7 @@ func setStayOnUntil(newTime time.Time) error {
 	mu.Lock()
 	if stayOnUntil.Before(newTime) {
 		stayOnUntil = newTime
-		log.Println("Staying on until", stayOnUntil.Format(time.DateTime))
+		//log.Println("Staying on until", stayOnUntil.Format(time.DateTime))
 	}
 	mu.Unlock()
 	return nil
