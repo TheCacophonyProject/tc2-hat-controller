@@ -204,6 +204,7 @@ func runMain() error {
 }
 
 func monitorVoltageLoop(a *attiny) {
+	i := 5
 	for {
 		hvBat, err := a.readMainBattery()
 		if err != nil {
@@ -222,7 +223,11 @@ func monitorVoltageLoop(a *attiny) {
 			log.Fatal(err)
 		}
 		line := fmt.Sprintf("%s, %.2f, %.2f, %.2f", time.Now().Format("2006-01-02 15:04:05"), hvBat, lvBat, rtcBat)
-		log.Println("Battery reading:", line)
+		if i >= 5 {
+			log.Println("Battery reading:", line)
+			i = 0
+		}
+		i++
 		_, err = file.WriteString(line + "\n")
 		file.Close()
 		if err != nil {
