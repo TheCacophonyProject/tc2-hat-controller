@@ -44,6 +44,7 @@ const (
 	initialGracePeriod         = 5 * time.Minute
 	saltCommandMaxWaitDuration = 30 * time.Minute
 	saltCommandWaitDuration    = time.Minute
+	batteryMaxLines            = 20000
 )
 
 var (
@@ -223,19 +224,21 @@ func keepLastLines(filePath string, maxLines int) error {
 	return os.Rename(tmpFile, filePath)
 }
 
-const limeBatteryThreshV = 10
-const noBatteryThreshV = 0.2
+const (
+	limeBatteryThreshV = 10
+	noBatteryThreshV   = 0.2
+	lvBatThresh        = 15
+)
 
-func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32) float32 {
-	if hvBat <= noBatteryThreshV {
-		return 100
-	}
-	var voltConfig map[float32]float32
-	if hvBat > limeBatteryThreshV {
-		voltConfig = batteryConfig.Lime
+func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat float32) (float32, string, float32) {
+	var batVolt float32
+	if hvBat <= lvBatThresh {
+		batVolt = lvBat
 	} else {
-		voltConfig = batteryConfig.LiIon
+		batVolt = hvBat
+
 	}
+	batType, voltConfig := batteryConfig.GetBatteryVoltageThresholds(batVolt)
 
 	var upper float32 = 0
 	var lower float32 = 0
@@ -244,18 +247,18 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32) float32 {
 		lower = upper
 		upper = voltage
 
-		if hvBat >= lower && hvBat < upper {
+		if batVolt >= lower && batVolt < upper {
 			break
 		}
-		if hvBat <= lower && hvBat <= upper {
+		if batVolt <= lower && batVolt <= upper {
 			//probably  have wrong battery config
-			log.Printf("Could not find a matching voltage range in config for %v", hvBat)
-			return voltConfig[upper]
+			log.Printf("Could not find a matching voltage range in config for %v", batVolt)
+			return voltConfig[upper], batType, batVolt
 		}
 	}
 	gradient := (voltConfig[upper] - voltConfig[lower]) / (upper - lower)
-	batteryPercent := gradient*hvBat + voltConfig[lower] - gradient*lower
-	return batteryPercent
+	batteryPercent := gradient*batVolt + voltConfig[lower] - gradient*lower
+	return batteryPercent, batType, batVolt
 }
 
 func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
@@ -263,9 +266,9 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 	if err := config.Unmarshal(goconfig.BatteryKey, &batteryConfig); err != nil {
 		return
 	}
-	err := keepLastLines("/var/log/battery-readings.csv", 500)
+	err := keepLastLines("/var/log/battery-readings.csv", batteryMaxLines)
 	if err != nil {
-		log.Printf("Could not truncate /var/log/battery-readings.csv to 500 lines %v", err)
+		log.Printf("Could not truncate /var/log/battery-readings.csv %v", err)
 	}
 	var batteryPercent float32 = -1.0
 	startTime := time.Now()
@@ -284,10 +287,10 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 			log.Fatal(err)
 		}
 		if time.Since(startTime) > time.Duration(24*time.Hour) {
-			err := keepLastLines("/var/log/battery-readings.csv", 500)
+			err := keepLastLines("/var/log/battery-readings.csv", batteryMaxLines)
 			if err != nil {
 				//not sure why it would error but should we keep trying...
-				log.Printf("Could not truncate /var/log/battery-readings.csv to 500 lines %v", err)
+				log.Printf("Could not truncate /var/log/battery-readings.csv %v", err)
 			} else {
 				startTime = time.Now()
 			}
@@ -307,15 +310,17 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		newPercent := getBatteryPercent(&batteryConfig, hvBat)
-		if batteryPercent == -1 || batteryPercent-newPercent >= 10 {
+		newPercent, batteryType, voltage := getBatteryPercent(&batteryConfig, hvBat, lvBat)
+		if batteryPercent == -1 || math.Abs(float64(batteryPercent-newPercent)) >= 10 {
 			//log battery percent
 			batteryPercent = newPercent
 			eventclient.AddEvent(eventclient.Event{
 				Timestamp: time.Now(),
 				Type:      "rpiBattery",
 				Details: map[string]interface{}{
-					"battery": math.Round((float64(batteryPercent))),
+					"battery":     math.Round((float64(batteryPercent))),
+					"batteryType": batteryType,
+					"voltage":     voltage,
 				},
 			})
 		}
