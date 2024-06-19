@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -222,15 +223,20 @@ func keepLastLines(filePath string, maxLines int) error {
 	return os.Rename(tmpFile, filePath)
 }
 
-const limeBatteryThresh = 10
+const limeBatteryThreshV = 10
+const noBatteryThreshV = 0.2
 
 func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32) float32 {
+	if hvBat <= noBatteryThreshV {
+		return 100
+	}
 	var voltConfig map[float32]float32
-	if hvBat > limeBatteryThresh {
+	if hvBat > limeBatteryThreshV {
 		voltConfig = batteryConfig.Lime
 	} else {
 		voltConfig = batteryConfig.LiIon
 	}
+
 	var upper float32 = 0
 	var lower float32 = 0
 
@@ -238,13 +244,18 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32) float32 {
 		lower = upper
 		upper = voltage
 
-		if hvBat > lower && hvBat < upper {
+		if hvBat >= lower && hvBat < upper {
 			break
+		}
+		if hvBat <= lower && hvBat <= upper {
+			//probably  have wrong battery config
+			log.Printf("Could not find a matching voltage range in config for %v", hvBat)
+			return voltConfig[upper]
 		}
 	}
 	gradient := (voltConfig[upper] - voltConfig[lower]) / (upper - lower)
-	return gradient*hvBat + voltConfig[lower] - gradient*lower
-
+	batteryPercent := gradient*hvBat + voltConfig[lower] - gradient*lower
+	return batteryPercent
 }
 
 func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
@@ -299,7 +310,7 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 				Timestamp: time.Now(),
 				Type:      "rpiBattery",
 				Details: map[string]interface{}{
-					"battery": batteryPercent,
+					"battery": math.Round((float64(batteryPercent))),
 				},
 			})
 		}
