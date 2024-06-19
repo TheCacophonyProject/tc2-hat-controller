@@ -235,6 +235,19 @@ func updateATtinyFirmware() error {
 	}
 	defer serialhelper.ReleaseSerial(serialFile)
 
+	// tc2-agent should be stopped and restarted if the attiny is being programmed because the RP2040 will restart in the reprogramming process
+	tc2AgentService := "tc2-agent.service"
+	tc2Enabled, err := checkServiceStatus(tc2AgentService)
+	if err != nil {
+		return err
+	}
+	if tc2Enabled {
+		log.Println("Stopping tc2-agent")
+		if err := exec.Command("systemctl", "stop", tc2AgentService).Run(); err != nil {
+			return err
+		}
+	}
+
 	log.Println("Pinging device.")
 	if err := attinyUPDIPing(); err != nil {
 		return err
@@ -252,6 +265,13 @@ func updateATtinyFirmware() error {
 		return err
 	}
 	time.Sleep(1 * time.Second)
+
+	if tc2Enabled {
+		log.Println("Starting tc2-agent")
+		if err := exec.Command("systemctl", "start", tc2AgentService).Run(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -84,3 +84,17 @@ func crcTX(write, read []byte) error {
 	}
 	return nil
 }
+
+func checkServiceStatus(serviceName string) (bool, error) {
+	cmd := exec.Command("systemctl", "is-active", "--quiet", serviceName)
+	err := cmd.Run()
+	if err == nil {
+		// Service is active
+		return true, nil
+	} else if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 3 {
+		// Service is inactive
+		return false, nil
+	}
+	// An error occurred
+	return false, err
+}
