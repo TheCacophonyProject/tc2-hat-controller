@@ -1,7 +1,9 @@
 package i2crequest
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/godbus/dbus"
 )
@@ -16,14 +18,37 @@ func Tx(address byte, write []byte, readLen, timeout int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	obj := conn.Object(dbusName, dbusPath)
 
 	var response []byte
-	if err := obj.Call(dbusName+".Tx", 0, address, write, readLen, timeout).Store(&response); err != nil {
-		return nil, err
-	}
 
-	return response, nil
+	// Retry mechanism with a maximum wait time of 10 seconds
+	maxWaitTime := 10 * time.Second
+	startTime := time.Now()
+
+	for {
+		obj := conn.Object(dbusName, dbus.ObjectPath(dbusPath))
+
+		// Try to call the method on the service
+		call := obj.Call(dbusName+".Tx", 0, address, write, readLen, timeout)
+		if call.Err == nil {
+			if err := call.Store(&response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+
+		// Check if the error is due to the service being unavailable
+		if dbusErr, ok := call.Err.(dbus.Error); ok && dbusErr.Name == "org.freedesktop.DBus.Error.ServiceUnknown" {
+			// Service is not available, wait and retry
+			if time.Since(startTime) > maxWaitTime {
+				return nil, errors.New("dbus service not available within the timeout period")
+			}
+			time.Sleep(500 * time.Millisecond) // Wait 500ms before retrying
+		} else {
+			// The error is not due to the service being unavailable
+			return nil, call.Err
+		}
+	}
 }
 
 func CheckAddress(address byte, timeout int) error {
