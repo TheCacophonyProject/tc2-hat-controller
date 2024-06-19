@@ -375,7 +375,7 @@ func setStayOnUntil(newTime time.Time) error {
 	mu.Lock()
 	if stayOnUntil.Before(newTime) {
 		stayOnUntil = newTime
-		log.Println("Staying on until", stayOnUntil.Format(time.DateTime))
+		//log.Println("Staying on until", stayOnUntil.Format(time.DateTime))
 	}
 	mu.Unlock()
 	return nil
