@@ -24,11 +24,13 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-config"
+	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	arg "github.com/alexflint/go-arg"
@@ -93,6 +95,10 @@ func main() {
 
 func runMain() error {
 	args := procArgs()
+	config, err := goconfig.New(args.ConfigDir)
+	if err != nil {
+		return err
+	}
 
 	if !args.Timestamps {
 		log.SetFlags(0)
@@ -100,7 +106,7 @@ func runMain() error {
 
 	log.Printf("Running version: %s", version)
 
-	_, err := host.Init()
+	_, err = host.Init()
 	if err != nil {
 		return err
 	}
@@ -123,7 +129,7 @@ func runMain() error {
 		}
 	}()
 
-	go monitorVoltageLoop(attiny)
+	go monitorVoltageLoop(attiny, config)
 	go checkATtinySignalLoop(attiny)
 
 	/*
@@ -203,7 +209,55 @@ func runMain() error {
 	}
 }
 
-func monitorVoltageLoop(a *attiny) {
+// keepLastLines keeps the last `maxLines` lines of the specified file.
+func keepLastLines(filePath string, maxLines int) error {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil
+	}
+	tmpFile := filepath.Join(os.TempDir(), filepath.Base(filePath)+".tmp")
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("tail -n %d %s > %s", maxLines, filePath, tmpFile))
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, filePath)
+}
+
+const limeBatteryThresh = 10
+
+func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32) float32 {
+	var voltConfig map[float32]float32
+	if hvBat > limeBatteryThresh {
+		voltConfig = batteryConfig.Lime
+	} else {
+		voltConfig = batteryConfig.LiIon
+	}
+	var upper float32 = 0
+	var lower float32 = 0
+
+	for voltage := range voltConfig {
+		lower = upper
+		upper = voltage
+
+		if hvBat > lower && hvBat < upper {
+			break
+		}
+	}
+	gradient := (voltConfig[upper] - voltConfig[lower]) / (upper - lower)
+	return gradient*hvBat + voltConfig[lower] - gradient*lower
+
+}
+
+func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
+	batteryConfig := goconfig.DefaultBattery()
+	if err := config.Unmarshal(goconfig.BatteryKey, &batteryConfig); err != nil {
+		return
+	}
+	err := keepLastLines("/var/log/battery-readings.csv", 500)
+	if err != nil {
+		log.Printf("Could not truncate /var/log/battery-readings.csv to 500 lines %v", err)
+	}
+	var batteryPercent float32 = -1.0
+	startTime := time.Now()
 	for {
 		hvBat, err := a.readMainBattery()
 		if err != nil {
@@ -217,6 +271,15 @@ func monitorVoltageLoop(a *attiny) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		if time.Since(startTime) > time.Duration(24*time.Hour) {
+			err := keepLastLines("/var/log/battery-readings.csv", 500)
+			if err != nil {
+				//not sure why it would error but should we keep trying...
+				log.Printf("Could not truncate /var/log/battery-readings.csv to 500 lines %v", err)
+			} else {
+				startTime = time.Now()
+			}
+		}
 		file, err := os.OpenFile("/var/log/battery-readings.csv", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
 			log.Fatal(err)
@@ -228,7 +291,18 @@ func monitorVoltageLoop(a *attiny) {
 		if err != nil {
 			log.Fatal(err)
 		}
-
+		newPercent := getBatteryPercent(&batteryConfig, hvBat)
+		if batteryPercent == -1 || batteryPercent-newPercent >= 10 {
+			//log battery percent
+			batteryPercent = newPercent
+			eventclient.AddEvent(eventclient.Event{
+				Timestamp: time.Now(),
+				Type:      "rpiBattery",
+				Details: map[string]interface{}{
+					"battery": batteryPercent,
+				},
+			})
+		}
 		time.Sleep(2 * time.Minute)
 	}
 }
