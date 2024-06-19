@@ -21,6 +21,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,9 +35,11 @@ import (
 )
 
 const (
-	AHT20Address    = 0x38
-	maxTxAttempts   = 3
-	txRetryInterval = time.Second
+	AHT20Address       = 0x38
+	maxTxAttempts      = 3
+	txRetryInterval    = time.Second
+	maxTempReadings    = 2000
+	temperatureCSVFile = "/var/log/temp.csv"
 )
 
 var version = "No version provided"
@@ -120,7 +125,20 @@ func runMain() error {
 
 	sampleRateDuration := time.Duration(args.SampleRateSeconds) * time.Second
 
+	// Limit the number of temperatures readings
+	if err := keepLastLines(temperatureCSVFile, maxTempReadings); err != nil {
+		return err
+	}
+	trimTempFileTime := time.Now()
+
 	for {
+		if time.Since(trimTempFileTime) > 24*time.Hour {
+			if err := keepLastLines(temperatureCSVFile, maxTempReadings); err != nil {
+				return err
+			}
+			trimTempFileTime = time.Now()
+		}
+
 		temp, humidity, err := makeReading()
 		if err != nil {
 			return err
@@ -131,6 +149,19 @@ func runMain() error {
 			lastLogTime = time.Now()
 		} else {
 			log.Debugf("Temp: %.2f, Humidity: %.2f", temp, humidity)
+		}
+
+		file, err := os.OpenFile(temperatureCSVFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		line := fmt.Sprintf("%s, %.2f, %.2f", time.Now().Format("2006-01-02 15:04:05"), temp, humidity)
+		_, err = file.WriteString(line + "\n")
+		if err != nil {
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
 		}
 
 		reportType := ""
@@ -235,4 +266,17 @@ func calculateCRC(data []byte) byte {
 	})
 	crc := crc8.Checksum(data, crcTable)
 	return crc
+}
+
+// keepLastLines keeps the last `maxLines` lines of the specified file.
+func keepLastLines(filePath string, maxLines int) error {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil
+	}
+	tmpFile := filepath.Join(os.TempDir(), filepath.Base(filePath)+".tmp")
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("tail -n %d %s > %s", maxLines, filePath, tmpFile))
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, filePath)
 }
