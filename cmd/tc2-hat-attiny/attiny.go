@@ -25,6 +25,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
@@ -92,14 +93,23 @@ const (
 	stateRebooting
 )
 
+var (
+	// These variables are set by environment variables. Travis will set them automatically from the .travis.yml.
+	// The are needed for testing though so the values can be set as shown below.
+	attinyMajorStr = "" // TO set for testing run `export ATTINY_MAJOR=12`
+	attinyMinorStr = "" // To set for testing run `export ATTINY_MINOR=8`
+	// TODO, check hash of the hex file before programming.
+	attinyHexHash = "" // To set for testing run `export ATTINY_HASH=$(sha256sum _release/attiny-firmware.hex | cut -d ' ' -f 1)`
+)
+
 const (
 	// Version of firmware that this software works with.
-	attinyMajorVersion = 12
-	attinyMinorVersion = 8
-	attinyI2CAddress   = 0x25
-	hexFile            = "/etc/cacophony/attiny-firmware.hex"
-	eepromData         = "/etc/cacophony/eeprom-data.json"
-	i2cTypeVal         = 0xCA
+	//attinyMajorVersion = 12
+	//attinyMinorVersion = 8
+	attinyI2CAddress = 0x25
+	hexFile          = "/etc/cacophony/attiny-firmware.hex"
+	eepromData       = "/etc/cacophony/eeprom-data.json"
+	i2cTypeVal       = 0xCA
 )
 
 func (s CameraState) String() string {
@@ -345,18 +355,27 @@ func connectToATtiny() (*attiny, error) {
 	if err != nil {
 		return nil, err
 	}
+	attinyMajor, err := strconv.ParseUint(attinyMajorStr, 10, 8)
+	if err != nil {
+		return nil, err
+	}
 	log.Printf("Major Version: %d", majorVersionResponse)
-	if majorVersionResponse != attinyMajorVersion {
-		return nil, fmt.Errorf("device major version is %d instead of %d", majorVersionResponse, attinyMajorVersion)
+	if majorVersionResponse != uint8(attinyMajor) {
+		return nil, fmt.Errorf("device major version is %d instead of %d", majorVersionResponse, attinyMajor)
 	}
 
 	minorVersionResponse, err := a.readRegister(minorVersionReg)
 	if err != nil {
 		return nil, err
 	}
+
+	attinyMinor, err := strconv.ParseUint(attinyMinorStr, 10, 8)
+	if err != nil {
+		return nil, err
+	}
 	log.Printf("Minor Version: %d", minorVersionResponse)
-	if minorVersionResponse != attinyMinorVersion {
-		return nil, fmt.Errorf("device minor version is %d instead of %d", minorVersionResponse, attinyMinorVersion)
+	if minorVersionResponse != uint8(attinyMinor) {
+		return nil, fmt.Errorf("device minor version is %d instead of %d", minorVersionResponse, attinyMinor)
 	}
 
 	return &attiny{version: majorVersionResponse}, nil
