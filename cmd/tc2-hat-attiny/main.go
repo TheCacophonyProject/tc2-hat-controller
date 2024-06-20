@@ -233,26 +233,29 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat flo
 		batVolt = hvBat
 	}
 
-	batType, voltConfig := batteryConfig.GetBatteryVoltageThresholds(batVolt)
+	batType, voltages, percents := batteryConfig.GetBatteryVoltageThresholds(batVolt)
 
 	var upper float32 = 0
 	var lower float32 = 0
-
-	for voltage := range voltConfig {
+	var i = 0
+	for i = 0; i < len(voltages); i++ {
+		voltage := voltages[i]
 		lower = upper
 		upper = voltage
-
 		if batVolt >= lower && batVolt < upper {
 			break
 		}
 		if batVolt <= lower && batVolt <= upper {
 			//probably  have wrong battery config
 			log.Printf("Could not find a matching voltage range in config for %v", batVolt)
-			return voltConfig[upper], batType, batVolt
+			return percents[i], batType, batVolt
 		}
 	}
-	gradient := (voltConfig[upper] - voltConfig[lower]) / (upper - lower)
-	batteryPercent := gradient*batVolt + voltConfig[lower] - gradient*lower
+	if i == 0 {
+		return 0, batType, batVolt
+	}
+	gradient := (percents[i] - percents[i-1]) / (upper - lower)
+	batteryPercent := gradient*batVolt + percents[i-1] - gradient*lower
 	return batteryPercent, batType, batVolt
 }
 

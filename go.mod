@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/TheCacophonyProject/event-reporter/v3 v3.7.0
-	github.com/TheCacophonyProject/go-config v1.16.0
+	github.com/TheCacophonyProject/go-config v1.17.0
 	github.com/TheCacophonyProject/rpi-net-manager v0.5.3
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
 	github.com/alexflint/go-arg v1.4.3
