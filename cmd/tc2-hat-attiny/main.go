@@ -253,6 +253,9 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat flo
 	}
 	if i == 0 {
 		return 0, batType, batVolt
+	} else if batVolt > upper {
+		//voltage is higher than config
+		return 100, batType, batVolt
 	}
 	gradient := (percents[i] - percents[i-1]) / (upper - lower)
 	batteryPercent := gradient*batVolt + percents[i-1] - gradient*lower
