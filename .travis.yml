@@ -5,12 +5,14 @@ go:
 
 env:
   global:
-    - ATTINY_MAJOR=12
-    - ATTINY_MINOR=8
+    - ATTINY_MAJOR=1  # Use the github release version for the MAJOR, MINOR and PATCH variables
+    - ATTINY_MINOR=0
+    - ATTINY_PATCH=0
+    - RELEASE_DOWNLOAD=https://github.com/TheCacophonyProject/attiny1616/releases/download/v${ATTINY_MAJOR}.${ATTINY_MINOR}.${ATTINY_PATCH}
 
 before_script:
-  - wget -O _release/attiny-firmware.hex https://github.com/TheCacophonyProject/attiny1616/releases/download/v0.${ATTINY_MAJOR}.${ATTINY_MINOR}/firmware.hex
-  - wget -O _release/attiny-firmware.hex.sha256 https://github.com/TheCacophonyProject/attiny1616/releases/download/v0.${ATTINY_MAJOR}.${ATTINY_MINOR}/firmware.hex.sha256
+  - wget -O _release/attiny-firmware.hex ${RELEASE_DOWNLOAD}/firmware.hex
+  - wget -O _release/attiny-firmware.hex.sha256 ${RELEASE_DOWNLOAD}/firmware.hex.sha256
   - export ATTINY_HASH=$(cut -d ' ' -f 1 < _release/attiny-firmware.hex.sha256)
 
 script:

@@ -99,6 +99,7 @@ func runMain() error {
 	}
 
 	log.Printf("Running version: %s", version)
+	log.Printf("Expecting ATtiny version v%s.%s.%s", attinyMajorStr, attinyMinorStr, attinyPatchStr)
 
 	_, err := host.Init()
 	if err != nil {
