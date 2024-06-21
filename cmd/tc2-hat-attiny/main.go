@@ -22,13 +22,16 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-config"
+	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	arg "github.com/alexflint/go-arg"
@@ -41,6 +44,8 @@ const (
 	initialGracePeriod         = 5 * time.Minute
 	saltCommandMaxWaitDuration = 30 * time.Minute
 	saltCommandWaitDuration    = time.Minute
+	batteryMaxLines            = 20000
+	lvBatThresh                = 15
 )
 
 var (
@@ -93,6 +98,10 @@ func main() {
 
 func runMain() error {
 	args := procArgs()
+	config, err := goconfig.New(args.ConfigDir)
+	if err != nil {
+		return err
+	}
 
 	if !args.Timestamps {
 		log.SetFlags(0)
@@ -101,7 +110,7 @@ func runMain() error {
 	log.Printf("Running version: %s", version)
 	log.Printf("Expecting ATtiny version v%s.%s.%s", attinyMajorStr, attinyMinorStr, attinyPatchStr)
 
-	_, err := host.Init()
+	_, err = host.Init()
 	if err != nil {
 		return err
 	}
@@ -124,7 +133,7 @@ func runMain() error {
 		}
 	}()
 
-	go monitorVoltageLoop(attiny)
+	go monitorVoltageLoop(attiny, config)
 	go checkATtinySignalLoop(attiny)
 
 	/*
@@ -204,7 +213,67 @@ func runMain() error {
 	}
 }
 
-func monitorVoltageLoop(a *attiny) {
+// keepLastLines keeps the last `maxLines` lines of the specified file.
+func keepLastLines(filePath string, maxLines int) error {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil
+	}
+	tmpFile := filepath.Join(os.TempDir(), filepath.Base(filePath)+".tmp")
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("tail -n %d %s > %s", maxLines, filePath, tmpFile))
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, filePath)
+}
+
+func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat float32) (float32, string, float32) {
+	var batVolt float32
+	if hvBat <= lvBatThresh {
+		batVolt = lvBat
+	} else {
+		batVolt = hvBat
+	}
+
+	batType, voltages, percents := batteryConfig.GetBatteryVoltageThresholds(batVolt)
+
+	var upper float32 = 0
+	var lower float32 = 0
+	var i = 0
+	for i = 0; i < len(voltages); i++ {
+		voltage := voltages[i]
+		lower = upper
+		upper = voltage
+		if batVolt >= lower && batVolt < upper {
+			break
+		}
+		if batVolt <= lower && batVolt <= upper {
+			//probably  have wrong battery config
+			log.Printf("Could not find a matching voltage range in config for %v", batVolt)
+			return percents[i], batType, batVolt
+		}
+	}
+	if i == 0 {
+		return 0, batType, batVolt
+	} else if batVolt > upper {
+		//voltage is higher than config
+		return 100, batType, batVolt
+	}
+	gradient := (percents[i] - percents[i-1]) / (upper - lower)
+	batteryPercent := gradient*batVolt + percents[i-1] - gradient*lower
+	return batteryPercent, batType, batVolt
+}
+
+func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
+	batteryConfig := goconfig.DefaultBattery()
+	if err := config.Unmarshal(goconfig.BatteryKey, &batteryConfig); err != nil {
+		return
+	}
+	err := keepLastLines("/var/log/battery-readings.csv", batteryMaxLines)
+	if err != nil {
+		log.Printf("Could not truncate /var/log/battery-readings.csv %v", err)
+	}
+	var batteryPercent float32 = -1.0
+	startTime := time.Now()
 	i := 5
 	for {
 		hvBat, err := a.readMainBattery()
@@ -218,6 +287,15 @@ func monitorVoltageLoop(a *attiny) {
 		rtcBat, err := a.readRTCBattery()
 		if err != nil {
 			log.Fatal(err)
+		}
+		if time.Since(startTime) > time.Duration(24*time.Hour) {
+			err := keepLastLines("/var/log/battery-readings.csv", batteryMaxLines)
+			if err != nil {
+				//not sure why it would error but should we keep trying...
+				log.Printf("Could not truncate /var/log/battery-readings.csv %v", err)
+			} else {
+				startTime = time.Now()
+			}
 		}
 		file, err := os.OpenFile("/var/log/battery-readings.csv", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
@@ -234,7 +312,20 @@ func monitorVoltageLoop(a *attiny) {
 		if err != nil {
 			log.Fatal(err)
 		}
-
+		newPercent, batteryType, voltage := getBatteryPercent(&batteryConfig, hvBat, lvBat)
+		if batteryPercent == -1 || math.Abs(float64(batteryPercent-newPercent)) >= 10 {
+			//log battery percent
+			batteryPercent = newPercent
+			eventclient.AddEvent(eventclient.Event{
+				Timestamp: time.Now(),
+				Type:      "rpiBattery",
+				Details: map[string]interface{}{
+					"battery":     math.Round((float64(batteryPercent))),
+					"batteryType": batteryType,
+					"voltage":     voltage,
+				},
+			})
+		}
 		time.Sleep(2 * time.Minute)
 	}
 }
