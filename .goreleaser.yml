@@ -14,7 +14,7 @@ builds:
     - linux
   goarch:
     - arm64
-  ldflags: -s -w -X main.version={{.Version}}
+  ldflags: -s -w -X main.version={{.Version}} -X main.attinyMajorStr={{ .Env.ATTINY_MAJOR }} -X main.attinyMinorStr={{.Env.ATTINY_MINOR}} -X main.attinyPatchStr={{.Env.ATTINY_PATCH}} -X main.attinyHexHash={{.Env.ATTINY_HASH}}
 
 - id: tc2-hat-rp2040
   binary: tc2-hat-rp2040

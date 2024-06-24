@@ -3,6 +3,18 @@ language: go
 go:
   - "1.22.x"
 
+env:
+  global:
+    - ATTINY_MAJOR=1  # Use the github release version for the MAJOR, MINOR and PATCH variables
+    - ATTINY_MINOR=0
+    - ATTINY_PATCH=0
+    - RELEASE_DOWNLOAD=https://github.com/TheCacophonyProject/attiny1616/releases/download/v${ATTINY_MAJOR}.${ATTINY_MINOR}.${ATTINY_PATCH}
+
+before_script:
+  - wget -O _release/attiny-firmware.hex ${RELEASE_DOWNLOAD}/firmware.hex
+  - wget -O _release/attiny-firmware.hex.sha256 ${RELEASE_DOWNLOAD}/firmware.hex.sha256
+  - export ATTINY_HASH=$(cut -d ' ' -f 1 < _release/attiny-firmware.hex.sha256)
+
 script:
   - go mod tidy
   - git diff --exit-code || (echo "Please run 'go mod tidy' to clean up the 'go.mod' and 'go.sum' files. Your go version should match the one used with travis."; false)
@@ -12,7 +24,7 @@ script:
 
 # calls goreleaser
 deploy:
-- provider: script
+  provider: script
   skip_cleanup: true
   script: curl -sL https://git.io/goreleaser | bash
   on:
