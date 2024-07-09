@@ -46,6 +46,7 @@ const (
 	saltCommandWaitDuration    = time.Minute
 	batteryMaxLines            = 20000
 	lvBatThresh                = 15
+	batteryReadingsFile        = "/var/log/battery-readings.csv"
 )
 
 var (
@@ -234,6 +235,10 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat flo
 		batVolt = hvBat
 	}
 
+	if batVolt < 1 {
+		batVolt = 0
+	}
+
 	batType, voltages, percents := batteryConfig.GetBatteryVoltageThresholds(batVolt)
 
 	var upper float32 = 0
@@ -248,7 +253,7 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat flo
 		}
 		if batVolt <= lower && batVolt <= upper {
 			//probably  have wrong battery config
-			log.Printf("Could not find a matching voltage range in config for %v", batVolt)
+			log.Printf("Could not find a matching voltage range in config for %vV", batVolt)
 			return percents[i], batType, batVolt
 		}
 	}
@@ -289,7 +294,7 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 			log.Fatal(err)
 		}
 		if time.Since(startTime) > time.Duration(24*time.Hour) {
-			err := keepLastLines("/var/log/battery-readings.csv", batteryMaxLines)
+			err := keepLastLines(batteryReadingsFile, batteryMaxLines)
 			if err != nil {
 				//not sure why it would error but should we keep trying...
 				log.Printf("Could not truncate /var/log/battery-readings.csv %v", err)
@@ -297,7 +302,7 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 				startTime = time.Now()
 			}
 		}
-		file, err := os.OpenFile("/var/log/battery-readings.csv", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+		file, err := os.OpenFile(batteryReadingsFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
