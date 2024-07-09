@@ -241,6 +241,10 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat flo
 
 	batType, voltages, percents := batteryConfig.GetBatteryVoltageThresholds(batVolt)
 
+	if batVolt == 0 {
+		return 100, batType, 0
+	}
+
 	var upper float32 = 0
 	var lower float32 = 0
 	var i = 0
@@ -252,7 +256,7 @@ func getBatteryPercent(batteryConfig *goconfig.Battery, hvBat float32, lvBat flo
 			break
 		}
 		if batVolt <= lower && batVolt <= upper {
-			//probably  have wrong battery config
+			// probably have wrong battery config
 			log.Printf("Could not find a matching voltage range in config for %vV", batVolt)
 			return percents[i], batType, batVolt
 		}
