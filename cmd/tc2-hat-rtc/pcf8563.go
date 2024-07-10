@@ -42,9 +42,12 @@ func (rtc *pcf8563) checkNtpSyncLoop() {
 	hasSynced := false
 	log.Println("Starting ntp sync loop")
 	for {
-		out, err := exec.Command("timedatectl", "status").Output()
+		cmd := exec.Command("timedatectl", "status")
+		out, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Println("Error executing command:", err)
+			log.Printf("Error executing '%s' command: %v\n", strings.Join(cmd.Args, " "), err)
+			log.Printf("Combined Output: %s\n", string(out))
+			return
 		}
 
 		if strings.Contains(string(out), "synchronized: yes") {
@@ -185,14 +188,21 @@ func (rtc *pcf8563) SetSystemTime() error {
 			Timestamp: time.Now(),
 			Type:      "rtcIntegrityError",
 		})
-		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", now.Format("2006-01-02 15:04:05"))
+		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", now.Format(time.DateTime))
 	}
 	if now.Before(time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)) {
 		// TODO make wrong RTC time event to report to user.
 		log.Println("RTC time is before 2023, not writing to system clock.")
 		return nil
 	}
-	timeStr := now.Format("2006-01-02 15:04:05")
+
+	timeStr := now.Format(time.DateTime)
+
+	before, err := time.Parse(time.DateTime, time.Now().Format(time.DateTime))
+	if err != nil {
+		return fmt.Errorf("error parsing system time before setting: %v", err)
+	}
+
 	log.Printf("Writing time to system clock (in UTC): %s", timeStr)
 	cmd := exec.Command("date", "--utc", "--set", timeStr, "+%Y-%m-%d %H:%M:%S")
 	log.Println(strings.Join(cmd.Args, " "))
@@ -200,6 +210,14 @@ func (rtc *pcf8563) SetSystemTime() error {
 	if err != nil {
 		return fmt.Errorf("error running: %s, err: %v, out: %s", cmd.Args, err, string(out))
 	}
+
+	after, err := time.Parse(time.DateTime, time.Now().Format(time.DateTime))
+	if err != nil {
+		return fmt.Errorf("error parsing system time before setting: %v", err)
+	}
+
+	log.Printf("System clock before writing: %s. System clock after writing: %s", before.Format(time.DateTime), after.Format(time.DateTime))
+	log.Printf("System clock moved by: %s", after.Sub(before))
 	return nil
 }
 
