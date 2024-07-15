@@ -49,8 +49,8 @@ github.com/Masterminds/semver v1.4.2/go.mod h1:MB6lktGJrhw8PrUyiEoblNEGEQ+RzHPF0
 github.com/Masterminds/vcs v1.13.0/go.mod h1:N09YCmOQr6RLxC6UNHzuVwAdodYbbnycGHSmwVJjcKA=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/TheCacophonyProject/event-reporter/v3 v3.3.0/go.mod h1:dGIYfhABsJHKjcsxtftDwpdcfLOWTYKeIyCYxCOIMrc=
-github.com/TheCacophonyProject/event-reporter/v3 v3.7.0 h1:B+a5PXqBh7Bkf2HDo+j94Ascqw6SCTlOhSN9TXZfjY8=
-github.com/TheCacophonyProject/event-reporter/v3 v3.7.0/go.mod h1:WTppJtTBxduasM1Or5SAh4Mm0YrTDnprOChjnGYgyEI=
+github.com/TheCacophonyProject/event-reporter/v3 v3.8.0 h1:FYNR+MX5ypyG7UWpogDnDqsTV+23WS1sIr9o6rhjf/8=
+github.com/TheCacophonyProject/event-reporter/v3 v3.8.0/go.mod h1:WTppJtTBxduasM1Or5SAh4Mm0YrTDnprOChjnGYgyEI=
 github.com/TheCacophonyProject/go-api v0.0.0-20190923033957-174cea2ac81c/go.mod h1:FfMpa4cFhNXQ9tuKG18HO6yLExezcJhzjUjBOFocrQw=
 github.com/TheCacophonyProject/go-api v1.0.4/go.mod h1:F7UUNgsLhbw7hsiNBMRB9kQz9uXXosVmNToqImz7EA8=
 github.com/TheCacophonyProject/go-config v0.0.0-20190922224052-7c2a21bc6b88/go.mod h1:gPUJLVu408NRz9/P3BrsxzOzLc+KJLrv+jVdDw3RI0Y=
