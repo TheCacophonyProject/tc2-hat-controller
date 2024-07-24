@@ -41,9 +41,7 @@ func (Args) Version() string {
 }
 
 func procArgs() Args {
-	args := Args{
-		//ConfigDir: config.DefaultConfigDir,
-	}
+	args := Args{}
 	arg.MustParse(&args)
 	return args
 }
@@ -67,36 +65,6 @@ func runMain() error {
 			time.Sleep(time.Second)
 		}
 	}
-
-	/*
-		log.Println("Connecting to RTC")
-		rtc, err := InitPCF9564()
-		if err != nil {
-			return err
-		}
-		log.Println("Starting RTC service.")
-		if err := startRTCService(rtc); err != nil {
-			return err
-		}
-
-		if err := rtc.SetSystemTime(); err != nil {
-			log.Println(err)
-		}
-	*/
-
-	/*
-		t, integrity, err := rtc.GetTime()
-		if err != nil {
-			return err
-		}
-		log.Println("RTC time:", t.Format(time.RFC3339))
-		log.Println("RTC integrity:", integrity)
-		alarmTime, err := rtc.ReadAlarmTime()
-		if err != nil {
-			return err
-		}
-		log.Println("RTC alarm:", alarmTime)
-	*/
 	return nil
 }
 
@@ -115,25 +83,3 @@ func startService() error {
 	}
 	return nil
 }
-
-/*
-	log.Println("Connecting to RTC")
-	rtc, err := InitPCF9564()
-	if err != nil {
-		return err
-	}
-
-	for i := 2; i >= 0; i-- {
-		if err := rtc.SetSystemTime(); err != nil {
-			if i <= 0 {
-				return err
-			}
-			log.Println(err)
-			log.Printf("Retrying to set system time from RTC %d more time(s)...", i)
-		} else {
-			break
-		}
-	}
-	return nil
-}
-*/

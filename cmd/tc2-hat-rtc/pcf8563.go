@@ -113,9 +113,15 @@ func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) erro
 		log.Println("RTC drift:", secondsToDuration(rtcDriftSeconds))
 		log.Println("RTC drift per month in seconds:", secondsToDuration(rtcDriftSecondsPerMonth))
 		log.Println("RTC drift per month error +-", secondsToDuration(driftPerMonthError))
+
+		eventType := "rtcNtpDrift"
+		if rtcDriftSecondsPerMonth > 600 { // TODO find a good value to have this as.
+			eventType = "rtcNtpDriftHigh"
+		}
+
 		eventclient.AddEvent(eventclient.Event{
 			Timestamp: time.Now(),
-			Type:      "rtcNtpDrift",
+			Type:      eventType,
 			Details: map[string]interface{}{
 				"rtcDriftSecondsPerMonth": int(rtcDriftSecondsPerMonth),
 				"rtcDriftSeconds":         int(rtcDriftSeconds),
