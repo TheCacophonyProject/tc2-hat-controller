@@ -140,6 +140,15 @@ func secondsToDuration(seconds float64) time.Duration {
 // This is first done by getting the current time on the RTC, the last time the RTC was updated
 func (rtc *pcf8563) SetTime(newTime time.Time) error {
 	rtcTime, integrity, err := rtc.GetTime()
+	if !integrity {
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "rtcIntegrityLost",
+			Details: map[string]interface{}{
+				"rtcTime": rtcTime.Format("2006-01-02 15:04:05"),
+			},
+		})
+	}
 	if err != nil {
 		return err
 	}
