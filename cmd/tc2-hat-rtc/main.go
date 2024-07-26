@@ -27,6 +27,7 @@ import (
 
 type Args struct {
 	Service *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
+	SetTime string      `arg:"--set-time" help:"Set the time on the RTC. Format: 2006-01-02 15:04:05" Just used for debugging purposes`
 }
 
 type subcommand struct {
@@ -64,6 +65,13 @@ func runMain() error {
 		for {
 			time.Sleep(time.Second)
 		}
+	} else if args.SetTime != "" {
+		rtc := &pcf8563{}
+		newTime, err := time.Parse("2006-01-02 15:04:05", args.SetTime)
+		if err != nil {
+			return err
+		}
+		return rtc.SetTime(newTime)
 	}
 	return nil
 }
