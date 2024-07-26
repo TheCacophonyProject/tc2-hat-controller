@@ -118,11 +118,11 @@ func runMain() error {
 
 	lastReportTime := time.Time{}
 	reportInterval := time.Duration(args.ReportIntervalMinutes) * time.Minute
-	log.Debug("Setting report interval to", reportInterval)
+	log.Debug("Setting report interval to ", reportInterval)
 
 	lastLogTime := time.Time{}
 	logRate := time.Duration(args.LogRateMinutes) * time.Minute
-	log.Debug("Setting log rate to", logRate)
+	log.Debug("Setting log rate to ", logRate)
 
 	sampleRateDuration := time.Duration(args.SampleRateSeconds) * time.Second
 
@@ -144,10 +144,12 @@ func runMain() error {
 
 		// Some sensors don't have a working CRC so in that case we make multiple readings quickly and check that they are about the same.
 		if err == errBadCRC && crc == 0xFF {
+
 			previousTemp := temp
 			previousHumidity := humidity
 			temp, humidity, crc, err = makeReading()
 			if err == errBadCRC && crc == 0xFF {
+				log.Debug("No CRC, checking with multiple readings")
 				if math.Abs(float64(temp-previousTemp)) > 1 || math.Abs(float64(humidity-previousHumidity)) > 1 {
 					log.Errorf("CRC failed, got 0X%X, temp: %.2f, humidity: %.2f", crc, temp, humidity)
 					return errBadCRC
@@ -157,6 +159,8 @@ func runMain() error {
 				log.Errorf("CRC failed got 0X%X, temp: %.2f, humidity: %.2f", crc, temp, humidity)
 				return err
 			}
+		} else if err != nil {
+			return err
 		}
 
 		if time.Since(lastLogTime) > logRate {
@@ -168,7 +172,7 @@ func runMain() error {
 
 		file, err := os.OpenFile(temperatureCSVFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		line := fmt.Sprintf("%s, %.2f, %.2f", time.Now().Format("2006-01-02 15:04:05"), temp, humidity)
 		_, err = file.WriteString(line + "\n")
@@ -266,7 +270,7 @@ func makeReading() (float32, float32, uint8, error) {
 
 	crc := calculateCRC(rawData[:6])
 	if rawData[6] != crc {
-		return 0, 0, crc, errBadCRC
+		return temp, humidity, rawData[6], errBadCRC
 	}
 	return temp, humidity, crc, nil
 }
@@ -291,9 +295,15 @@ func keepLastLines(filePath string, maxLines int) error {
 		return nil
 	}
 	tmpFile := filepath.Join(os.TempDir(), filepath.Base(filePath)+".tmp")
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("tail -n %d %s > %s", maxLines, filePath, tmpFile))
-	if err := cmd.Run(); err != nil {
+	err := os.Remove(tmpFile)
+	if err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	commands := []string{"sh", "-c", fmt.Sprintf("tail -n %d %s > %s", maxLines, filePath, tmpFile)}
+	cmd := exec.Command(commands[0], commands[1:]...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("err running '%s', %v, %v", strings.Join(commands, " "), string(out), err)
 	}
 	return os.Rename(tmpFile, filePath)
 }
