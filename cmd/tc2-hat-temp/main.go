@@ -21,6 +21,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,11 +118,11 @@ func runMain() error {
 
 	lastReportTime := time.Time{}
 	reportInterval := time.Duration(args.ReportIntervalMinutes) * time.Minute
-	log.Debug("Setting report interval to", reportInterval)
+	log.Debug("Setting report interval to ", reportInterval)
 
 	lastLogTime := time.Time{}
 	logRate := time.Duration(args.LogRateMinutes) * time.Minute
-	log.Debug("Setting log rate to", logRate)
+	log.Debug("Setting log rate to ", logRate)
 
 	sampleRateDuration := time.Duration(args.SampleRateSeconds) * time.Second
 
@@ -139,8 +140,26 @@ func runMain() error {
 			trimTempFileTime = time.Now()
 		}
 
-		temp, humidity, err := makeReading()
-		if err != nil {
+		temp, humidity, crc, err := makeReading()
+
+		// Some sensors don't have a working CRC so in that case we make multiple readings quickly and check that they are about the same.
+		if err == errBadCRC && crc == 0xFF {
+
+			previousTemp := temp
+			previousHumidity := humidity
+			temp, humidity, crc, err = makeReading()
+			if err == errBadCRC && crc == 0xFF {
+				log.Debug("No CRC, checking with multiple readings")
+				if math.Abs(float64(temp-previousTemp)) > 1 || math.Abs(float64(humidity-previousHumidity)) > 1 {
+					log.Errorf("CRC failed, got 0X%X, temp: %.2f, humidity: %.2f", crc, temp, humidity)
+					return errBadCRC
+				}
+				// Values are close enough to previous reading so likely to be correct.
+			} else if err != nil {
+				log.Errorf("CRC failed got 0X%X, temp: %.2f, humidity: %.2f", crc, temp, humidity)
+				return err
+			}
+		} else if err != nil {
 			return err
 		}
 
@@ -153,7 +172,7 @@ func runMain() error {
 
 		file, err := os.OpenFile(temperatureCSVFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		line := fmt.Sprintf("%s, %.2f, %.2f", time.Now().Format("2006-01-02 15:04:05"), temp, humidity)
 		_, err = file.WriteString(line + "\n")
@@ -203,20 +222,20 @@ func runMain() error {
 	}
 }
 
-func makeReading() (float32, float32, error) {
+func makeReading() (float32, float32, uint8, error) {
 	// Get status
 	statusResult, err := i2crequest.Tx(AHT20Address, []byte{0x71}, 1, 1000)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	if (statusResult[0] & 0x18) != 0x18 {
-		return 0, 0, fmt.Errorf("status check failed: 0x%x", statusResult[0])
+		return 0, 0, 0, fmt.Errorf("status check failed: 0x%x", statusResult[0])
 	}
 
 	// Trigger reading
 	_, err = i2crequest.Tx(AHT20Address, []byte{0xAC, 0x33, 0x00}, 0, 1000)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	// Wait for measurement to be made.
@@ -227,7 +246,7 @@ func makeReading() (float32, float32, error) {
 		// Check reading is ready by checking bit[7] is 0 of the status register (0x71).
 		rawData, err = i2crequest.Tx(AHT20Address, []byte{0x71}, 7, 1000)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, 0, err
 		}
 		if rawData[0]&0x80 == 0x00 {
 			ready = true
@@ -236,11 +255,11 @@ func makeReading() (float32, float32, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !ready {
-		return 0, 0, errors.New("reading not ready")
+		return 0, 0, 0, errors.New("reading not ready")
 	}
 
 	if len(rawData) != 7 {
-		return 0, 0, fmt.Errorf("reading length: %d", len(rawData))
+		return 0, 0, 0, fmt.Errorf("reading length: %d", len(rawData))
 	}
 
 	humidityRaw := uint32(rawData[1])<<12 | uint32(rawData[2])<<4 | uint32(rawData[3]>>4)
@@ -251,10 +270,12 @@ func makeReading() (float32, float32, error) {
 
 	crc := calculateCRC(rawData[:6])
 	if rawData[6] != crc {
-		return 0, 0, fmt.Errorf("crc failed, got: 0x%x calculated: 0x%x", rawData[6], crc)
+		return temp, humidity, rawData[6], errBadCRC
 	}
-	return temp, humidity, nil
+	return temp, humidity, crc, nil
 }
+
+var errBadCRC = errors.New("bad crc")
 
 func calculateCRC(data []byte) byte {
 	crcTable := crc8.MakeTable(crc8.Params{
@@ -274,9 +295,15 @@ func keepLastLines(filePath string, maxLines int) error {
 		return nil
 	}
 	tmpFile := filepath.Join(os.TempDir(), filepath.Base(filePath)+".tmp")
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("tail -n %d %s > %s", maxLines, filePath, tmpFile))
-	if err := cmd.Run(); err != nil {
+	err := os.Remove(tmpFile)
+	if err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	commands := []string{"sh", "-c", fmt.Sprintf("tail -n %d %s > %s", maxLines, filePath, tmpFile)}
+	cmd := exec.Command(commands[0], commands[1:]...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("err running '%s', %v, %v", strings.Join(commands, " "), string(out), err)
 	}
 	return os.Rename(tmpFile, filePath)
 }

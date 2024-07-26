@@ -113,9 +113,15 @@ func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) erro
 		log.Println("RTC drift:", secondsToDuration(rtcDriftSeconds))
 		log.Println("RTC drift per month in seconds:", secondsToDuration(rtcDriftSecondsPerMonth))
 		log.Println("RTC drift per month error +-", secondsToDuration(driftPerMonthError))
+
+		eventType := "rtcNtpDrift"
+		if rtcDriftSecondsPerMonth > 600 { // TODO find a good value to have this as.
+			eventType = "rtcNtpDriftHigh"
+		}
+
 		eventclient.AddEvent(eventclient.Event{
 			Timestamp: time.Now(),
-			Type:      "rtcNtpDrift",
+			Type:      eventType,
 			Details: map[string]interface{}{
 				"rtcDriftSecondsPerMonth": int(rtcDriftSecondsPerMonth),
 				"rtcDriftSeconds":         int(rtcDriftSeconds),
@@ -134,6 +140,15 @@ func secondsToDuration(seconds float64) time.Duration {
 // This is first done by getting the current time on the RTC, the last time the RTC was updated
 func (rtc *pcf8563) SetTime(newTime time.Time) error {
 	rtcTime, integrity, err := rtc.GetTime()
+	if !integrity {
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "rtcIntegrityLost",
+			Details: map[string]interface{}{
+				"rtcTime": rtcTime.Format("2006-01-02 15:04:05"),
+			},
+		})
+	}
 	if err != nil {
 		return err
 	}
