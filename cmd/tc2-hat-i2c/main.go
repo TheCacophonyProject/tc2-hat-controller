@@ -21,7 +21,8 @@ type Args struct {
 	Read     *Read       `arg:"subcommand:read"    help:"Read from a register."`
 	Service  *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
 	Find     *Find       `arg:"subcommand:find"    help:"Find i2c devices."`
-	LogLevel string      `arg:"-l, --loglevel" default:"info" help:"Set the logging level (debug, info, warn, error)"`
+	EEPROM   *subcommand `arg:"subcommand:eeprom"  help:"Run EEPROM check."`
+	LogLevel string      `arg:"-l, --log-level" default:"info" help:"Set the logging level (debug, info, warn, error)"`
 }
 
 type subcommand struct {
@@ -113,6 +114,11 @@ func runMain() error {
 
 		for {
 			time.Sleep(time.Second) // Sleep to prevent spinning
+		}
+	}
+	if args.EEPROM != nil {
+		if err := eeprom.InitEEPROM(); err != nil {
+			log.Error(err)
 		}
 	}
 
