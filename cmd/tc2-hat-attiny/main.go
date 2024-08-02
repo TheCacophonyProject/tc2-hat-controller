@@ -30,11 +30,10 @@ import (
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
-	"github.com/TheCacophonyProject/go-config"
 	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
-	arg "github.com/alexflint/go-arg"
+	"github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/host/v3"
@@ -84,7 +83,7 @@ func (Args) Version() string {
 
 func procArgs() Args {
 	args := Args{
-		ConfigDir: config.DefaultConfigDir,
+		ConfigDir: goconfig.DefaultConfigDir,
 	}
 	arg.MustParse(&args)
 	return args
