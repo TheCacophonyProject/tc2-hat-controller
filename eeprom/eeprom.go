@@ -250,3 +250,23 @@ func SemVerFromBytes(data []byte) (SemVer, error) {
 		Patch: data[2],
 	}, nil
 }
+
+func (v *SemVer) String() string {
+	return fmt.Sprintf("v%d.%d.%d", v.Major, v.Minor, v.Patch)
+}
+
+func GetMainPCBVersion() (string, error) {
+	eepromData, err := readEEPROMFromFile()
+	if err != nil {
+		return "", err
+	}
+
+	switch eepromData := eepromData.(type) {
+	case *EepromDataV1:
+		return fmt.Sprintf("v%d.%d.%d", eepromData.Major, eepromData.Minor, eepromData.Patch), nil
+	case *EepromDataV2:
+		return eepromData.MainPCB.String(), nil
+	default:
+		return "", fmt.Errorf("unknown eeprom data type")
+	}
+}
