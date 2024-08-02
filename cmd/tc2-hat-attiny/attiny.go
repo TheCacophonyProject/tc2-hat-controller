@@ -19,11 +19,9 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
 	"strconv"
 	"sync"
@@ -32,6 +30,7 @@ import (
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
+	"github.com/TheCacophonyProject/tc2-hat-controller/eeprom"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 	"periph.io/x/conn/v3/gpio"
 )
@@ -375,7 +374,6 @@ func connectToATtiny() (*attiny, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	attinyMinor, err := strconv.ParseUint(attinyMinorStr, 10, 8)
 	if err != nil {
 		return nil, err
@@ -385,13 +383,17 @@ func connectToATtiny() (*attiny, error) {
 		return nil, fmt.Errorf("device minor version is %d instead of %d", minorVersionResponse, attinyMinor)
 	}
 
+	patchVersionResponse, err := a.readRegister(patchVersionReg)
+	if err != nil {
+		return nil, err
+	}
 	attinyPatch, err := strconv.ParseUint(attinyPatchStr, 10, 8)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Minor Version: %d", minorVersionResponse)
-	if minorVersionResponse != uint8(attinyMinor) {
-		return nil, fmt.Errorf("device patch version is %d instead of %d", minorVersionResponse, attinyPatch)
+	log.Printf("Patch Version: %d", patchVersionResponse)
+	if patchVersionResponse != uint8(attinyPatch) {
+		return nil, fmt.Errorf("device patch version is %d instead of %d", patchVersionResponse, attinyPatch)
 	}
 
 	return &attiny{version: majorVersionResponse}, nil
@@ -554,7 +556,7 @@ func (a *attiny) readMainBattery() (float32, error) {
 		return 0, err
 	}
 	var r1, r2, vref float32
-	hardwareVersion, err := getHardwareVersion()
+	hardwareVersion, err := eeprom.GetMainPCBVersion()
 	if err != nil {
 		return 0, err
 	}
@@ -587,7 +589,7 @@ func (a *attiny) readLVBattery() (float32, error) {
 	}
 
 	var r1, r2, vref float32
-	hardwareVersion, err := getHardwareVersion()
+	hardwareVersion, err := eeprom.GetMainPCBVersion()
 	if err != nil {
 		return 0, err
 	}
@@ -603,29 +605,6 @@ func (a *attiny) readLVBattery() (float32, error) {
 
 	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
 	return v * (r1 + r2) / (r2), nil
-}
-
-func getHardwareVersion() (string, error) {
-	// Read json from file to get hardware version
-	data, err := os.ReadFile(eepromData)
-	if err != nil {
-		return "", err
-	}
-	type HardwareVersion struct {
-		Major int `json:"major"`
-		Minor int `json:"minor"`
-		Patch int `json:"patch"`
-	}
-
-	hardwareVersion := &HardwareVersion{}
-	if err := json.Unmarshal(data, hardwareVersion); err != nil {
-		return "", err
-	}
-	if hardwareVersion.Major == 0 && hardwareVersion.Minor == 0 && hardwareVersion.Patch == 0 {
-		return "", fmt.Errorf("failed to get hardware version")
-	}
-
-	return fmt.Sprintf("%d.%d.%d", hardwareVersion.Major, hardwareVersion.Minor, hardwareVersion.Patch), nil
 }
 
 func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
