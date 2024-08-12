@@ -53,9 +53,9 @@ var (
 
 	maxTxAttempts      = 5
 	txRetryInterval    = time.Second
-	mapLock            sync.Mutex
 	mu                 sync.Mutex
 	stayOnUntil        = time.Now()
+	stayOnLock         sync.Mutex
 	stayOnFor          = map[string]time.Time{}
 	saltCommandWaitEnd = time.Time{}
 )
@@ -195,7 +195,7 @@ func runMain() error {
 		}
 
 		if waitDuration <= time.Duration(0) {
-			mapLock.Lock()
+			stayOnLock.Lock()
 			for process, maxTime := range stayOnFor {
 				if time.Now().After(maxTime) {
 					log.Printf("%v max stay on time reached")
@@ -206,7 +206,7 @@ func runMain() error {
 					waitDuration = 10 * time.Second
 				}
 			}
-			mapLock.Unlock()
+			stayOnLock.Unlock()
 		}
 
 		if waitDuration <= time.Duration(0) {
@@ -503,21 +503,21 @@ func setStayOnUntil(newTime time.Time) error {
 }
 
 func stayOnFinished(processName string) {
-	mapLock.Lock()
+	stayOnLock.Lock()
 	delete(stayOnFor, processName)
-	mapLock.Unlock()
+	stayOnLock.Unlock()
 }
 
 func setStayOnFor(processName string, maxTime time.Time) error {
 	if time.Until(maxTime) > 12*time.Hour {
 		return errors.New("can not delay over 12 hours")
 	}
-	mapLock.Lock()
+	stayOnLock.Lock()
 	if stayOnUntil.Before(maxTime) {
 		stayOnFor[processName] = maxTime
 	} else {
 		delete(stayOnFor, processName)
 	}
-	mapLock.Unlock()
+	stayOnLock.Unlock()
 	return nil
 }
