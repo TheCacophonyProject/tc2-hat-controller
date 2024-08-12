@@ -309,10 +309,10 @@ func connectToATtinyWithRetries(retries int) (*attiny, error) {
 			log.Println("Failed to connect to attiny.")
 			return nil, err
 		}
-		// err = updateATtinyFirmware()
-		// if err != nil {
-		// 	log.Printf("Error updating firmware: %v\n.", err)
-		// }
+		err = updateATtinyFirmware()
+		if err != nil {
+			log.Printf("Error updating firmware: %v\n.", err)
+		}
 		eventclient.AddEvent(eventclient.Event{
 			Timestamp: time.Now(),
 			Type:      "programmingAttiny",
