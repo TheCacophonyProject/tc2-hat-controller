@@ -198,12 +198,13 @@ func runMain() error {
 			stayOnLock.Lock()
 			for process, maxTime := range stayOnFor {
 				if time.Now().After(maxTime) {
-					log.Printf("%v max stay on time reached")
+					log.Printf("Max stay on time reached for %v", process)
 					delete(stayOnFor, process)
 				} else {
 					log.Printf("Staying for %v", process)
 					onReason = fmt.Sprintf("Staying on for %v", process)
 					waitDuration = 10 * time.Second
+					break
 				}
 			}
 			stayOnLock.Unlock()

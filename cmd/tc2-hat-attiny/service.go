@@ -82,8 +82,8 @@ func (s service) StayOnFor(m int) *dbus.Error {
 	return nil
 }
 
-// ProcessFinished finished staying on for this process.
-func (s service) ProcessFinished(processName string) *dbus.Error {
+// StayOnFinished finished staying on for this process.
+func (s service) StayOnFinished(processName string) *dbus.Error {
 	stayOnFinished(processName)
 	return nil
 }
