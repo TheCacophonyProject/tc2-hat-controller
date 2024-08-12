@@ -14,7 +14,7 @@ builds:
     - linux
   goarch:
     - arm64
-  ldflags: -s -w -X main.version={{.Version}} -X main.attinyMajorStr={{ .Env.ATTINY_MAJOR }} -X main.attinyMinorStr={{.Env.ATTINY_MINOR}} -X main.attinyPatchStr={{.Env.ATTINY_PATCH}} -X main.attinyHexHash={{.Env.ATTINY_HASH}}
+  ldflags: -s -w -X main.version=0.1.2 -X main.attinyMajorStr=1 -X main.attinyMinorStr=0 -X main.attinyPatchStr=1 -X main.attinyHexHash=1234
 
 - id: tc2-hat-rp2040
   binary: tc2-hat-rp2040
@@ -90,8 +90,8 @@ nfpms:
       dst: /usr/bin/stay-on-for
     - src: _release/10-notify-attiny
       dst: /lib/dhcpcd/dhcpcd-hooks/10-notify-attiny
-    - src: _release/attiny-firmware.hex
-      dst: /etc/cacophony/attiny-firmware.hex
+    # - src: _release/attiny-firmware.hex
+      # dst: /etc/cacophony/attiny-firmware.hex
     - src: _release/org.cacophony.beacon.conf
       dst: /etc/dbus-1/system.d/org.cacophony.beacon.conf
     - src: _release/notify-attiny-reboot
