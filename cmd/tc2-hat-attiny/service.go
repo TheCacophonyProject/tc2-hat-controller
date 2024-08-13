@@ -90,7 +90,7 @@ func (s service) StayOnFinished(processName string) *dbus.Error {
 
 // StayOnForProcess will delay turning off the raspberry pi for m minutes or until process says finished.
 func (s service) StayOnForProcess(processName string, maxDuration int) *dbus.Error {
-	err := setStayOnFor(processName, time.Now().Add(time.Duration(maxDuration)*time.Minute))
+	err := setStayOnForProcess(processName, time.Now().Add(time.Duration(maxDuration)*time.Minute))
 	if err != nil {
 		return dbusErr(err)
 	}
