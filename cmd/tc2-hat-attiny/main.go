@@ -51,11 +51,12 @@ const (
 var (
 	version = "<not set>"
 
-	maxTxAttempts   = 5
-	txRetryInterval = time.Second
-
+	maxTxAttempts      = 5
+	txRetryInterval    = time.Second
 	mu                 sync.Mutex
 	stayOnUntil        = time.Now()
+	stayOnLock         sync.Mutex
+	stayOnForProcess   = map[string]time.Time{}
 	saltCommandWaitEnd = time.Time{}
 )
 
@@ -191,6 +192,21 @@ func runMain() error {
 				onReason = "Staying on because RP2040 wants me to stay on"
 				waitDuration = 10 * time.Second
 			}
+		}
+
+		if waitDuration <= time.Duration(0) {
+			stayOnLock.Lock()
+			for process, maxTime := range stayOnForProcess {
+				if time.Now().After(maxTime) {
+					log.Printf("Max stay on time reached for %v", process)
+					delete(stayOnForProcess, process)
+				} else {
+					onReason = fmt.Sprintf("Staying on for %v", process)
+					waitDuration = 10 * time.Second
+					break
+				}
+			}
+			stayOnLock.Unlock()
 		}
 
 		if waitDuration <= time.Duration(0) {
@@ -478,10 +494,31 @@ func setStayOnUntil(newTime time.Time) error {
 		return errors.New("can not delay over 12 hours")
 	}
 	mu.Lock()
+	defer mu.Unlock()
+
 	if stayOnUntil.Before(newTime) {
 		stayOnUntil = newTime
 		//log.Println("Staying on until", stayOnUntil.Format(time.DateTime))
 	}
-	mu.Unlock()
+	return nil
+}
+
+func stayOnFinished(processName string) {
+	stayOnLock.Lock()
+	defer stayOnLock.Unlock()
+	delete(stayOnForProcess, processName)
+}
+
+func setStayOnForProcess(processName string, maxTime time.Time) error {
+	if time.Until(maxTime) > 12*time.Hour {
+		return errors.New("can not delay over 12 hours")
+	}
+	stayOnLock.Lock()
+	defer stayOnLock.Unlock()
+	if stayOnUntil.Before(maxTime) {
+		stayOnForProcess[processName] = maxTime
+	} else {
+		delete(stayOnForProcess, processName)
+	}
 	return nil
 }
