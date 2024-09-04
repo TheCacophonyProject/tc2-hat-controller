@@ -1,5 +1,11 @@
 name: CI and Release
 
+env:
+  ATTINY_MAJOR: 1
+  ATTINY_MINOR: 0
+  ATTINY_PATCH: 1
+  RELEASE_DOWNLOAD: https://github.com/TheCacophonyProject/attiny1616/releases/download/v${ATTINY_MAJOR}.${ATTINY_MINOR}.${ATTINY_PATCH}
+
 on:
   push:
     branches: 
@@ -16,12 +22,6 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    env:
-      ATTINY_MAJOR: 1
-      ATTINY_MINOR: 0
-      ATTINY_PATCH: 1
-      RELEASE_DOWNLOAD: https://github.com/TheCacophonyProject/attiny1616/releases/download/v${{ env.ATTINY_MAJOR }}.${{ env.ATTINY_MINOR }}.${{ env.ATTINY_PATCH }}
-
     steps:
       - name: Git Checkout
         uses: actions/checkout@v4
