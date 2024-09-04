@@ -1,5 +1,7 @@
 project_name: tc2-hat-controller
 
+version: 2
+
 release:
   github:
     owner: TheCacophonyProject
