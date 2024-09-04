@@ -28,11 +28,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setting up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22.x'
-
       - name: Download ATtiny firmware and checksum
         run: |
           wget -O _release/attiny-firmware.hex ${{ env.RELEASE_DOWNLOAD }}/firmware.hex
@@ -40,6 +35,15 @@ jobs:
 
       - name: Set ATTINY_HASH
         run: echo "ATTINY_HASH=$(cut -d ' ' -f 1 < _release/attiny-firmware.hex.sha256)" >> $GITHUB_ENV
+
+      - name: Extract Go version from go.mod
+        id: go-version
+        run: echo "GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')" >> $GITHUB_ENV
+
+      - name: Setting up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Go Mod Tidy
         run: go mod tidy
