@@ -20,7 +20,6 @@ package main
 
 import (
 	"errors"
-	"log"
 	"runtime"
 	"strings"
 	"time"

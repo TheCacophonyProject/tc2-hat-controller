@@ -109,10 +109,6 @@ func runMain() error {
 		return err
 	}
 
-	if !args.Timestamps {
-		log.SetFlags(0)
-	}
-
 	log.Printf("Running version: %s", version)
 	log.Printf("Expecting ATtiny version v%s.%s.%s", attinyMajorStr, attinyMinorStr, attinyPatchStr)
 

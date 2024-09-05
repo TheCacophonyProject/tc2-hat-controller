@@ -2,17 +2,19 @@ package serialhelper
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/tarm/serial"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/host/v3"
 )
+
+var log = logging.NewLogger("info")
 
 const cmdlineFile = "/boot/firmware/cmdline.txt"
 
