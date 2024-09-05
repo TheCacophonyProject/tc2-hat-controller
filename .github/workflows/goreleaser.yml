@@ -9,12 +9,12 @@ env:
 on:
   push:
     branches: 
-      - '**'  # Run on all branches
+      - '**'
     tags:
-      - '*'  # Trigger on new tags
+      - '*'
   pull_request:
     branches: 
-      - '**'  # Trigger on PRs to any branch
+      - '**'
 
 permissions:
   contents: write

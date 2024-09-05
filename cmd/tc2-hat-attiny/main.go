@@ -21,7 +21,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -31,6 +30,7 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	goconfig "github.com/TheCacophonyProject/go-config"
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"github.com/alexflint/go-arg"
@@ -58,6 +58,7 @@ var (
 	stayOnLock         sync.Mutex
 	stayOnForProcess   = map[string]time.Time{}
 	saltCommandWaitEnd = time.Time{}
+	log                = logging.NewLogger("info")
 )
 
 type Args struct {
@@ -67,6 +68,7 @@ type Args struct {
 	SkipSystemShutdown bool   `arg:"--skip-system-shutdown" help:"don't shut down operating system when powering down"`
 	Write              *Write `arg:"subcommand:write"`
 	Read               *Read  `arg:"subcommand:read"`
+	logging.LogArgs
 }
 
 type Write struct {
@@ -99,6 +101,9 @@ func main() {
 
 func runMain() error {
 	args := procArgs()
+
+	log = logging.NewLogger(args.LogLevel)
+
 	config, err := goconfig.New(args.ConfigDir)
 	if err != nil {
 		return err

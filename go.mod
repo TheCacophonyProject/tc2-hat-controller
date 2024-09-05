@@ -1,16 +1,17 @@
 module github.com/TheCacophonyProject/tc2-hat-controller
 
-go 1.22
+go 1.22.3
 
 require (
 	github.com/TheCacophonyProject/event-reporter/v3 v3.8.0
 	github.com/TheCacophonyProject/go-config v1.18.1
+	github.com/TheCacophonyProject/go-utils v0.1.1
 	github.com/TheCacophonyProject/rpi-net-manager v0.5.3
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
 	github.com/alexflint/go-arg v1.4.3
 	github.com/godbus/dbus v4.1.0+incompatible
 	github.com/sigurn/crc8 v0.0.0-20220107193325-2243fe600f9f
-	github.com/sirupsen/logrus v1.2.0
+	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
 	github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
 	periph.io/x/conn/v3 v3.7.0
@@ -25,7 +26,6 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
-	github.com/konsorten/go-windows-terminal-sequences v1.0.1 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/nathan-osman/go-sunrise v1.0.0 // indirect
@@ -41,10 +41,8 @@ require (
 	github.com/spf13/viper v1.19.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8 // indirect
 	golang.org/x/sys v0.21.0 // indirect
-	golang.org/x/term v0.18.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

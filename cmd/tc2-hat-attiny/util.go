@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -116,4 +115,11 @@ func calculateSHA256(filePath string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func absDiff(a, b uint16) uint16 {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }

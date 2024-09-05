@@ -21,7 +21,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os/exec"
 	"strconv"
 	"sync"
@@ -508,32 +507,53 @@ func (a *attiny) readCameraState() error {
 	return nil
 }
 
-// TODO
 func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
+	const retryCount = 5
+	const acceptableDifference = 10 // Define acceptable difference between readings
 
-	//return 0, nil
+	var previousReading uint16
 
-	// Write value to trigger reading of voltage.
-	if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
-		return 0, err
-	}
-	// Wait for value to be reset indicating a new voltage reading.
-	for i := 0; i < 5; i++ {
-		time.Sleep(time.Millisecond * 200)
-		val1, err := a.readRegister(reg1)
-		if err != nil {
+	for attempt := 0; attempt < retryCount; attempt++ {
+		// Write value to trigger reading of voltage.
+		if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
 			return 0, err
 		}
-		if val1&(0x01<<7) == 0 {
-			val2, err := a.readRegister(reg2)
+
+		// Wait for value to be reset indicating a new voltage reading.
+		for i := 0; i < 5; i++ {
+			time.Sleep(time.Millisecond * 30)
+			val1, err := a.readRegister(reg1)
 			if err != nil {
 				return 0, err
 			}
-			return (uint16(val1) << 8) | uint16(val2), nil
+
+			if val1&(0x01<<7) == 0 {
+				val2, err := a.readRegister(reg2)
+				if err != nil {
+					return 0, err
+				}
+
+				// Combine the two register values
+				currentReading := (uint16(val1) << 8) | uint16(val2)
+				//log.("Raw battery reading. Attempt %d: Val: %d", attempt, currentReading)
+
+				// If this is the first reading, store it
+				if attempt == 0 {
+					previousReading = currentReading
+				} else {
+					// Check if the difference between readings is too large
+					if absDiff(currentReading, previousReading) > acceptableDifference {
+						return 0, fmt.Errorf("inconsistent readings: %d vs %d", currentReading, previousReading)
+					}
+				}
+
+				// Return the consistent reading
+				return currentReading, nil
+			}
 		}
 	}
-	return 0, fmt.Errorf("failed to read battery voltage from registers %d and %d", reg1, reg2)
 
+	return 0, fmt.Errorf("failed to get consistent battery readings from registers %d and %d", reg1, reg2)
 }
 
 /*
