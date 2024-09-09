@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
+	"math"
 	"os"
 	"os/exec"
 	"strings"
@@ -116,4 +116,23 @@ func calculateSHA256(filePath string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func calculateMean(values []uint16) float64 {
+	sum := 0.0
+	for _, value := range values {
+		sum += float64(value)
+	}
+	return sum / float64(len(values))
+}
+
+func calculateStandardDeviation(values []uint16) float64 {
+	mean := calculateMean(values)
+	var varianceSum float64
+	for _, value := range values {
+		diff := float64(value) - mean
+		varianceSum += diff * diff
+	}
+	variance := varianceSum / float64(len(values))
+	return math.Sqrt(variance)
 }

@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
+	"github.com/TheCacophonyProject/go-utils/logging"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
@@ -17,9 +17,11 @@ var (
 	version           = "<not set>"
 	activateTrapUntil = time.Now()
 	activeTrapSig     = make(chan string)
+	log               = logging.NewLogger("info")
 )
 
 type Args struct {
+	logging.LogArgs
 }
 
 func (Args) Version() string {
@@ -88,10 +90,11 @@ func activateTrap() {
 }
 
 func runMain() error {
-	log.SetFlags(0) // Removes default timestamp flag
-	log.Printf("running version: %s", version)
-
 	args := procArgs()
+
+	log = logging.NewLogger(args.LogLevel)
+
+	log.Printf("Running version: %s", version)
 	log.Println(args)
 
 	// Start dbus to listen for classification messages.

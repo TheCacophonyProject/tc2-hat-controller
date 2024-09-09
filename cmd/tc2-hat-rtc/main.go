@@ -19,21 +19,23 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 package main
 
 import (
-	"log"
 	"time"
 
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/alexflint/go-arg"
 )
 
 type Args struct {
 	Service *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
 	SetTime string      `arg:"--set-time" help:"Set the time on the RTC. Format: 2006-01-02 15:04:05. Just used for debugging purposes."`
+	logging.LogArgs
 }
 
 type subcommand struct {
 }
 
 var (
+	log     = logging.NewLogger("info")
 	version = "<not set>"
 )
 
@@ -54,10 +56,12 @@ func main() {
 }
 
 func runMain() error {
-	log.SetFlags(0)
+	args := procArgs()
+
+	log = logging.NewLogger(args.LogLevel)
+
 	log.Printf("running version: %s", version)
 
-	args := procArgs()
 	if args.Service != nil {
 		if err := startService(); err != nil {
 			return err

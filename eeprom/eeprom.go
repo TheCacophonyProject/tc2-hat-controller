@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 )
 
@@ -32,6 +32,8 @@ var noEEPROMChipData = &EepromDataV1{
 	ID:      GenerateRandomID(),
 	Time:    time.Now().Truncate(time.Second),
 }
+
+var log = logging.NewLogger("info")
 
 // GenerateRandomID generates a 64-bit random identifier
 func GenerateRandomID() uint64 {

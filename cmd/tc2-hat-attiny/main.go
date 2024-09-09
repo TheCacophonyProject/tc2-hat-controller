@@ -21,7 +21,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -31,6 +30,7 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	goconfig "github.com/TheCacophonyProject/go-config"
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"github.com/alexflint/go-arg"
@@ -58,6 +58,7 @@ var (
 	stayOnLock         sync.Mutex
 	stayOnForProcess   = map[string]time.Time{}
 	saltCommandWaitEnd = time.Time{}
+	log                = logging.NewLogger("info")
 )
 
 type Args struct {
@@ -65,17 +66,9 @@ type Args struct {
 	SkipWait           bool   `arg:"-s,--skip-wait" help:"will not wait for the date to update"`
 	Timestamps         bool   `arg:"-t,--timestamps" help:"include timestamps in log output"`
 	SkipSystemShutdown bool   `arg:"--skip-system-shutdown" help:"don't shut down operating system when powering down"`
-	Write              *Write `arg:"subcommand:write"`
-	Read               *Read  `arg:"subcommand:read"`
-}
+	BatteryReading     bool   `arg:"--battery-reading" help:"Run helper code to read battery voltage."`
 
-type Write struct {
-	Reg string `arg:"required" help:"The Register you want to write to, in hex (0xnn)"`
-	Val string `arg:"required" help:"The value you want to write, in hex (0xnn)"`
-}
-
-type Read struct {
-	Reg string `arg:"required" help:"The Register you want to read from, in hex (0xnn)"`
+	logging.LogArgs
 }
 
 func (Args) Version() string {
@@ -99,13 +92,12 @@ func main() {
 
 func runMain() error {
 	args := procArgs()
+
+	log = logging.NewLogger(args.LogLevel)
+
 	config, err := goconfig.New(args.ConfigDir)
 	if err != nil {
 		return err
-	}
-
-	if !args.Timestamps {
-		log.SetFlags(0)
 	}
 
 	log.Printf("Running version: %s", version)
@@ -121,6 +113,16 @@ func runMain() error {
 	if err != nil {
 		return err
 	}
+
+	if args.BatteryReading {
+		err := makeBatteryReadings(attiny)
+		if err != nil {
+			log.Error(err)
+		}
+		return err
+	}
+
+	log.Info("Starting DBus service.")
 	if err := startService(attiny); err != nil {
 		return err
 	}
@@ -136,26 +138,6 @@ func runMain() error {
 
 	go monitorVoltageLoop(attiny, config)
 	go checkATtinySignalLoop(attiny)
-
-	/*
-		go func() {
-			for {
-				alarmTime, err := rtc.ReadAlarmTime()
-				if err != nil {
-					log.Printf("Failed to read alarm time: %s", err)
-				} else {
-					log.Println("Alarm time:", alarmTime)
-				}
-				alarmEnabled, err := rtc.ReadAlarmEnabled()
-				if err != nil {
-					log.Printf("Failed to read alarm enabled: %s", err)
-				} else {
-					log.Println("Alarm enabled:", alarmEnabled)
-				}
-				time.Sleep(time.Minute * 5)
-			}
-		}()
-	*/
 
 	attiny.readCameraState()
 	log.Println(attiny.CameraState)
@@ -302,15 +284,18 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 	for {
 		hvBat, err := a.readMainBattery()
 		if err != nil {
-			log.Fatal(err)
+			log.Error(err)
+			continue
 		}
 		lvBat, err := a.readLVBattery()
 		if err != nil {
-			log.Fatal(err)
+			log.Error(err)
+			continue
 		}
 		rtcBat, err := a.readRTCBattery()
 		if err != nil {
-			log.Fatal(err)
+			log.Error(err)
+			continue
 		}
 		if time.Since(startTime) > time.Duration(24*time.Hour) {
 			err := keepLastLines(batteryReadingsFile, batteryMaxLines)
@@ -520,5 +505,54 @@ func setStayOnForProcess(processName string, maxTime time.Time) error {
 	} else {
 		delete(stayOnForProcess, processName)
 	}
+	return nil
+}
+
+func makeBatteryReadings(attiny *attiny) error {
+	log.Info("Starting battery reading loop.")
+	readings := 60
+	rawValues := make([]uint16, readings)
+	rawDiffs := make([]uint16, readings)
+	var err error
+	for i := 0; i < readings; i++ {
+
+		rawValues[i], rawDiffs[i], err = attiny.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+		log.Infof("Making reading %d out of %d", i+1, readings)
+		time.Sleep(1 * time.Second)
+		continue
+		/*
+			hvBat, err := attiny.readMainBattery()
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			log.Infof("Main battery voltage: %v", hvBat)
+			lvBat, err := attiny.readLVBattery()
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			log.Info("Low voltage battery voltage: ", lvBat)
+			rtcBat, err := attiny.readRTCBattery()
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			log.Info("RTC battery voltage: ", rtcBat)
+
+			time.Sleep(5 * time.Second)
+		*/
+	}
+
+	rawSD := calculateStandardDeviation(rawValues)
+	rawMean := calculateMean(rawValues)
+	diffSD := calculateStandardDeviation(rawDiffs)
+	diffMean := calculateMean(rawDiffs)
+
+	log.Infof("Raw SD: %.2f, Raw Mean: %.2f, Diff SD: %.2f, Diff Mean: %.2f", rawSD, rawMean, diffSD, diffMean)
 	return nil
 }

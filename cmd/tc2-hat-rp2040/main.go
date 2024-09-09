@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
@@ -18,12 +18,14 @@ import (
 
 var (
 	version = "<not set>"
+	log     = logging.NewLogger("info")
 )
 
 type Args struct {
 	ELF         string `arg:"--elf" help:".elf file to program the RP2040 with."`
 	RunPin      string `arg:"--run-pin" help:"Run GPIO pin for the RP2040."`
 	BootModePin string `arg:"--boot-mode-pin" help:"Boot mode GPIO pin for the RP2040."`
+	logging.LogArgs
 }
 
 func (Args) Version() string {
@@ -53,7 +55,9 @@ If installed using apt then use the config file '/etc/cacophony/raspberrypi-swd.
 
 func runMain() error {
 	args := procArgs()
-	log.SetFlags(0) // Removes default timestamp flag
+
+	log = logging.NewLogger(args.LogLevel)
+
 	log.Printf("Running version: %s", version)
 
 	// Check if openocd is installed

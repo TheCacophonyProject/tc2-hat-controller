@@ -29,10 +29,10 @@ import (
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 	arg "github.com/alexflint/go-arg"
 	"github.com/sigurn/crc8"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -45,19 +45,19 @@ const (
 
 var version = "No version provided"
 
-var log = logrus.New()
+var log = logging.NewLogger("info")
 
 type argSpec struct {
-	LowTemp               int    `arg:"--low-temp" help:"Temperatures below this will be reported as low"`
-	MinTemp               int    `arg:"--min-temp" help:"Temperatures below this will result in powering off the system //TODO"` //TODO
-	HighTemp              int    `arg:"--high-temp" help:"Temperatures above this will be reported as high"`
-	MaxTemp               int    `arg:"--max-temp" help:"Temperatures above this will result is powering off the system //TODO"` //TODO
-	HighHumidity          int    `arg:"--high-humidity" help:"Humidities above this will be reported as high"`
-	MaxHumidity           int    `arg:"--max-humidity" help:"Humidities above this will result in powering off the system //TODO"` //TODO
-	SampleRateSeconds     int    `arg:"--sample-rate" help:"Sample rate in seconds"`
-	LogRateMinutes        int    `arg:"--log-rate" help:"Log rate in minutes"`
-	ReportIntervalMinutes int    `arg:"--report-interval" help:"Max time between temperature reports in minutes"`
-	LogLevel              string `arg:"-l, --log-level" default:"info" help:"Set the logging level (debug, info, warn, error)"`
+	LowTemp               int `arg:"--low-temp" help:"Temperatures below this will be reported as low"`
+	MinTemp               int `arg:"--min-temp" help:"Temperatures below this will result in powering off the system //TODO"` //TODO
+	HighTemp              int `arg:"--high-temp" help:"Temperatures above this will be reported as high"`
+	MaxTemp               int `arg:"--max-temp" help:"Temperatures above this will result is powering off the system //TODO"` //TODO
+	HighHumidity          int `arg:"--high-humidity" help:"Humidities above this will be reported as high"`
+	MaxHumidity           int `arg:"--max-humidity" help:"Humidities above this will result in powering off the system //TODO"` //TODO
+	SampleRateSeconds     int `arg:"--sample-rate" help:"Sample rate in seconds"`
+	LogRateMinutes        int `arg:"--log-rate" help:"Log rate in minutes"`
+	ReportIntervalMinutes int `arg:"--report-interval" help:"Max time between temperature reports in minutes"`
+	logging.LogArgs
 }
 
 func (argSpec) Version() string {
@@ -80,28 +80,6 @@ func procArgs() argSpec {
 	return args
 }
 
-func setLogLevel(level string) {
-	switch level {
-	case "debug":
-		log.SetLevel(logrus.DebugLevel)
-	case "info":
-		log.SetLevel(logrus.InfoLevel)
-	case "warn":
-		log.SetLevel(logrus.WarnLevel)
-	case "error":
-		log.SetLevel(logrus.ErrorLevel)
-	default:
-		log.SetLevel(logrus.InfoLevel)
-		log.Warn("Unknown log level, defaulting to info")
-	}
-}
-
-type customFormatter struct{}
-
-func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	return []byte(fmt.Sprintf("[%s] %s\n", strings.ToUpper(entry.Level.String()), entry.Message)), nil
-}
-
 func main() {
 	err := runMain()
 	if err != nil {
@@ -110,9 +88,9 @@ func main() {
 }
 
 func runMain() error {
-	log.SetFormatter(new(customFormatter))
 	args := procArgs()
-	setLogLevel(args.LogLevel)
+
+	log = logging.NewLogger(args.LogLevel)
 
 	log.Info("Running version: ", version)
 
