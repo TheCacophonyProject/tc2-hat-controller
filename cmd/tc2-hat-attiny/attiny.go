@@ -21,6 +21,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"strconv"
 	"sync"
@@ -80,7 +81,6 @@ const (
 	ToggleAuxTerminalFlag
 )
 
-// Camera states.
 type CameraState uint8
 
 const (
@@ -507,53 +507,74 @@ func (a *attiny) readCameraState() error {
 	return nil
 }
 
-func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
-	const retryCount = 5
-	const acceptableDifference = 10 // Define acceptable difference between readings
-
-	var previousReading uint16
-
-	for attempt := 0; attempt < retryCount; attempt++ {
-		// Write value to trigger reading of voltage.
-		if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
-			return 0, err
+func (a *attiny) readBattery(reg1, reg2 Register) (uint16, uint16, error) {
+	numReadings := 5
+	readings := make([]uint16, numReadings)
+	var max = uint16(0)
+	var min = uint16(math.MaxUint16)
+	for i := 0; i < numReadings; i++ {
+		val, err := a.makeIndividualAnalogReading(reg1, reg2)
+		if err != nil {
+			return 0, 0, err
 		}
-
-		// Wait for value to be reset indicating a new voltage reading.
-		for i := 0; i < 5; i++ {
-			time.Sleep(time.Millisecond * 30)
-			val1, err := a.readRegister(reg1)
-			if err != nil {
-				return 0, err
-			}
-
-			if val1&(0x01<<7) == 0 {
-				val2, err := a.readRegister(reg2)
-				if err != nil {
-					return 0, err
-				}
-
-				// Combine the two register values
-				currentReading := (uint16(val1) << 8) | uint16(val2)
-				//log.("Raw battery reading. Attempt %d: Val: %d", attempt, currentReading)
-
-				// If this is the first reading, store it
-				if attempt == 0 {
-					previousReading = currentReading
-				} else {
-					// Check if the difference between readings is too large
-					if absDiff(currentReading, previousReading) > acceptableDifference {
-						return 0, fmt.Errorf("inconsistent readings: %d vs %d", currentReading, previousReading)
-					}
-				}
-
-				// Return the consistent reading
-				return currentReading, nil
-			}
+		readings[i] = val
+		if val > max {
+			max = val
+		}
+		if val < min {
+			min = val
 		}
 	}
+	log.Debugf("Analog readings. Max: %d, Min: %d", max, min)
+	diff := max - min
+	acceptableDifference := uint16(30)
+	if diff > acceptableDifference {
+		err := fmt.Errorf("difference in max and min analog readings was %d", diff)
+		return 0, 0, err
+	}
 
-	return 0, fmt.Errorf("failed to get consistent battery readings from registers %d and %d", reg1, reg2)
+	sum := 0
+	for i := 0; i < numReadings; i++ {
+		sum += int(readings[i])
+	}
+	avg := sum / numReadings
+	log.Debugf("Analog average: %d", avg)
+
+	return uint16(avg), diff, nil
+}
+
+func (a *attiny) makeIndividualAnalogReading(reg1, reg2 Register) (uint16, error) {
+	// Write to the 7th bit to trigger an analog reading.
+	if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
+		return 0, err
+	}
+
+	// Wait for ATtiny to make the analog reading
+	time.Sleep(time.Millisecond * 200)
+
+	// Read the first register
+	val1, err := a.readRegister(reg1)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check if the 7th bit has been set back to 0, indicating the analog reading has been made.
+	if (val1 & (0x01 << 7)) != 0 {
+		err := fmt.Errorf("analog reading not made")
+		log.Errorf("Error making analog reading: %v", err)
+		return 0, err
+	}
+
+	// Read the second register
+	val2, err := a.readRegister(reg2)
+	if err != nil {
+		return 0, err
+	}
+
+	// Combine the two register values
+	reading := (uint16(val1) << 8) | uint16(val2)
+	log.Debugf("Raw battery reading: %d", reading)
+	return reading, nil
 }
 
 /*
@@ -571,7 +592,7 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, error) {
 */
 
 func (a *attiny) readMainBattery() (float32, error) {
-	raw, err := a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
+	raw, _, err := a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
 	if err != nil {
 		return 0, err
 	}
@@ -595,7 +616,7 @@ func (a *attiny) readMainBattery() (float32, error) {
 }
 
 func (a *attiny) readRTCBattery() (float32, error) {
-	raw, err := a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
+	raw, _, err := a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
 	if err != nil {
 		return 0, err
 	}
@@ -603,7 +624,7 @@ func (a *attiny) readRTCBattery() (float32, error) {
 }
 
 func (a *attiny) readLVBattery() (float32, error) {
-	raw, err := a.readBattery(batteryLVDivVal1Reg, batteryLVDivVal2Reg)
+	raw, _, err := a.readBattery(batteryLVDivVal1Reg, batteryLVDivVal2Reg)
 	if err != nil {
 		return 0, err
 	}
