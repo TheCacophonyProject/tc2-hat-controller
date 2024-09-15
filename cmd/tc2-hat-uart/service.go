@@ -18,6 +18,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
+/*
 import (
 	"errors"
 	"runtime"
@@ -97,3 +98,4 @@ func getCallerName() string {
 	funcNames := strings.Split(caller.Name(), ".")
 	return funcNames[len(funcNames)-1]
 }
+*/

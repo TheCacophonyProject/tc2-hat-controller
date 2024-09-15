@@ -1,26 +1,34 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/TheCacophonyProject/go-utils/logging"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
+	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
+	"periph.io/x/conn/v3/gpio/gpioreg"
+	"periph.io/x/host/v3"
 )
 
 var (
-	version           = "<not set>"
-	activateTrapUntil = time.Now()
-	activeTrapSig     = make(chan string)
-	log               = logging.NewLogger("info")
+	version = "<not set>"
+	//activateTrapUntil = time.Now()
+	//activeTrapSig     = make(chan string)
+	log = logging.NewLogger("info")
 )
 
+var outputTypes = []string{"uart", "bluetooth", "digital"}
+
 type Args struct {
+	OutputType      string `arg:"--output-type,required" help:"Output type (uart, bluetooth, digital)"`
+	PowerOutPlugin  bool   `arg:"--power-output-plug" help:"If the output plug should be powered" default:"false"`
+	TrapSpeciesFile string `arg:"--target" help:"File containing trap species" default:"/etc/cacophony/trap-species.json"`
+	ProtectSpecies  string `arg:"--protect" help:"File containing protect species" default:"/etc/cacophony/protect-species.json"`
+
 	logging.LogArgs
 }
 
@@ -30,7 +38,21 @@ func (Args) Version() string {
 
 func procArgs() Args {
 	args := Args{}
+
 	arg.MustParse(&args)
+
+	args.OutputType = strings.ToLower(args.OutputType)
+	validOutputType := false
+	for _, t := range outputTypes {
+		if args.OutputType == t {
+			validOutputType = true
+			break
+		}
+	}
+	if !validOutputType {
+		log.Fatalf("Invalid output type '%s'. Should be one of '%s'.", args.OutputType, strings.Join(outputTypes, "', '"))
+	}
+
 	return args
 }
 
@@ -41,12 +63,12 @@ func main() {
 	}
 }
 
-// Message represents the data structure for communication with a device connected on UART.
+// UartMessage represents the data structure for communication with a device connected on UART.
 // - ID: Identifier of the message being sent or the message being responded to.
 // - Response: Indicates if the message is a response.
 // - Type: Specifies the type of message (e.g., write, read, command, ACK, NACK).
 // - Data: Contains the actual data payload, which varies depending on the type or response.
-type Message struct {
+type UartMessage struct {
 	ID       int    `json:"id,omitempty"`
 	Response bool   `json:"response,omitempty"`
 	Type     string `json:"type,omitempty"`
@@ -71,6 +93,157 @@ type ReadResponse struct {
 	Val string `json:"var,omitempty"`
 }
 
+func runMain() error {
+	args := procArgs()
+
+	log = logging.NewLogger(args.LogLevel)
+
+	log.Printf("Running version: %s", version)
+
+	log.Info("Loading trap and protect species")
+	trapSpecies, err := tracks.LoadSpeciesFromFile(args.TrapSpeciesFile)
+	if err != nil {
+		return err
+	}
+	protectSpecies, err := tracks.LoadSpeciesFromFile(args.ProtectSpecies)
+	if err != nil {
+		return err
+	}
+	log.Info("Species to trap:\n", trapSpecies)
+	log.Info("Species to protect:\n", protectSpecies)
+
+	tracks, err := getTrackingSignals()
+	if err != nil {
+		return err
+	}
+
+	trapActiveUntil := time.Time{}
+	trapActive := false
+
+	// Initialize the periph host drivers
+	if _, err := host.Init(); err != nil {
+		log.Printf("Failed to initialize periph: %v\n", err)
+		return err
+	}
+
+	log.Info("Get lock on serial port")
+	if args.OutputType == "uart" || args.OutputType == "digital" {
+		serialFile, err := serialhelper.GetSerial(3, gpio.High, gpio.Low, time.Second)
+		if err != nil {
+			return err
+		}
+		defer serialhelper.ReleaseSerial(serialFile)
+	}
+	log.Info("Done")
+
+	for {
+		newTrapActive := trapActiveUntil.After(time.Now())
+
+		if trapActive != newTrapActive {
+			trapActive = newTrapActive
+
+			if trapActive {
+				log.Println("Activating trap")
+			} else {
+				log.Println("Deactivating trap")
+			}
+
+			switch args.OutputType {
+			case "uart":
+				log.Info("Outputting trap active state via UART")
+				// TODO
+
+			case "bluetooth":
+				log.Info("Outputting trap active state via bluetooth")
+				// TODO
+
+			case "digital":
+				log.Info("Outputting trap active state via digital signals")
+				// Get a handle for GPIO 14 (BCM 14, physical pin 8 on the Raspberry Pi)
+				pin := gpioreg.ByName("GPIO14")
+				if pin == nil {
+					err := fmt.Errorf("failed to find GPIO14")
+					return err
+				}
+
+				if trapActive {
+					log.Info("Driving pin high")
+					err := pin.Out(gpio.High)
+					if err != nil {
+						return err
+					}
+				} else {
+					log.Info("Driving pin low")
+					err := pin.Out(gpio.Low)
+					if err != nil {
+						return err
+					}
+				}
+
+			default:
+				return fmt.Errorf("unhandled output type: %s", args.OutputType)
+			}
+		}
+
+		var delay = 10 * time.Second
+		if trapActive && time.Until(trapActiveUntil) < delay {
+			delay = time.Until(trapActiveUntil)
+		}
+
+		log.Debug("Waiting ")
+		select {
+		case t := <-tracks:
+			log.Debugf("Found new track: %+v", t)
+			if t.animal == "possum" && t.confidence > 50 {
+				trapActiveUntil = time.Now().Add(33 * time.Second)
+			}
+
+		case <-time.After(delay):
+			log.Debug("Scheduled check")
+		}
+	}
+
+	/*
+		for t := range tracks {
+			log.Infof("Found track: %+v", t)
+		}
+
+		// Start dbus to listen for classification messages.
+
+		if err := beep(); err != nil {
+			return err
+		}
+
+		log.Println("Starting UART service")
+		if err := startService(); err != nil {
+			return err
+		}
+
+		trapActive = false
+		if err := sendTrapActiveState(trapActive); err != nil {
+			return err
+		}
+
+		for {
+			waitUntil := time.Now().Add(5 * time.Second)
+			if trapActive {
+				waitUntil = activateTrapUntil
+			}
+
+			select {
+			case <-activeTrapSig:
+			case <-time.After(time.Until(waitUntil)):
+			}
+			trapActive = time.Now().Before(activateTrapUntil)
+
+			if err := sendTrapActiveState(trapActive); err != nil {
+				return err
+			}
+		}
+	*/
+}
+
+/*
 func checkClassification(data map[byte]byte) error {
 	for k, v := range data {
 		if k == 1 && v > 80 {
@@ -88,189 +261,4 @@ func activateTrap() {
 	activateTrapUntil = time.Now().Add(time.Minute)
 	activeTrapSig <- "trap"
 }
-
-func runMain() error {
-	args := procArgs()
-
-	log = logging.NewLogger(args.LogLevel)
-
-	log.Printf("Running version: %s", version)
-	log.Println(args)
-
-	// Start dbus to listen for classification messages.
-
-	if err := beep(); err != nil {
-		return err
-	}
-
-	log.Println("Starting UART service")
-	if err := startService(); err != nil {
-		return err
-	}
-
-	trapActive := false
-	if err := sendTrapActiveState(trapActive); err != nil {
-		return err
-	}
-
-	for {
-		waitUntil := time.Now().Add(5 * time.Second)
-		if trapActive {
-			waitUntil = activateTrapUntil
-		}
-
-		select {
-		case <-activeTrapSig:
-		case <-time.After(time.Until(waitUntil)):
-		}
-		trapActive = time.Now().Before(activateTrapUntil)
-
-		if err := sendTrapActiveState(trapActive); err != nil {
-			return err
-		}
-	}
-}
-
-func sendTrapActiveState(active bool) error {
-	return sendWriteMessage("active", active)
-}
-
-func sendWriteMessage(varName string, val interface{}) error {
-	data, err := json.Marshal(&Write{
-		Var: varName,
-		Val: val,
-	})
-	if err != nil {
-		return err
-	}
-	message := Message{
-		Type: "write",
-		Data: string(data),
-	}
-	response, err := sendMessage(message)
-	if err != nil {
-		return err
-	}
-	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response")
-	}
-	return nil
-}
-
-func beep() error {
-	log.Println("beep")
-	return sendCommandMessage("beep")
-}
-
-func sendCommandMessage(cmd string) error {
-	data, err := json.Marshal(&Command{
-		Command: cmd,
-	})
-	if err != nil {
-		return err
-	}
-	message := Message{
-		Type: "command",
-		Data: string(data),
-	}
-	response, err := sendMessage(message)
-	if err != nil {
-		return err
-	}
-	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response")
-	}
-	return nil
-}
-
-func sendReadMessage(varName string) (string, error) {
-	data, err := json.Marshal(&Read{
-		Var: varName,
-	})
-	if err != nil {
-		return "", err
-	}
-	message := Message{
-		Type: "read",
-		Data: string(data),
-	}
-	response, err := sendMessage(message)
-	if err != nil {
-		return "", err
-	}
-	if response.Type == "NACK" {
-		return "", fmt.Errorf("NACK response")
-	}
-	readResponse := &ReadResponse{}
-	if err := json.Unmarshal([]byte(response.Data), readResponse); err != nil {
-		return "", err
-	}
-	return readResponse.Val, nil
-}
-
-func checkPIR(oldPirVal int) (int, error) {
-	valStr, err := sendReadMessage("pir")
-	if err != nil {
-		return 0, err
-	}
-	newPirVal, err := strconv.Atoi(valStr)
-	if err != nil {
-		return 0, err
-	}
-	if oldPirVal != newPirVal {
-		//TODO Make event
-		log.Println("New pir value:", newPirVal)
-	}
-	return newPirVal, nil
-}
-
-func computeChecksum(message []byte) int {
-	checksum := 0
-	for _, b := range message {
-		checksum += int(b)
-	}
-	return checksum % 256
-}
-
-func sendMessage(cmd Message) (*Message, error) {
-	cmdData, err := json.Marshal(cmd)
-	if err != nil {
-		return nil, err
-	}
-	message := fmt.Sprintf("<%s|%d>", cmdData, computeChecksum(cmdData))
-
-	log.Println("Message: ", message)
-	responseData, err := serialhelper.SerialSendReceive(3, gpio.High, gpio.Low, time.Second, []byte(message))
-
-	if err != nil {
-		return nil, err
-	}
-	log.Println("Response: ", string(responseData))
-
-	if responseData[0] != '<' {
-		return nil, fmt.Errorf("response doesn't start with '<'")
-	}
-	if responseData[len(responseData)-1] != '>' {
-		return nil, fmt.Errorf("response doesn't end with '>'")
-	}
-
-	// Extract and verify message and checksum
-	responseData = responseData[1 : len(responseData)-1]
-	parts := bytes.Split(responseData, []byte("|"))
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid response format")
-	}
-	log.Println("Response:", string(parts[0]))
-	receivedChecksum, err := strconv.Atoi(string(parts[1]))
-	if err != nil {
-		return nil, err
-	}
-	if computeChecksum(parts[0]) != receivedChecksum {
-		return nil, fmt.Errorf("checksum mismatch")
-	}
-
-	// Unmarshal response to a Message
-	responseMessage := &Message{}
-	log.Println(string(parts[0]))
-	return responseMessage, json.Unmarshal(parts[0], responseMessage)
-}
+*/
