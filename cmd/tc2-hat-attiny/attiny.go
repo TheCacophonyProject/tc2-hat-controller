@@ -29,9 +29,9 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
-	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"github.com/TheCacophonyProject/tc2-hat-controller/eeprom"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
 )
 

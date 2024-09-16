@@ -5,12 +5,12 @@ import (
 	"strings"
 	"time"
 
+	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/go-utils/logging"
-	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
-	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/host/v3"
 )
 
@@ -24,11 +24,13 @@ var (
 var outputTypes = []string{"uart", "bluetooth", "digital"}
 
 type Args struct {
-	OutputType      string `arg:"--output-type,required" help:"Output type (uart, bluetooth, digital)"`
-	PowerOutPlugin  bool   `arg:"--power-output-plug" help:"If the output plug should be powered" default:"false"`
-	TrapSpeciesFile string `arg:"--target" help:"File containing trap species" default:"/etc/cacophony/trap-species.json"`
-	ProtectSpecies  string `arg:"--protect" help:"File containing protect species" default:"/etc/cacophony/protect-species.json"`
+	OutputType             string `arg:"--output-type,required" help:"Output type (uart, bluetooth, digital)"`
+	PowerOutPlugin         bool   `arg:"--power-output-plug" help:"If the output plug should be powered" default:"false"`
+	TrapSpeciesFile        string `arg:"--target" help:"File containing trap species" default:"/etc/cacophony/trap-species.json"`
+	ProtectSpecies         string `arg:"--protect" help:"File containing protect species" default:"/etc/cacophony/protect-species.json"`
+	TrapStayActiveDuration int    `arg:"--trap-stay-active-duration" help:"The number of seconds the trap should stay active for" default:"30"`
 
+	goconfig.ConfigArgs
 	logging.LogArgs
 }
 
@@ -63,28 +65,6 @@ func main() {
 	}
 }
 
-// UartMessage represents the data structure for communication with a device connected on UART.
-// - ID: Identifier of the message being sent or the message being responded to.
-// - Response: Indicates if the message is a response.
-// - Type: Specifies the type of message (e.g., write, read, command, ACK, NACK).
-// - Data: Contains the actual data payload, which varies depending on the type or response.
-type UartMessage struct {
-	ID       int    `json:"id,omitempty"`
-	Response bool   `json:"response,omitempty"`
-	Type     string `json:"type,omitempty"`
-	Data     string `json:"data,omitempty"`
-}
-
-type Command struct {
-	Command string `json:"command"`
-	Args    string `json:"args,omitempty"`
-}
-
-type Write struct {
-	Var string      `json:"var,omitempty"`
-	Val interface{} `json:"val,omitempty"`
-}
-
 type Read struct {
 	Var string `json:"var,omitempty"`
 }
@@ -100,6 +80,11 @@ func runMain() error {
 
 	log.Printf("Running version: %s", version)
 
+	config, err := ParseCommsConfig(args.ConfigDir)
+	if err != nil {
+		return err
+	}
+
 	log.Info("Loading trap and protect species")
 	trapSpecies, err := tracks.LoadSpeciesFromFile(args.TrapSpeciesFile)
 	if err != nil {
@@ -112,9 +97,24 @@ func runMain() error {
 	log.Info("Species to trap:\n", trapSpecies)
 	log.Info("Species to protect:\n", protectSpecies)
 
-	tracks, err := getTrackingSignals()
+	trackingSignals, err := getTrackingSignals()
 	if err != nil {
 		return err
+	}
+
+	switch args.OutputType {
+	case "bluetooth":
+		if err := processBluetooth(); err != nil {
+			return err
+		}
+	case "uart":
+		if err := processUart(); err != nil {
+			return err
+		}
+	case "digital":
+		if err := processDigital(config, trackingSignals); err != nil {
+			return err
+		}
 	}
 
 	trapActiveUntil := time.Time{}
@@ -136,8 +136,19 @@ func runMain() error {
 	}
 	log.Info("Done")
 
+	protectDuration := time.Minute
+	trapDuration := time.Duration(args.TrapStayActiveDuration) * time.Second
+
+	var newTrack *trackingEvent
+	lastProtectSpeciesSighting := time.Time{}
+	lastTrapSpeciesSighting := time.Time{}
+
 	for {
-		newTrapActive := trapActiveUntil.After(time.Now())
+
+		now := time.Now()
+		newTrapActive :=
+			(lastProtectSpeciesSighting.Add(protectDuration).Before(now) && // Nothing to protect has been seen recently.
+				lastTrapSpeciesSighting.Add(trapDuration).After(now)) // And something to trap has been sighted recently.
 
 		if trapActive != newTrapActive {
 			trapActive = newTrapActive
@@ -151,34 +162,23 @@ func runMain() error {
 			switch args.OutputType {
 			case "uart":
 				log.Info("Outputting trap active state via UART")
+				if err := processUart(); err != nil {
+					return err
+				}
 				// TODO
 
 			case "bluetooth":
 				log.Info("Outputting trap active state via bluetooth")
+				if err := processBluetooth(); err != nil {
+					return err
+				}
 				// TODO
 
 			case "digital":
 				log.Info("Outputting trap active state via digital signals")
-				// Get a handle for GPIO 14 (BCM 14, physical pin 8 on the Raspberry Pi)
-				pin := gpioreg.ByName("GPIO14")
-				if pin == nil {
-					err := fmt.Errorf("failed to find GPIO14")
-					return err
-				}
-
-				if trapActive {
-					log.Info("Driving pin high")
-					err := pin.Out(gpio.High)
-					if err != nil {
-						return err
-					}
-				} else {
-					log.Info("Driving pin low")
-					err := pin.Out(gpio.Low)
-					if err != nil {
-						return err
-					}
-				}
+				//if err := processDigital(); err != nil {
+				//	return err
+				//}
 
 			default:
 				return fmt.Errorf("unhandled output type: %s", args.OutputType)
@@ -190,12 +190,24 @@ func runMain() error {
 			delay = time.Until(trapActiveUntil)
 		}
 
+		newTrack = nil
 		log.Debug("Waiting ")
 		select {
-		case t := <-tracks:
-			log.Debugf("Found new track: %+v", t)
-			if t.animal == "possum" && t.confidence > 50 {
-				trapActiveUntil = time.Now().Add(33 * time.Second)
+		case t := <-trackingSignals:
+			newTrack = &t
+			log.Debugf("Found new track: %+v", newTrack)
+
+			if newTrack.species.MatchSpeciesWithConfidence(protectSpecies) {
+				log.Debug("Found an animal that needs to be protected, deactivating trap")
+				lastProtectSpeciesSighting = time.Now()
+				//trapActiveUntil = time.Time{}
+			} else if newTrack.species.MatchSpeciesWithConfidence(trapSpecies) {
+				log.Debug("Found an animal that needs to be trapped, activating trap")
+				lastTrapSpeciesSighting = time.Now()
+
+				//trapActiveUntil = time.Now().Add(time.Duration(args.TrapStayActiveDuration) * time.Second)
+			} else {
+				log.Debug("No animals need to be protected or trapped, not changing trap state.")
 			}
 
 		case <-time.After(delay):

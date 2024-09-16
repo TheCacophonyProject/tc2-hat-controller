@@ -49,3 +49,4 @@ require (
 )
 
 replace github.com/TheCacophonyProject/go-utils v0.1.1 => ../go-utils
+replace github.com/TheCacophonyProject/go-config v1.18.1 => ../go-config

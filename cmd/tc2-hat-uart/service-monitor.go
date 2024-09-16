@@ -3,12 +3,12 @@
 package main
 
 import (
+	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/godbus/dbus/v5"
 )
 
 type trackingEvent struct {
-	animal      string
-	confidence  int32
+	species     tracks.Species
 	boundingBox [4]int32
 	motion      bool
 }
@@ -32,7 +32,7 @@ func getTrackingSignals() (chan trackingEvent, error) {
 	conn.Signal(c)
 
 	// Create a channel to send tracking events
-	tracks := make(chan trackingEvent, 10)
+	tracksChan := make(chan trackingEvent, 10)
 
 	// Listen for signals
 	log.Println("Listening for D-Bus signals from org.cacophony.thermalrecorder...")
@@ -59,15 +59,16 @@ func getTrackingSignals() (chan trackingEvent, error) {
 				var boundingBox [4]int32
 				copy(boundingBox[:], signal.Body[2].([]int32))
 				t := trackingEvent{
-					animal:      signal.Body[0].(string),
-					confidence:  signal.Body[1].(int32),
+					species: tracks.Species{
+						signal.Body[0].(string): signal.Body[1].(int32),
+					},
 					boundingBox: boundingBox,
 					motion:      signal.Body[3].(bool),
 				}
-				tracks <- t
+				tracksChan <- t
 			}
 		}
 	}()
 
-	return tracks, nil
+	return tracksChan, nil
 }

@@ -2,4 +2,7 @@
 
 package main
 
-// TODO
+func processBluetooth() error {
+	// TODO
+	return nil
+}

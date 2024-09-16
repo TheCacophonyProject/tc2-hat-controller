@@ -9,14 +9,41 @@ import (
 	"strconv"
 	"time"
 
-	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
 )
 
 // TODO
 
+// UartMessage represents the data structure for communication with a device connected on UART.
+// - ID: Identifier of the message being sent or the message being responded to.
+// - Response: Indicates if the message is a response.
+// - Type: Specifies the type of message (e.g., write, read, command, ACK, NACK).
+// - Data: Contains the actual data payload, which varies depending on the type or response.
+type UartMessage struct {
+	ID       int    `json:"id,omitempty"`
+	Response bool   `json:"response,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Data     string `json:"data,omitempty"`
+}
+
+type Command struct {
+	Command string `json:"command"`
+	Args    string `json:"args,omitempty"`
+}
+
+type Write struct {
+	Var string      `json:"var,omitempty"`
+	Val interface{} `json:"val,omitempty"`
+}
+
 func sendTrapActiveState(active bool) error {
 	return sendWriteMessage("active", active)
+}
+
+func processUart() error {
+	// TODO
+	return nil
 }
 
 func sendWriteMessage(varName string, val interface{}) error {
