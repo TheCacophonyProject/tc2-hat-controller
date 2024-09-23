@@ -2,10 +2,14 @@ package main
 
 import (
 	"github.com/TheCacophonyProject/go-config"
+	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 )
 
 type CommsConfig struct {
 	config.Comms
+
+	TrapSpecies    tracks.Species
+	ProtectSpecies tracks.Species
 
 	UartTxPin string
 }
@@ -27,7 +31,9 @@ func ParseCommsConfig(configDir string) (*CommsConfig, error) {
 	}
 
 	return &CommsConfig{
-		Comms:     c,
-		UartTxPin: gpio.UartTx,
+		Comms:          c,
+		TrapSpecies:    tracks.Species(c.TrapSpecies),
+		ProtectSpecies: tracks.Species(c.ProtectSpecies),
+		UartTxPin:      gpio.UartTx,
 	}, nil
 }

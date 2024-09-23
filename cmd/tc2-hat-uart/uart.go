@@ -94,6 +94,14 @@ func sendCommandMessage(cmd string) error {
 	return nil
 }
 
+type Read struct {
+	Var string `json:"var,omitempty"`
+}
+
+type ReadResponse struct {
+	Val string `json:"var,omitempty"`
+}
+
 func sendReadMessage(varName string) (string, error) {
 	data, err := json.Marshal(&Read{
 		Var: varName,

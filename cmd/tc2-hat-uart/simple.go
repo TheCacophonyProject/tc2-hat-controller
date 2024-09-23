@@ -1,24 +1,36 @@
-// This section deals with communication with peripherals with simple digital signals.
-
 package main
 
 import (
 	"fmt"
 	"time"
 
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/host/v3"
 )
 
-func processDigital(config *CommsConfig, trackingSignals chan trackingEvent) error {
+// processSimpleOutput will just output HIGH or LOW to the UART TX pin for showing if the
+// trap should be active or not.
+func processSimpleOutput(config *CommsConfig, trackingSignals chan trackingEvent) error {
 	// Initialize the periph host drivers
 	if _, err := host.Init(); err != nil {
 		return fmt.Errorf("failed to initialize periph: %v", err)
 	}
 
+	log.Info("Get lock on serial port")
+	if config.CommsOut == "uart" || config.CommsOut == "simple" {
+		serialFile, err := serialhelper.GetSerial(3, gpio.High, gpio.Low, time.Second)
+		if err != nil {
+			return err
+		}
+		defer serialhelper.ReleaseSerial(serialFile)
+	}
+	log.Info("Done")
+
 	// Set up the GPIO pins
 	outPin := gpioreg.ByName(config.UartTxPin)
+	log.Debugf("Setting output pin '%s'", config.UartTxPin)
 	if outPin == nil {
 		return fmt.Errorf("failed to find out pin '%s'", config.UartTxPin)
 	}
