@@ -12,7 +12,6 @@ require (
 	github.com/godbus/dbus v4.1.0+incompatible
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/sigurn/crc8 v0.0.0-20220107193325-2243fe600f9f
-	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
 	github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
 	periph.io/x/conn/v3 v3.7.0
@@ -34,6 +33,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/sagikazarmark/locafero v0.6.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect

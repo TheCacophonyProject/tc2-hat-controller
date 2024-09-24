@@ -527,7 +527,7 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, uint16, error) {
 	}
 	log.Debugf("Analog readings. Max: %d, Min: %d", max, min)
 	diff := max - min
-	acceptableDifference := uint16(30)
+	acceptableDifference := uint16(50)
 	if diff > acceptableDifference {
 		err := fmt.Errorf("difference in max and min analog readings was %d", diff)
 		return 0, 0, err
