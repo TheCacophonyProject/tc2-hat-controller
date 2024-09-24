@@ -71,7 +71,7 @@ func GetSerial(retries int, mul0, mul1 gpio.Level, wait time.Duration) (*os.File
 
 		if errno, ok := err.(syscall.Errno); ok && errno == syscall.EWOULDBLOCK {
 			if i > 0 {
-				fmt.Printf("Serial port is locked by another process. Retrying %d in 5 seconds...", i)
+				log.Printf("Serial port is locked by another process. Retrying %d in 5 seconds...", i)
 				time.Sleep(wait)
 				i--
 			} else {

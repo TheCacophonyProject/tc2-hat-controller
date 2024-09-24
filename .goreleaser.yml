@@ -27,9 +27,9 @@ builds:
     - arm64
   ldflags: -s -w -X main.version={{.Version}}
 
-- id: tc2-hat-uart
-  binary: tc2-hat-uart
-  main: ./cmd/tc2-hat-uart
+- id: tc2-hat-comms
+  binary: tc2-hat-comms
+  main: ./cmd/tc2-hat-comms
   goos:
     - linux
   goarch:
@@ -86,8 +86,8 @@ nfpms:
       dst: /etc/systemd/system/tc2-hat-temp.service
     - src: _release/tc2-hat-attiny.service
       dst: /etc/systemd/system/tc2-hat-attiny.service
-    - src: _release/tc2-hat-uart.service
-      dst: /etc/systemd/system/tc2-hat-uart.service
+    - src: _release/tc2-hat-comms.service
+      dst: /etc/systemd/system/tc2-hat-comms.service
     - src: _release/stay-on-for
       dst: /usr/bin/stay-on-for
     - src: _release/10-notify-attiny

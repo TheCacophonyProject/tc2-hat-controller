@@ -32,7 +32,7 @@ import (
 	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
-	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"github.com/alexflint/go-arg"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"

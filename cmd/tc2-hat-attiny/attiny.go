@@ -29,9 +29,9 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/rpi-net-manager/netmanagerclient"
-	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
 	"github.com/TheCacophonyProject/tc2-hat-controller/eeprom"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
 )
 
@@ -527,7 +527,7 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, uint16, error) {
 	}
 	log.Debugf("Analog readings. Max: %d, Min: %d", max, min)
 	diff := max - min
-	acceptableDifference := uint16(30)
+	acceptableDifference := uint16(50)
 	if diff > acceptableDifference {
 		err := fmt.Errorf("difference in max and min analog readings was %d", diff)
 		return 0, 0, err

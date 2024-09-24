@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/tc2-hat-controller/eeprom"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 	"github.com/alexflint/go-arg"
-	"github.com/sirupsen/logrus"
 )
 
 var version = "<not set>"
-var log = logrus.New()
+var log = logging.NewLogger("info")
 
 type Args struct {
 	Write    *Write      `arg:"subcommand:write"   help:"Write to a register."`
@@ -48,35 +48,9 @@ func (Args) Version() string {
 }
 
 func procArgs() Args {
-	args := Args{
-		//ConfigDir: config.DefaultConfigDir,
-	}
+	args := Args{}
 	arg.MustParse(&args)
 	return args
-}
-
-func setLogLevel(level string) {
-	switch level {
-	case "debug":
-		log.SetLevel(logrus.DebugLevel)
-	case "info":
-		log.SetLevel(logrus.InfoLevel)
-	case "warn":
-		log.SetLevel(logrus.WarnLevel)
-	case "error":
-		log.SetLevel(logrus.ErrorLevel)
-	default:
-		log.SetLevel(logrus.InfoLevel)
-		log.Warn("Unknown log level, defaulting to info")
-	}
-}
-
-// customFormatter defines a new logrus formatter.
-type customFormatter struct{}
-
-// Format builds the log message string from the log entry.
-func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	return []byte(fmt.Sprintf("[%s] %s\n", strings.ToUpper(entry.Level.String()), entry.Message)), nil
 }
 
 func main() {
@@ -87,9 +61,8 @@ func main() {
 }
 
 func runMain() error {
-	log.SetFormatter(new(customFormatter))
 	args := procArgs()
-	setLogLevel(args.LogLevel)
+	log = logging.NewLogger(args.LogLevel)
 
 	log.Infof("Running version: %s", version)
 

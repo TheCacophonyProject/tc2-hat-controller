@@ -1,3 +1,5 @@
+// This section deals with communication with peripherals over uart.
+
 package main
 
 import (
@@ -7,46 +9,18 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/TheCacophonyProject/go-utils/logging"
-	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller"
-	"github.com/alexflint/go-arg"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
 )
 
-var (
-	version           = "<not set>"
-	activateTrapUntil = time.Now()
-	activeTrapSig     = make(chan string)
-	log               = logging.NewLogger("info")
-)
+// TODO
 
-type Args struct {
-	logging.LogArgs
-}
-
-func (Args) Version() string {
-	return version
-}
-
-func procArgs() Args {
-	args := Args{}
-	arg.MustParse(&args)
-	return args
-}
-
-func main() {
-	err := runMain()
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-// Message represents the data structure for communication with a device connected on UART.
+// UartMessage represents the data structure for communication with a device connected on UART.
 // - ID: Identifier of the message being sent or the message being responded to.
 // - Response: Indicates if the message is a response.
 // - Type: Specifies the type of message (e.g., write, read, command, ACK, NACK).
 // - Data: Contains the actual data payload, which varies depending on the type or response.
-type Message struct {
+type UartMessage struct {
 	ID       int    `json:"id,omitempty"`
 	Response bool   `json:"response,omitempty"`
 	Type     string `json:"type,omitempty"`
@@ -63,76 +37,13 @@ type Write struct {
 	Val interface{} `json:"val,omitempty"`
 }
 
-type Read struct {
-	Var string `json:"var,omitempty"`
-}
-
-type ReadResponse struct {
-	Val string `json:"var,omitempty"`
-}
-
-func checkClassification(data map[byte]byte) error {
-	for k, v := range data {
-		if k == 1 && v > 80 {
-			activateTrap()
-		}
-		if k == 7 && v > 80 {
-			activateTrap()
-		}
-	}
-	return nil
-}
-
-func activateTrap() {
-	log.Println("Activating trap")
-	activateTrapUntil = time.Now().Add(time.Minute)
-	activeTrapSig <- "trap"
-}
-
-func runMain() error {
-	args := procArgs()
-
-	log = logging.NewLogger(args.LogLevel)
-
-	log.Printf("Running version: %s", version)
-	log.Println(args)
-
-	// Start dbus to listen for classification messages.
-
-	if err := beep(); err != nil {
-		return err
-	}
-
-	log.Println("Starting UART service")
-	if err := startService(); err != nil {
-		return err
-	}
-
-	trapActive := false
-	if err := sendTrapActiveState(trapActive); err != nil {
-		return err
-	}
-
-	for {
-		waitUntil := time.Now().Add(5 * time.Second)
-		if trapActive {
-			waitUntil = activateTrapUntil
-		}
-
-		select {
-		case <-activeTrapSig:
-		case <-time.After(time.Until(waitUntil)):
-		}
-		trapActive = time.Now().Before(activateTrapUntil)
-
-		if err := sendTrapActiveState(trapActive); err != nil {
-			return err
-		}
-	}
-}
-
 func sendTrapActiveState(active bool) error {
 	return sendWriteMessage("active", active)
+}
+
+func processUart() error {
+	// TODO
+	return nil
 }
 
 func sendWriteMessage(varName string, val interface{}) error {
@@ -143,7 +54,7 @@ func sendWriteMessage(varName string, val interface{}) error {
 	if err != nil {
 		return err
 	}
-	message := Message{
+	message := UartMessage{
 		Type: "write",
 		Data: string(data),
 	}
@@ -169,7 +80,7 @@ func sendCommandMessage(cmd string) error {
 	if err != nil {
 		return err
 	}
-	message := Message{
+	message := UartMessage{
 		Type: "command",
 		Data: string(data),
 	}
@@ -183,6 +94,14 @@ func sendCommandMessage(cmd string) error {
 	return nil
 }
 
+type Read struct {
+	Var string `json:"var,omitempty"`
+}
+
+type ReadResponse struct {
+	Val string `json:"var,omitempty"`
+}
+
 func sendReadMessage(varName string) (string, error) {
 	data, err := json.Marshal(&Read{
 		Var: varName,
@@ -190,7 +109,7 @@ func sendReadMessage(varName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	message := Message{
+	message := UartMessage{
 		Type: "read",
 		Data: string(data),
 	}
@@ -232,7 +151,7 @@ func computeChecksum(message []byte) int {
 	return checksum % 256
 }
 
-func sendMessage(cmd Message) (*Message, error) {
+func sendMessage(cmd UartMessage) (*UartMessage, error) {
 	cmdData, err := json.Marshal(cmd)
 	if err != nil {
 		return nil, err
@@ -270,7 +189,7 @@ func sendMessage(cmd Message) (*Message, error) {
 	}
 
 	// Unmarshal response to a Message
-	responseMessage := &Message{}
+	responseMessage := &UartMessage{}
 	log.Println(string(parts[0]))
 	return responseMessage, json.Unmarshal(parts[0], responseMessage)
 }
