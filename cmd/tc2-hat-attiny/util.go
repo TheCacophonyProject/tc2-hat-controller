@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheCacophonyProject/go-utils/saltutil"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 )
 
@@ -32,6 +33,10 @@ func shutdown(a *attiny) error {
 // shouldStayOnForSalt will check if a salt command is running via checking the output from `salt-call saltutil.running`
 // If a device is being kept on for too long because of salt commands it will ignore the salt command check.
 func shouldStayOnForSalt() bool {
+	if !saltutil.IsSaltIdSet() {
+		return false
+	}
+
 	if saltCommandWaitEnd.IsZero() {
 		saltCommandWaitEnd = time.Now().Add(saltCommandMaxWaitDuration)
 	}
