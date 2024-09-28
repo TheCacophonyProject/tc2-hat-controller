@@ -58,8 +58,8 @@ github.com/TheCacophonyProject/go-config v1.4.0/go.mod h1:oARW/N3eJbcewCqB+Jc7TB
 github.com/TheCacophonyProject/go-config v1.9.0/go.mod h1:+y80PSRZudMYuVrYTGOvzc66NxVJWKS4TuU442vmvhY=
 github.com/TheCacophonyProject/go-config v1.22.0 h1:ElKhWV4w0m4xX59h6ORrSDsAkBsAScJskrouCjKchqY=
 github.com/TheCacophonyProject/go-config v1.22.0/go.mod h1:Nf1iBI/gqYf7UCcUZezO7bj9hzY2jRPdzDW+kOI9/Fo=
-github.com/TheCacophonyProject/go-utils v0.1.2 h1:5rJJ0sw2szX6Gz4ZkwCCwF3pPZDfIAZveMuhYTEcAyI=
-github.com/TheCacophonyProject/go-utils v0.1.2/go.mod h1:jZPUZ4GtYVxnlTtqiYKMFWDT//kmxdbwjLW3HCyCmCE=
+github.com/TheCacophonyProject/go-utils v0.1.3 h1:DSuDeJz7ZM00yQRLsoukWH0fnC+8X8+ziYxOl6l3wEY=
+github.com/TheCacophonyProject/go-utils v0.1.3/go.mod h1:jZPUZ4GtYVxnlTtqiYKMFWDT//kmxdbwjLW3HCyCmCE=
 github.com/TheCacophonyProject/modemd v0.0.0-20190605010435-ae5b0f2eb760/go.mod h1:bfwJ/WcvDY9XtHKC5tcRfVrU8RWaW8DLYAAUfsrJr/4=
 github.com/TheCacophonyProject/modemd v1.6.0/go.mod h1:0M7yJCdqhvoI5dVeDjOH6vsmbOBr1YhZ8DpAK4AkOA0=
 github.com/TheCacophonyProject/rpi-net-manager v0.5.3 h1:hIaFnMP3qZf+edeCIQ4cW3LvBLqOQag7wh3EYlP7MP4=
