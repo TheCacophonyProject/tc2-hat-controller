@@ -159,11 +159,6 @@ func runMain() error {
 			onReason = fmt.Sprintf("Staying on because camera has been requested to stay on for %s", durToStr(waitDuration))
 		}
 
-		if waitDuration < saltCommandWaitDuration && shouldStayOnForSalt() {
-			waitDuration = saltCommandWaitDuration
-			onReason = "Staying on because salt command is running"
-		}
-
 		// Check if the RP2040 wants the RPi to stay on
 		if waitDuration <= time.Duration(0) {
 			val, err := attiny.readRegister(rp2040PiPowerCtrlReg)
@@ -174,6 +169,12 @@ func runMain() error {
 				onReason = "Staying on because RP2040 wants me to stay on"
 				waitDuration = 10 * time.Second
 			}
+		}
+
+		// Checking if a salt command is running should only be done if needed
+		if waitDuration < time.Duration(0) && shouldStayOnForSalt() {
+			waitDuration = saltCommandWaitDuration
+			onReason = "Staying on because salt command is running"
 		}
 
 		if waitDuration <= time.Duration(0) {
