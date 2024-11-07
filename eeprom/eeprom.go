@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
 )
@@ -123,8 +124,18 @@ func InitEEPROM() error {
 		log.Println("EEPROM data matches file")
 		return nil
 	}
-	log.Printf("%+v\n", eepromData)
-	log.Printf("%+v\n", eepromDataFromFile)
+	log.Printf("EEPROM data on chip: %+v\n", eepromData)
+	log.Printf("EEPROM data saved to file: %+v\n", eepromDataFromFile)
+	log.Println("The EEPROM data has changed. This is probably because of a change in hardware.")
+	eventclient.AddEvent(eventclient.Event{
+		Timestamp: time.Now(),
+		Type:      "eepromDataChanged",
+		Details: map[string]interface{}{
+			"eepromDataFromFile": eepromDataFromFile,
+			"eepromDataFromChip": eepromData,
+		},
+	})
+
 	return fmt.Errorf("EEPROM data does not match what is saved to file. Not too sure what we should do here")
 }
 
