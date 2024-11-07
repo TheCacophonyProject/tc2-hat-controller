@@ -283,7 +283,7 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 	startTime := time.Now()
 	i := 5
 	for {
-		hvBat, err := a.readMainBattery()
+		hvBat, err := a.readHVBattery()
 		if err != nil {
 			log.Error(err)
 			continue

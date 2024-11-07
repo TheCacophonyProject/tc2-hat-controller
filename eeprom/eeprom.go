@@ -272,3 +272,19 @@ func GetMainPCBVersion() (string, error) {
 		return "", fmt.Errorf("unknown eeprom data type")
 	}
 }
+
+func GetPowerPCBVersion() (string, error) {
+	eepromData, err := readEEPROMFromFile()
+	if err != nil {
+		return "", err
+	}
+
+	switch eepromData := eepromData.(type) {
+	case *EepromDataV1:
+		return fmt.Sprintf("v%d.%d.%d", eepromData.Major, eepromData.Minor, eepromData.Patch), nil
+	case *EepromDataV2:
+		return eepromData.PowerPCB.String(), nil
+	default:
+		return "", fmt.Errorf("unknown eeprom data type")
+	}
+}

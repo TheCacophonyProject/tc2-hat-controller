@@ -141,3 +141,46 @@ func calculateStandardDeviation(values []uint16) float64 {
 	variance := varianceSum / float64(len(values))
 	return math.Sqrt(variance)
 }
+
+func getResistorDividerValuesFromVersion(hardwareVer versionStr, resistorValues []rVals) (float32, float32, float32, error) {
+	// Find the resistor and voltage values for the given hardware version
+	var vref, r1, r2 float32 = 0, 0, 0
+	for _, v := range resistorValues {
+		newer, err := hardwareVer.IsNewerOrEqual(v.hardwareVersion)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		if newer {
+			vref = v.vref
+			r1 = v.r1
+			r2 = v.r2
+		}
+	}
+
+	return vref, r1, r2, nil
+}
+
+type rVals struct {
+	hardwareVersion versionStr
+	vref, r1, r2    float32
+}
+
+type versionStr string
+
+func (v versionStr) IsNewerOrEqual(other versionStr) (bool, error) {
+	parts := strings.Split(string(v), ".")
+	if len(parts) != 3 {
+		return false, fmt.Errorf("invalid version format '%s", v)
+	}
+	partsOther := strings.Split(string(other), ".")
+	if len(partsOther) != 3 {
+		return false, fmt.Errorf("invalid version format '%s", other)
+	}
+	if parts[0] != partsOther[0] {
+		return parts[0] > partsOther[0], nil
+	}
+	if parts[1] != partsOther[1] {
+		return parts[1] > partsOther[1], nil
+	}
+	return parts[2] >= partsOther[2], nil
+}

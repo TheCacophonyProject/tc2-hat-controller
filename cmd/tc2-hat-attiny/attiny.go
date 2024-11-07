@@ -529,7 +529,7 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, uint16, error) {
 	diff := max - min
 	acceptableDifference := uint16(50)
 	if diff > acceptableDifference {
-		err := fmt.Errorf("difference in max and min analog readings was %d", diff)
+		err := fmt.Errorf("difference in max and min analog readings was %d, readings were %v", diff, readings)
 		return 0, 0, err
 	}
 
@@ -591,30 +591,6 @@ func (a *attiny) makeIndividualAnalogReading(reg1, reg2 Register) (uint16, error
  V_bat = V_in * ((R1 + R2)/R2)
 */
 
-func (a *attiny) readMainBattery() (float32, error) {
-	raw, _, err := a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
-	if err != nil {
-		return 0, err
-	}
-	var r1, r2, vref float32
-	hardwareVersion, err := eeprom.GetMainPCBVersion()
-	if err != nil {
-		return 0, err
-	}
-	if hardwareVersion == "0.1.4" {
-		r1 = 2000
-		r2 = 172
-		vref = 3.3
-	} else {
-		r1 = 2000
-		r2 = 168
-		vref = 3.3
-	}
-
-	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
-	return v * (r1 + r2) / (r2), nil
-}
-
 func (a *attiny) readRTCBattery() (float32, error) {
 	raw, _, err := a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
 	if err != nil {
@@ -630,22 +606,49 @@ func (a *attiny) readLVBattery() (float32, error) {
 	}
 
 	var r1, r2, vref float32
-	hardwareVersion, err := eeprom.GetMainPCBVersion()
+	hardwareVersion, err := eeprom.GetPowerPCBVersion()
 	if err != nil {
 		return 0, err
 	}
-	if hardwareVersion == "0.1.4" {
-		r1 = 2000
-		r2 = 560 + 33
-		vref = 3.3
-	} else {
-		r1 = 2000
-		r2 = 680
-		vref = 3.325
-	}
 
+	r1, r2, vref, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), lvResistorVals)
+	if err != nil {
+		return 0, err
+	}
 	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
 	return v * (r1 + r2) / (r2), nil
+}
+
+func (a *attiny) readHVBattery() (float32, error) {
+	raw, _, err := a.readBattery(batteryLVDivVal1Reg, batteryLVDivVal2Reg)
+	if err != nil {
+		return 0, err
+	}
+
+	var r1, r2, vref float32
+	hardwareVersion, err := eeprom.GetPowerPCBVersion()
+	if err != nil {
+		return 0, err
+	}
+
+	r1, r2, vref, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), hvResistorVals)
+	if err != nil {
+		return 0, err
+	}
+	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
+	return v * (r1 + r2) / (r2), nil
+}
+
+var lvResistorVals = []rVals{
+	{"0.1.4", 3.3, 2000, 560 + 33},
+	{"0.1.5", 3.325, 2000, 680},
+	{"0.7.0", 3.3, 2000, 470},
+}
+
+var hvResistorVals = []rVals{
+	{"0.1.4", 3.3, 2000, 560 + 33},
+	{"0.1.5", 3.325, 2000, 680},
+	{"0.7.0", 3.3, 2000, 470},
 }
 
 func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
