@@ -136,6 +136,11 @@ func InitEEPROM() error {
 		},
 	})
 
+	err = writeEEPROMToFile(eepromData)
+	if err != nil {
+		return err
+	}
+
 	return fmt.Errorf("EEPROM data does not match what is saved to file. Not too sure what we should do here")
 }
 
