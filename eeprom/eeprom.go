@@ -136,12 +136,13 @@ func InitEEPROM() error {
 		},
 	})
 
+	log.Println("Writing new EEPROM data to file.")
 	err = writeEEPROMToFile(eepromData)
 	if err != nil {
 		return err
 	}
 
-	return fmt.Errorf("EEPROM data does not match what is saved to file. Not too sure what we should do here")
+	return nil
 }
 
 func getEEPROMDataVersion() (byte, error) {
@@ -154,7 +155,7 @@ func getEEPROMDataVersion() (byte, error) {
 		return 0xFF, fmt.Errorf("expected 1 byte, got %d", len(data))
 	}
 	if data[0] != EEPROM_FIRST_BYTE {
-		return 0xFF, fmt.Errorf("expecting first byte on EEPROM to be 0x%X, got 0x%X. Has hte EEPROM chip been programmed?", EEPROM_FIRST_BYTE, data[0])
+		return 0xFF, fmt.Errorf("expecting first byte on EEPROM to be 0x%X, got 0x%X. Has the EEPROM chip been programmed?", EEPROM_FIRST_BYTE, data[0])
 	}
 	return data[1], nil
 }
