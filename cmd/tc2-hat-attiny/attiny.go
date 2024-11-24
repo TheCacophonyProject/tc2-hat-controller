@@ -611,7 +611,7 @@ func (a *attiny) readLVBattery() (float32, error) {
 		return 0, err
 	}
 
-	r1, r2, vref, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), lvResistorVals)
+	vref, r1, r2, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), lvResistorVals)
 	if err != nil {
 		return 0, err
 	}
@@ -631,7 +631,7 @@ func (a *attiny) readHVBattery() (float32, error) {
 		return 0, err
 	}
 
-	r1, r2, vref, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), hvResistorVals)
+	vref, r1, r2, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), hvResistorVals)
 	if err != nil {
 		return 0, err
 	}
