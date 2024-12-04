@@ -308,6 +308,24 @@ func connectToATtinyWithRetries(retries int) (*attiny, error) {
 			log.Println("Failed to connect to attiny.")
 			return nil, err
 		}
+
+		// Need to stop tc2-hat-comms as it will be using the UART pins that are needed to update the firmware.
+		service := "tc2-hat-comms.service"
+		tc2CommsRunning, err := isServiceRunning(service)
+		if err != nil {
+			return nil, err
+		}
+		if tc2CommsRunning {
+			if err := manageService("stop", service); err != nil {
+				return nil, err
+			}
+			defer func() {
+				if err := manageService("start", service); err != nil {
+					log.Println("Failed to start service:", err)
+				}
+			}()
+		}
+
 		err = updateATtinyFirmware()
 		if err != nil {
 			log.Printf("Error updating firmware: %v\n.", err)

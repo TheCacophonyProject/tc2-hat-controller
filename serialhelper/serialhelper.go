@@ -1,8 +1,10 @@
 package serialhelper
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"time"
@@ -70,8 +72,24 @@ func GetSerial(retries int, mul0, mul1 gpio.Level, wait time.Duration) (*os.File
 		}
 
 		if errno, ok := err.(syscall.Errno); ok && errno == syscall.EWOULDBLOCK {
+			log.Printf("Serial port is locked. Checking locking process...")
+			process, err := getLockingProcess("/dev/serial0")
+			if err != nil {
+				log.Printf("Error checking locking process: %v", err)
+			} else if process == "" {
+				log.Printf("No active process found holding the lock. Forcing lock acquisition...")
+				// Force unlock by attempting to close and reopen the file
+				err := syscall.Flock(int(serialFile.Fd()), syscall.LOCK_UN)
+				if err != nil {
+					return nil, fmt.Errorf("failed to force unlock: %v", err)
+				}
+				continue // Retry lock acquisition
+			} else {
+				log.Printf("Serial port is locked by process: %s", process)
+			}
+
 			if i > 0 {
-				log.Printf("Serial port is locked by another process. Retrying %d in 5 seconds...", i)
+				log.Printf("Serial port is locked by another process. Retrying %d more times in %d seconds...", i, wait/time.Second)
 				time.Sleep(wait)
 				i--
 			} else {
@@ -101,7 +119,33 @@ func GetSerial(retries int, mul0, mul1 gpio.Level, wait time.Duration) (*os.File
 		return nil, err
 	}
 
+	out, err := exec.Command("raspi-gpio", "set", "14", "a0").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to set GPIO14 to a0(UART): %v, output: %s", err, out)
+	}
+	out, err = exec.Command("raspi-gpio", "set", "15", "a0").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to set GPIO15 to a0(UART): %v, output: %s", err, out)
+	}
+
 	return serialFile, nil
+}
+
+func getLockingProcess(serialPath string) (string, error) {
+	// Run `fuser` to check which process is using the file
+	cmd := exec.Command("fuser", serialPath)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	err := cmd.Run()
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
+			// Exit code 1 from `fuser` means no process is using the file
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to execute fuser: %v", err)
+	}
+	return output.String(), nil
 }
 
 func ReleaseSerial(serialFile *os.File) error {

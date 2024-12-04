@@ -184,3 +184,27 @@ func (v versionStr) IsNewerOrEqual(other versionStr) (bool, error) {
 	}
 	return parts[2] >= partsOther[2], nil
 }
+
+// Check if the service is running
+func isServiceRunning(serviceName string) (bool, error) {
+	cmd := exec.Command("systemctl", "is-active", "--quiet", serviceName)
+	err := cmd.Run()
+	if err == nil {
+		return true, nil // Service is running
+	}
+	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 3 {
+		return false, nil // Service is not running
+	}
+	return false, fmt.Errorf("failed to check service status: %v", err)
+}
+
+// Start or stop a service
+func manageService(action, serviceName string) error {
+	cmd := exec.Command("systemctl", action, serviceName)
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("failed to %s service %s: %v", action, serviceName, err)
+	}
+	log.Printf("Service %s %sd successfully.\n", serviceName, action)
+	return nil
+}
