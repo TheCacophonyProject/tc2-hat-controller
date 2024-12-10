@@ -610,11 +610,15 @@ func (a *attiny) makeIndividualAnalogReading(reg1, reg2 Register) (uint16, error
 */
 
 func (a *attiny) readRTCBattery() (float32, error) {
-	raw, _, err := a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
+	raw, _, err := a.readBattery(batteryLVDivVal1Reg, batteryLVDivVal2Reg)
 	if err != nil {
 		return 0, err
 	}
-	return float32(raw) * 3.3 / 1023, nil
+	hardwareVersion, err := eeprom.GetPowerPCBVersion()
+	if err != nil {
+		return 0, err
+	}
+	return calculateBatteryVoltage(raw, versionStr(hardwareVersion), rtcResistorVals)
 }
 
 func (a *attiny) readLVBattery() (float32, error) {
@@ -622,34 +626,27 @@ func (a *attiny) readLVBattery() (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	var r1, r2, vref float32
 	hardwareVersion, err := eeprom.GetPowerPCBVersion()
 	if err != nil {
 		return 0, err
 	}
-
-	vref, r1, r2, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), lvResistorVals)
-	if err != nil {
-		return 0, err
-	}
-	v := float32(raw) * vref / 1023 // raw is from 0 to 1023, 0 at 0V and 1023 at Vref
-	return v * (r1 + r2) / (r2), nil
+	return calculateBatteryVoltage(raw, versionStr(hardwareVersion), lvResistorVals)
 }
 
 func (a *attiny) readHVBattery() (float32, error) {
-	raw, _, err := a.readBattery(batteryLVDivVal1Reg, batteryLVDivVal2Reg)
+	raw, _, err := a.readBattery(batteryHVDivVal1Reg, batteryLVDivVal2Reg)
 	if err != nil {
 		return 0, err
 	}
-
-	var r1, r2, vref float32
 	hardwareVersion, err := eeprom.GetPowerPCBVersion()
 	if err != nil {
 		return 0, err
 	}
+	return calculateBatteryVoltage(raw, versionStr(hardwareVersion), hvResistorVals)
+}
 
-	vref, r1, r2, err = getResistorDividerValuesFromVersion(versionStr(hardwareVersion), hvResistorVals)
+func calculateBatteryVoltage(raw uint16, pcbVersion versionStr, resistorVals []rVals) (float32, error) {
+	vref, r1, r2, err := getResistorDividerValuesFromVersion(pcbVersion, resistorVals)
 	if err != nil {
 		return 0, err
 	}
@@ -664,9 +661,15 @@ var lvResistorVals = []rVals{
 }
 
 var hvResistorVals = []rVals{
-	{"0.1.4", 3.3, 2000, 560 + 33},
-	{"0.1.5", 3.325, 2000, 680},
-	{"0.7.0", 3.3, 2000, 470},
+	{"0.1.4", 3.3, 2000, 150 + 22},
+	{"0.1.5", 3.325, 2000, 168},
+	{"0.7.0", 3.3, 2000, 168},
+}
+
+var rtcResistorVals = []rVals{
+	{"0.1.4", 3.3, 0, 1},
+	{"0.1.5", 3.325, 0, 1},
+	{"0.7.0", 3.3, 0, 1},
 }
 
 func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
