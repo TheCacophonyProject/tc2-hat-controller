@@ -634,7 +634,7 @@ func (a *attiny) readLVBattery() (float32, error) {
 }
 
 func (a *attiny) readHVBattery() (float32, error) {
-	raw, _, err := a.readBattery(batteryHVDivVal1Reg, batteryLVDivVal2Reg)
+	raw, _, err := a.readBattery(batteryHVDivVal1Reg, batteryHVDivVal2Reg)
 	if err != nil {
 		return 0, err
 	}
