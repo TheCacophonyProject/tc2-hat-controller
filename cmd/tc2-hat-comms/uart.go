@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
+	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"periph.io/x/conn/v3/gpio"
 )
 
@@ -21,10 +22,10 @@ import (
 // - Type: Specifies the type of message (e.g., write, read, command, ACK, NACK).
 // - Data: Contains the actual data payload, which varies depending on the type or response.
 type UartMessage struct {
-	ID       int    `json:"id,omitempty"`
-	Response bool   `json:"response,omitempty"`
-	Type     string `json:"type,omitempty"`
-	Data     string `json:"data,omitempty"`
+	ID       int         `json:"id,omitempty"`
+	Response bool        `json:"response,omitempty"`
+	Type     string      `json:"type,omitempty"`
+	Data     interface{} `json:"data,omitempty"`
 }
 
 type Command struct {
@@ -41,9 +42,101 @@ func sendTrapActiveState(active bool) error {
 	return sendWriteMessage("active", active)
 }
 
-func processUart() error {
-	// TODO
-	return nil
+func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan trackingEvent) error {
+	if testClassification != nil {
+		log.Println("Sending a test classification over UART")
+
+		species := tracks.Species{
+			testClassification.Animal: int32(testClassification.Confidence),
+		}
+
+		classificationData := ClassificationData{
+			Species:    species,
+			Confidence: int32(testClassification.Confidence),
+		}
+
+		message := UartMessage{
+			Type: "classification",
+			Data: classificationData,
+		}
+		payload, err := json.Marshal(message)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("Sending payload: '%s'", payload)
+
+		serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')))
+
+		return nil
+	}
+
+	//release, err := serialHelper.GetLock()
+	// defer release()
+
+	// err := serialHelper.SetOut(serialHelper.AUX_PORT)
+
+	// Get serial port ready for writing to and reading to
+
+	for {
+		log.Debug("Waiting")
+		t := <-trackingSignals
+		log.Debugf("Found new track: %+v", t)
+
+		species := tracks.Species{}
+		for k, v := range t.Species {
+			if v > 0 {
+				species[k] = v
+			}
+		}
+
+		message := UartMessage{
+			Type: "classification",
+			Data: ClassificationData{
+				Species:    species,
+				Confidence: t.Confidence,
+			},
+		}
+
+		payload, err := json.Marshal(message)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("Sending payload: '%s'", payload)
+		start := time.Now()
+
+		serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')))
+
+		log.Printf("Sent payload in %s", time.Since(start))
+	}
+}
+
+type ClassificationData struct {
+	Species    tracks.Species
+	Confidence int32
+}
+
+func sendClassification(event trackingEvent) {
+
+	data := map[string]interface{}{
+		"species":    event.Species,
+		"confidence": event.Confidence,
+	}
+
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		fmt.Println("Error converting to JSON:", err)
+		return
+	}
+
+	println(string(jsonBytes))
+	//data["data"] = trackingEvent.Data
+
+	sendMessage(UartMessage{
+		Type: "classification",
+		Data: string(jsonBytes),
+	})
 }
 
 func sendWriteMessage(varName string, val interface{}) error {
@@ -103,28 +196,32 @@ type ReadResponse struct {
 }
 
 func sendReadMessage(varName string) (string, error) {
-	data, err := json.Marshal(&Read{
-		Var: varName,
-	})
-	if err != nil {
-		return "", err
-	}
-	message := UartMessage{
-		Type: "read",
-		Data: string(data),
-	}
-	response, err := sendMessage(message)
-	if err != nil {
-		return "", err
-	}
-	if response.Type == "NACK" {
-		return "", fmt.Errorf("NACK response")
-	}
-	readResponse := &ReadResponse{}
-	if err := json.Unmarshal([]byte(response.Data), readResponse); err != nil {
-		return "", err
-	}
-	return readResponse.Val, nil
+	return "", nil
+	/*
+		data, err := json.Marshal(&Read{
+			Var: varName,
+		})
+		if err != nil {
+			return "", err
+		}
+		message := UartMessage{
+			Type: "read",
+			Data: string(data),
+		}
+		response, err := sendMessage(message)
+		if err != nil {
+			return "", err
+		}
+		if response.Type == "NACK" {
+			return "", fmt.Errorf("NACK response")
+		}
+		readResponse := &ReadResponse{}
+		if err := json.Unmarshal([]byte(response.Data), readResponse); err != nil {
+			return "", err
+		}
+		return readResponse.Val, nil
+	*/
+
 }
 
 func checkPIR(oldPirVal int) (int, error) {

@@ -82,10 +82,10 @@ func processSimpleOutput(config *CommsConfig, trackingSignals chan trackingEvent
 		select {
 		case t := <-trackingSignals:
 			log.Debugf("Found new track: %+v", t)
-			if t.species.MatchSpeciesWithConfidence(config.ProtectSpecies) {
+			if t.Species.MatchSpeciesWithConfidence(config.ProtectSpecies) {
 				log.Debug("Found an animal that needs to be protected")
 				lastProtectSpeciesSighting = time.Now()
-			} else if t.species.MatchSpeciesWithConfidence(config.TrapSpecies) {
+			} else if t.Species.MatchSpeciesWithConfidence(config.TrapSpecies) {
 				log.Debug("Found an animal that needs to be trapped")
 				lastTrapSpeciesSighting = time.Now()
 			} else {

@@ -187,3 +187,39 @@ func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, d
 
 	return buf[:n], nil
 }
+
+func SerialSend(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte) error {
+	start := time.Now()
+
+	serialFile, err := GetSerial(retries, mul0, mul1, wait)
+	if err != nil {
+		return err
+	}
+	defer ReleaseSerial(serialFile)
+
+	elapsed := time.Since(start)
+	log.Print("Serial lock took ", elapsed)
+
+	start = time.Now()
+	c := &serial.Config{Name: "/dev/serial0", Baud: 115200, ReadTimeout: time.Second * 5}
+	serialPort, err := serial.OpenPort(c)
+	if err != nil {
+		return err
+	}
+	defer serialPort.Close()
+	elapsed = time.Since(start)
+	log.Println("Serial open took ", elapsed)
+
+	start = time.Now()
+	n, err := serialPort.Write(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return fmt.Errorf("wrote %d bytes, expected %d", n, len(data))
+	}
+	elapsed = time.Since(start)
+	log.Print("Serial send took ", elapsed)
+
+	return nil
+}

@@ -16,8 +16,14 @@ var (
 )
 
 type Args struct {
+	SendTestClassification *TestClassification `arg:"subcommand:send-test-classification" help:"Send a test classification."`
 	goconfig.ConfigArgs
 	logging.LogArgs
+}
+
+type TestClassification struct {
+	Animal     string `arg:"--animal" help:"The animal to send a test classification for."`
+	Confidence int    `arg:"--confidence" help:"The confidence level to send a test classification for."`
 }
 
 func (Args) Version() string {
@@ -71,10 +77,12 @@ func runMain() error {
 
 	switch config.CommsOut {
 	case "uart":
-		if err := processUart(); err != nil {
+		log.Info("Running UART output.")
+		if err := processUart(config, args.SendTestClassification, trackingSignals); err != nil {
 			return err
 		}
 	case "simple":
+		log.Info("Running simple output.")
 		if err := processSimpleOutput(config, trackingSignals); err != nil {
 			return err
 		}

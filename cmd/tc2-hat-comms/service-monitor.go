@@ -8,10 +8,18 @@ import (
 )
 
 type trackingEvent struct {
-	species     tracks.Species
-	boundingBox [4]int32
-	motion      bool
+	Species             tracks.Species
+	What                string
+	Confidence          int32
+	Region              [4]int32
+	Frame               int32
+	Mass                int32
+	BlankRegion         bool
+	Tracking            bool
+	LastPredictionFrame int32
 }
+
+var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby", "land-bird"}
 
 func getTrackingSignals() (chan trackingEvent, error) {
 	// Connect to the system bus
@@ -42,29 +50,43 @@ func getTrackingSignals() (chan trackingEvent, error) {
 		for signal := range c {
 			if signal.Name == "org.cacophony.thermalrecorder.Tracking" {
 				log.Debug("Received tracking event:")
-				if len(signal.Body) != 4 {
+				if len(signal.Body) != 9 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)
 					continue
 				}
-				if len(signal.Body[2].([]int32)) != 4 {
-					log.Errorf("Unexpected signal format in bounding box: %v", signal.Body[2])
-					continue
+
+				log.Debugf("Scores: %v", signal.Body[0])
+				log.Debugf("What: %v", signal.Body[1])
+				log.Debugf("Confidences: %v", signal.Body[2])
+				log.Debugf("Region: %v", signal.Body[3])
+				log.Debugf("Frame: %v", signal.Body[4])
+				log.Debugf("Mass: %v", signal.Body[5])
+				log.Debugf("Blank region: %v", signal.Body[6])
+				log.Debugf("Tracking: %v", signal.Body[7])
+				log.Debugf("Last prediction frame: %v", signal.Body[8])
+
+				var region [4]int32
+				copy(region[:], signal.Body[3].([]int32))
+
+				species := tracks.Species{}
+				for i, v := range animalsList {
+					species[v] = signal.Body[0].([]int32)[i]
 				}
 
-				log.Debugf("Animal: %v", signal.Body[0])
-				log.Debugf("Confidence: %v", signal.Body[1])
-				log.Debugf("Bounding box: %v", signal.Body[2])
-				log.Debugf("Motion detected: %v", signal.Body[3])
-
-				var boundingBox [4]int32
-				copy(boundingBox[:], signal.Body[2].([]int32))
 				t := trackingEvent{
-					species: tracks.Species{
-						signal.Body[0].(string): signal.Body[1].(int32),
-					},
-					boundingBox: boundingBox,
-					motion:      signal.Body[3].(bool),
+					Species:             species,
+					What:                signal.Body[1].(string),
+					Confidence:          signal.Body[2].(int32),
+					Region:              region,
+					Frame:               signal.Body[4].(int32),
+					Mass:                signal.Body[5].(int32),
+					BlankRegion:         signal.Body[6].(bool),
+					Tracking:            signal.Body[7].(bool),
+					LastPredictionFrame: signal.Body[8].(int32),
 				}
+
+				log.Debugf("Sending tracking event: %+v", t)
+
 				tracksChan <- t
 			}
 		}

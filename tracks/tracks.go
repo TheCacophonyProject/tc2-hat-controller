@@ -58,7 +58,7 @@ func (s Species) MatchSpeciesWithConfidence(species Species) bool {
 func (c Species) String() string {
 	outLines := []string{}
 	for k, v := range c {
-		outLines = append(outLines, fmt.Sprintf("Animal: '%s', Confidence: %d", k, v))
+		outLines = append(outLines, fmt.Sprintf("Animal: '%s', Weighted Score: %d", k, v))
 	}
 	return strings.Join(outLines, "\n")
 }
