@@ -2,12 +2,16 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/alexflint/go-arg"
+	"github.com/google/go-cmp/cmp"
+	"github.com/rjeczalik/notify"
 )
 
 var (
@@ -43,6 +47,38 @@ func main() {
 	}
 }
 
+// checkConfigChanges will compare the config from when first loaded to a new config each time
+// the config file is modified.
+// If there is a difference then the program will exit and systemd will restart the service, causing
+// the new config to be loaded.
+func checkConfigChanges(conf *CommsConfig, configDir string) error {
+	configFilePath := filepath.Join(configDir, goconfig.ConfigFileName)
+	fsEvents := make(chan notify.EventInfo, 1)
+	if err := notify.Watch(configFilePath, fsEvents, notify.InCloseWrite, notify.InMovedTo); err != nil {
+		return err
+	}
+	defer notify.Stop(fsEvents)
+
+	for {
+		<-fsEvents
+		newConfig, err := ParseCommsConfig(configDir)
+		log.Debug("New config:", newConfig)
+
+		if err != nil {
+			log.Error("error reloading config:", err)
+			continue
+		}
+		diff := cmp.Diff(conf, newConfig)
+		log.Debug("Config diff:", diff)
+		if diff != "" {
+			log.Info("Config changed. Exiting to allow systemctl to restart service.")
+			os.Exit(0)
+		} else {
+			log.Info("No relevant changes detected in config file.")
+		}
+	}
+}
+
 func runMain() error {
 	args := procArgs()
 
@@ -54,6 +90,8 @@ func runMain() error {
 	if err != nil {
 		return err
 	}
+
+	go checkConfigChanges(config, args.ConfigDir)
 
 	if !config.Enable {
 		log.Info("Comms disabled, not doing anything.")

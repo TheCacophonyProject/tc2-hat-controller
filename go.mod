@@ -11,6 +11,8 @@ require (
 	github.com/alexflint/go-arg v1.4.3
 	github.com/godbus/dbus v4.1.0+incompatible
 	github.com/godbus/dbus/v5 v5.1.0
+	github.com/google/go-cmp v0.6.0
+	github.com/rjeczalik/notify v0.9.3
 	github.com/sigurn/crc8 v0.0.0-20220107193325-2243fe600f9f
 	github.com/stretchr/testify v1.9.0
 	github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
