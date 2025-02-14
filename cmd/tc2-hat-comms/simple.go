@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
@@ -38,44 +39,52 @@ func processSimpleOutput(config *CommsConfig, trackingSignals chan trackingEvent
 		return fmt.Errorf("failed to set out pin low: %v", err)
 	}
 
-	trapActive := false
-	previousTrapActive := false
+	trapEnabled := false
+	previousTrapEnabled := false
 	lastProtectSpeciesSighting := time.Time{}
 	lastTrapSpeciesSighting := time.Time{}
 
 	for {
 		now := time.Now()
-		trapActive = config.TrapEnabledByDefault
+		trapEnabled = config.TrapEnabledByDefault
 
 		// Check if species sighting influences trap state
 		if lastProtectSpeciesSighting.Add(config.ProtectDuration).After(now) {
-			trapActive = false // Disable trap if protective species has been sighted recently
+			trapEnabled = false // Disable trap if protective species has been sighted recently
 		} else if lastTrapSpeciesSighting.Add(config.TrapDuration).After(now) {
-			trapActive = true // Enable trap if trap species has been sighted recently
+			trapEnabled = true // Enable trap if trap species has been sighted recently
 		}
 
-		// Check if the state has changed and if so, activate or deactivate the trap
-		if trapActive != previousTrapActive {
-			if trapActive {
-				log.Info("Activating trap")
+		// Check if the state has changed and if so, enable or disable the trap
+		if trapEnabled != previousTrapEnabled {
+			if trapEnabled {
+				log.Info("Enabling trap")
 				if err := outPin.Out(gpio.High); err != nil {
 					return fmt.Errorf("failed to set out pin high: %v", err)
 				}
+				eventclient.AddEvent(eventclient.Event{
+					Timestamp: time.Now(),
+					Type:      "enablingTrap",
+				})
 			} else {
-				log.Info("Deactivating trap")
+				log.Info("Disabling trap")
 				if err := outPin.Out(gpio.Low); err != nil {
 					return fmt.Errorf("failed to set out pin low: %v", err)
 				}
+				eventclient.AddEvent(eventclient.Event{
+					Timestamp: time.Now(),
+					Type:      "disablingTrap",
+				})
 			}
 		}
 
-		previousTrapActive = trapActive
+		previousTrapEnabled = trapEnabled
 
-		// Delay 10 seconds or until the trap should be deactivated
+		// Delay 10 seconds or until the trap should be disabled
 		var delay = 10 * time.Second
-		trapDeactivateTime := lastTrapSpeciesSighting.Add(config.TrapDuration)
-		if trapActive && time.Until(trapDeactivateTime) < delay {
-			delay = time.Until(trapDeactivateTime)
+		trapDisableTime := lastTrapSpeciesSighting.Add(config.TrapDuration)
+		if trapEnabled && time.Until(trapDisableTime) < delay {
+			delay = time.Until(trapDisableTime)
 		}
 
 		log.Debug("Waiting")
