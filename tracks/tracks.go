@@ -45,14 +45,14 @@ func (s Species) ShouldTrigger(trapSpecies, protectSpecies Species) bool {
 	return true
 }
 
-func (s Species) MatchSpeciesWithConfidence(species Species) bool {
+func (s Species) MatchSpeciesWithConfidence(species Species) (bool, string, int32) {
 	for animal, conf := range s {
 		requiredConf, ok := species[animal]
 		if ok && conf >= requiredConf {
-			return true
+			return true, animal, conf
 		}
 	}
-	return false
+	return false, "", 0
 }
 
 func (c Species) String() string {
