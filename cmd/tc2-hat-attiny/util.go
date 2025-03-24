@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -168,21 +169,40 @@ type rVals struct {
 type versionStr string
 
 func (v versionStr) IsNewerOrEqual(other versionStr) (bool, error) {
-	parts := strings.Split(string(v), ".")
+
+	versionStr := strings.TrimPrefix(string(v), "v")
+	parts := strings.Split(versionStr, ".")
+	partsInts := make([]int, len(parts))
+	var err error
+	for i, part := range parts {
+		partsInts[i], err = strconv.Atoi(part)
+		if err != nil {
+			return false, err
+		}
+	}
 	if len(parts) != 3 {
 		return false, fmt.Errorf("invalid version format '%s", v)
 	}
-	partsOther := strings.Split(string(other), ".")
-	if len(partsOther) != 3 {
+
+	otherVersionStr := strings.TrimPrefix(string(other), "v")
+	partsOther := strings.Split(otherVersionStr, ".")
+	partsOtherInts := make([]int, len(partsOther))
+	for i, part := range partsOther {
+		partsOtherInts[i], err = strconv.Atoi(part)
+		if err != nil {
+			return false, err
+		}
+	}
+	if len(partsOtherInts) != 3 {
 		return false, fmt.Errorf("invalid version format '%s", other)
 	}
-	if parts[0] != partsOther[0] {
-		return parts[0] > partsOther[0], nil
+	if partsInts[0] != partsOtherInts[0] {
+		return partsInts[0] > partsOtherInts[0], nil
 	}
-	if parts[1] != partsOther[1] {
-		return parts[1] > partsOther[1], nil
+	if partsInts[1] != partsOtherInts[1] {
+		return partsInts[1] > partsOtherInts[1], nil
 	}
-	return parts[2] >= partsOther[2], nil
+	return partsInts[2] >= partsOtherInts[2], nil
 }
 
 // Check if the service is running
