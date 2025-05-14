@@ -105,6 +105,7 @@ func readEEPROMV2FromChip() (*EepromDataV2, error) {
 	}
 
 	if calculatedCRC != receivedCRC {
+		log.Infof("Calculated CRC for EEPROM: %#04X, received CRC: %#04X", calculatedCRC, receivedCRC)
 		return e, errEepromCRCFail
 	}
 	return e, nil
