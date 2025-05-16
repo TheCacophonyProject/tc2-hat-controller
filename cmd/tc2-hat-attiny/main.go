@@ -113,6 +113,21 @@ func runMain() error {
 		return err
 	}
 
+	log.Println("Checking boot duration.")
+	bootDurationSeconds, err := attiny.getBootDuration()
+	if err != nil {
+		log.Error(err)
+	} else {
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "BootDuration",
+			Details: map[string]interface{}{
+				"seconds": bootDurationSeconds,
+			},
+		})
+		log.Printf("Boot duration: %d seconds.", bootDurationSeconds)
+	}
+
 	if args.BatteryReading {
 		err := makeBatteryReadings(attiny)
 		if err != nil {
@@ -126,15 +141,7 @@ func runMain() error {
 		return err
 	}
 
-	go func() {
-		for {
-			if err := attiny.checkForConnectionStateUpdates(); err != nil {
-				log.Printf("Error checking for connection state updates: %s", err)
-				time.Sleep(time.Second)
-			}
-		}
-	}()
-
+	go monitorConnectionStateUpdates(attiny)
 	go monitorVoltageLoop(attiny, config)
 	go checkATtinySignalLoop(attiny)
 
@@ -391,4 +398,21 @@ func setStayOnForProcess(processName string, maxTime time.Time) error {
 		delete(stayOnForProcess, processName)
 	}
 	return nil
+}
+
+func monitorConnectionStateUpdates(attiny *attiny) {
+	log.Println("Waiting for netmanager dbus service to be available.")
+	for {
+		if netmanagerclient.CheckIfDBusAvailable() {
+			log.Println("Netmanager dbus service is available. Starting connection state updates.")
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	for {
+		if err := attiny.checkForConnectionStateUpdates(); err != nil {
+			log.Printf("Error checking for connection state updates: %s", err)
+			time.Sleep(time.Second)
+		}
+	}
 }

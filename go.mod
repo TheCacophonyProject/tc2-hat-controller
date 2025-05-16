@@ -6,7 +6,7 @@ require (
 	github.com/TheCacophonyProject/event-reporter/v3 v3.8.0
 	github.com/TheCacophonyProject/go-config v1.24.0
 	github.com/TheCacophonyProject/go-utils v0.1.3
-	github.com/TheCacophonyProject/rpi-net-manager v0.5.3
+	github.com/TheCacophonyProject/rpi-net-manager v0.5.6
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
 	github.com/alexflint/go-arg v1.4.3
 	github.com/godbus/dbus v4.1.0+incompatible

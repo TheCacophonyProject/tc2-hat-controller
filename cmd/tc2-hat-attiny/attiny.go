@@ -50,6 +50,8 @@ const (
 	flashErrorsReg
 	clearErrorReg
 	patchVersionReg
+	bootDuration1Reg
+	bootDuration2Reg
 )
 
 const (
@@ -525,6 +527,25 @@ func (a *attiny) readCameraState() error {
 	return nil
 }
 
+func (a *attiny) getBootDuration() (uint16, error) {
+	// Read the first register
+	val1, err := a.readRegister(bootDuration1Reg)
+	if err != nil {
+		return 0, err
+	}
+
+	// Read the second register
+	val2, err := a.readRegister(bootDuration2Reg)
+	if err != nil {
+		return 0, err
+	}
+
+	// Combine the two register values
+	seconds := (uint16(val1) << 8) | uint16(val2)
+
+	return seconds, nil
+}
+
 func (a *attiny) readBattery(reg1, reg2 Register) (uint16, uint16, error) {
 	numReadings := 5
 	readings := make([]uint16, numReadings)
@@ -610,7 +631,7 @@ func (a *attiny) makeIndividualAnalogReading(reg1, reg2 Register) (uint16, error
 */
 
 func (a *attiny) readRTCBattery() (float32, error) {
-	raw, _, err := a.readBattery(batteryLVDivVal1Reg, batteryLVDivVal2Reg)
+	raw, _, err := a.readBattery(rtcBattery1Reg, rtcBattery2Reg)
 	if err != nil {
 		return 0, err
 	}
