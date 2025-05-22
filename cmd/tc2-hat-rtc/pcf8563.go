@@ -77,12 +77,12 @@ func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) erro
 			log.Println("No previous RTC write time")
 			return nil
 		}
-		log.Printf("Error reading file: %v", err)
+		log.Errorf("Error reading file: %v", err)
 		return err
 	}
 	previousRtcWriteTime, err := time.Parse(time.DateTime, string(timeRaw))
 	if err != nil {
-		log.Println("Error parsing previous rtc write time:", err)
+		log.Error("Error parsing previous RTC write time:", err)
 	}
 
 	timeFromLastWrite := ntpTime.Sub(previousRtcWriteTime).Truncate(time.Second)
@@ -103,30 +103,38 @@ func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) erro
 	rtcDriftSecondsPerMonth := rtcDriftSeconds * (secondsInMonth / timeFromLastWrite.Seconds())
 
 	driftPerMonthError := secondsInMonth / timeFromLastWrite.Seconds()
+	minimumDriftPerMonth := math.Max(0, math.Abs(rtcDriftSecondsPerMonth)-math.Abs(driftPerMonthError))
 
-	if math.Abs(rtcDriftSecondsPerMonth) >= 10 {
+	if math.Abs(minimumDriftPerMonth) >= 10 {
 		log.Println("Previous NTP write time:", previousRtcWriteTime)
 		log.Println("Current rtc time:", rtcTime)
 		log.Println("New NTP write time:", ntpTime)
 		log.Println("Time from last write:", timeFromLastWrite)
 		log.Println("RTC drift:", secondsToDuration(rtcDriftSeconds))
-		log.Println("RTC drift per month in seconds:", secondsToDuration(rtcDriftSecondsPerMonth))
+		log.Println("RTC drift per month:", secondsToDuration(rtcDriftSecondsPerMonth))
 		log.Println("RTC drift per month error +-", secondsToDuration(driftPerMonthError))
+		log.Println("RTC minimum drift per month:", secondsToDuration(minimumDriftPerMonth))
 
-		eventType := "rtcNtpDrift"
-		if rtcDriftSecondsPerMonth > 600 { // TODO find a good value to have this as.
-			eventType = "rtcNtpDriftHigh"
-		}
-
-		eventclient.AddEvent(eventclient.Event{
+		event := eventclient.Event{
 			Timestamp: time.Now(),
-			Type:      eventType,
+			Type:      "rtcNtpDrift",
 			Details: map[string]interface{}{
 				"rtcDriftSecondsPerMonth": int(rtcDriftSecondsPerMonth),
 				"rtcDriftSeconds":         int(rtcDriftSeconds),
 				"integrity":               rtcIntegrity,
 			},
-		})
+		}
+
+		// Check if the minimum drift, accounting for the error is greater than 600 seconds
+		if minimumDriftPerMonth > 600 { // TODO find a good value to have this as.
+			log.Errorf("High RTC drift per month detected: %s", secondsToDuration(minimumDriftPerMonth))
+			event.Type = "rtcNtpDriftHigh"
+		}
+
+		err := eventclient.AddEvent(event)
+		if err != nil {
+			log.Error("Error adding event:", err)
+		}
 	}
 	return nil
 }
