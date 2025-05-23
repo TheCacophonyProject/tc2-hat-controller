@@ -54,7 +54,7 @@ builds:
     - arm64
   ldflags: -s -w -X main.version={{.Version}}
 
-- id: tc2-i2c
+- id: tc2-hat-i2c
   binary: tc2-hat-i2c
   main: ./cmd/tc2-hat-i2c
   goos:

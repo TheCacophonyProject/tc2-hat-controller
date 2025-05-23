@@ -360,7 +360,13 @@ func (a *attiny) writeAuxState() error {
 func connectToATtiny() (*attiny, error) {
 	// Check that a device is present on I2C bus at the attiny address.
 
-	if err := i2crequest.CheckAddress(attinyI2CAddress, 1000); err != nil {
+	found, err := i2crequest.CheckAddress(attinyI2CAddress, 1000)
+	if err != nil {
+		log.Errorf("Error checking for attiny device: %v", err)
+		time.Sleep(3 * time.Second)
+		return connectToATtiny()
+	}
+	if !found {
 		return nil, fmt.Errorf("failed to find attiny device on i2c bus: %v", err)
 	}
 

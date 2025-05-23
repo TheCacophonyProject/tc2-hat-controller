@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -105,9 +104,14 @@ func find(find *Find) error {
 	}
 
 	log.Printf("Finding address 0x%X", address)
-	err = i2crequest.CheckAddress(address, 1000)
+	found, err := i2crequest.CheckAddress(address, 1000)
 	if err != nil {
-		return errors.New("i2c device not found")
+		log.Errorf("Error checking for device: %v", err)
+	}
+	if found {
+		log.Printf("Found device at address 0x%X", address)
+	} else {
+		log.Printf("Did not find device at address 0x%X", address)
 	}
 	return nil
 }

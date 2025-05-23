@@ -51,9 +51,9 @@ func Tx(address byte, write []byte, readLen, timeout int) ([]byte, error) {
 	}
 }
 
-func CheckAddress(address byte, timeout int) error {
+func CheckAddress(address byte, timeout int) (bool, error) {
 	_, err := Tx(address, []byte{0x00}, 1, timeout)
-	return err
+	return err == nil, err
 }
 
 func TxWithCRC(address byte, write []byte, readLen, timeout int) ([]byte, error) {

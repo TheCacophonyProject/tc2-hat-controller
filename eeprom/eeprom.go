@@ -58,7 +58,14 @@ var errEepromCRCFail = errors.New("eeprom CRC check failed")
 // EEPROM chip found, wrong data.							    	// Should error.
 
 func noEEPROMChip() bool {
-	return i2crequest.CheckAddress(EEPROM_ADDRESS, 1000) != nil
+	found, err := i2crequest.CheckAddress(EEPROM_ADDRESS, 1000)
+	if err != nil {
+		log.Errorf("Error checking for EEPROM chip: %v", err)
+		// If there was an error checking try again
+		time.Sleep(3 * time.Second)
+		return noEEPROMChip()
+	}
+	return !found
 }
 
 func InitEEPROM() error {
@@ -78,6 +85,7 @@ func InitEEPROM() error {
 	var err error
 
 	if noEEPROMChip() {
+		log.Info("No EEPROM chip found, using default values.")
 		// Some early versions of the camera don't have an EEPROM chip.
 		eepromDataVersion = 1
 		eepromData = noEEPROMChipData

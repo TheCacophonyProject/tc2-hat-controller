@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/godbus/dbus"
 	"github.com/godbus/dbus/introspect"
 	"periph.io/x/conn/v3/gpio"
@@ -27,6 +28,9 @@ type service struct {
 	mutex        sync.Mutex
 	requestCount int
 }
+
+var waitingForBinToBeAvailable bool
+var mu sync.Mutex
 
 func startService() error {
 	log.Info("Starting I2C service")
@@ -73,12 +77,36 @@ func startService() error {
 		for req := range s.requests {
 			res := s.processTransaction(req)
 			req.Response <- res
+
 		}
 	}()
 
 	conn.Export(s, dbusPath, dbusName)
 	conn.Export(genIntrospectable(s), dbusPath, "org.freedesktop.DBus.Introspectable")
 	return nil
+}
+
+func timeBusyPinBusyDuration(busyPin gpio.PinIO, startTime time.Time) {
+	log.Info("Checking how long I2C is busy for.")
+	for {
+		if busyPin.Read() == gpio.Low {
+			mu.Lock()
+			waitingForBinToBeAvailable = false
+			mu.Unlock()
+			waitTime := time.Since(startTime)
+			log.Infof("Waited %s for I2C busy pin to go low.", waitTime)
+			err := eventclient.AddEvent(eventclient.Event{
+				Timestamp: time.Now(),
+				Type:      "i2cBusyPinTimeout",
+				Details:   map[string]interface{}{"Seconds I2C was busy for": waitTime.Seconds()},
+			})
+			if err != nil {
+				log.Errorf("Error adding event: %v", err)
+			}
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func genIntrospectable(v interface{}) introspect.Introspectable {
@@ -163,12 +191,20 @@ func (s *service) processTransaction(req Request) Response {
 			break
 		}
 		if time.Since(startTime) > time.Duration(req.Timeout)*time.Millisecond {
-			log.Debugf("Request '%d' timed out waiting for bus pin", req.RequestID)
+
+			mu.Lock()
+			if !waitingForBinToBeAvailable {
+				waitingForBinToBeAvailable = true
+				go timeBusyPinBusyDuration(s.busyPin, startTime)
+			}
+			mu.Unlock()
+
+			log.Infof("Request '%d' timed out waiting for bus pin", req.RequestID)
 			return Response{
 				Err: dbus.NewError("org.cacophony.i2c.BusyTimeout", nil),
 			}
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 
 	defer s.busyPin.In(gpio.Float, gpio.NoEdge)
