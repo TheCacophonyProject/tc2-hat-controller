@@ -3,7 +3,7 @@ module github.com/TheCacophonyProject/tc2-hat-controller
 go 1.22.3
 
 require (
-	github.com/TheCacophonyProject/event-reporter/v3 v3.8.0
+	github.com/TheCacophonyProject/event-reporter/v3 v3.9.0
 	github.com/TheCacophonyProject/go-config v1.24.0
 	github.com/TheCacophonyProject/go-utils v0.1.3
 	github.com/TheCacophonyProject/rpi-net-manager v0.5.6

@@ -139,6 +139,7 @@ func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) erro
 		if minimumDriftPerMonth > 600 { // TODO find a good value to have this as.
 			log.Errorf("High RTC drift per month detected: %s", secondsToDuration(minimumDriftPerMonth))
 			event.Type = "rtcNtpDriftHigh"
+			event.Details[eventclient.SeverityKey] = eventclient.SeverityError
 		}
 
 		err := eventclient.AddEvent(event)
