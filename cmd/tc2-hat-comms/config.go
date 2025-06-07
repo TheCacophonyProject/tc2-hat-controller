@@ -12,6 +12,7 @@ type CommsConfig struct {
 	ProtectSpecies tracks.Species
 
 	UartTxPin string
+	BaudRate  int
 }
 
 func ParseCommsConfig(configDir string) (*CommsConfig, error) {

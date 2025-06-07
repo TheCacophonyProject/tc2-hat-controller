@@ -7,6 +7,10 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+type event interface {
+	isEvent()
+}
+
 type trackingEvent struct {
 	Species             tracks.Species
 	What                string
@@ -19,9 +23,17 @@ type trackingEvent struct {
 	LastPredictionFrame int32
 }
 
+func (t trackingEvent) isEvent() {}
+
+type batteryEvent struct {
+	event
+	Voltage float32
+	Percent float32
+}
+
 var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby", "land-bird"}
 
-func getTrackingSignals() (chan trackingEvent, error) {
+func getTrackingSignals() (chan event, error) {
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -40,7 +52,7 @@ func getTrackingSignals() (chan trackingEvent, error) {
 	conn.Signal(c)
 
 	// Create a channel to send tracking events
-	tracksChan := make(chan trackingEvent, 10)
+	eventsChan := make(chan event, 10)
 
 	// Listen for signals
 	log.Println("Listening for D-Bus signals from org.cacophony.thermalrecorder...")
@@ -87,10 +99,10 @@ func getTrackingSignals() (chan trackingEvent, error) {
 
 				log.Debugf("Sending tracking event: %+v", t)
 
-				tracksChan <- t
+				eventsChan <- t
 			}
 		}
 	}()
 
-	return tracksChan, nil
+	return eventsChan, nil
 }

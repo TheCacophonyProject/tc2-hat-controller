@@ -13,7 +13,7 @@ import (
 
 // processSimpleOutput will just output HIGH or LOW to the UART TX pin for showing if the
 // trap should be active or not.
-func processSimpleOutput(config *CommsConfig, trackingSignals chan trackingEvent) error {
+func processSimpleOutput(config *CommsConfig, eventSignals chan event) error {
 	// Initialize the periph host drivers
 	if _, err := host.Init(); err != nil {
 		return fmt.Errorf("failed to initialize periph: %v", err)
@@ -100,26 +100,34 @@ func processSimpleOutput(config *CommsConfig, trackingSignals chan trackingEvent
 		enablingReason = "timeout"
 		log.Debug("Waiting")
 		select {
-		case t := <-trackingSignals:
-			log.Debugf("Found new track: %+v", t)
+		case t := <-eventSignals:
+			switch v := t.(type) {
+			case trackingEvent:
+				log.Debugf("Received tracking event: %+v", v)
+				log.Debugf("Found new track: %+v", t)
 
-			protect, animal, conf := t.Species.MatchSpeciesWithConfidence(config.ProtectSpecies)
-			if protect {
-				disablingReason = fmt.Sprintf("Found an %s of confidence %d that needs to be protected", animal, conf)
-				log.Debug(disablingReason)
-				lastProtectSpeciesSighting = time.Now()
-				break
+				protect, animal, conf := v.Species.MatchSpeciesWithConfidence(config.ProtectSpecies)
+				if protect {
+					disablingReason = fmt.Sprintf("Found an %s of confidence %d that needs to be protected", animal, conf)
+					log.Debug(disablingReason)
+					lastProtectSpeciesSighting = time.Now()
+					break
+				}
+
+				trap, animal, conf := v.Species.MatchSpeciesWithConfidence(config.TrapSpecies)
+				if trap {
+					enablingReason = fmt.Sprintf("Found an %s of confidence %d that needs to be trapped", animal, conf)
+					log.Debug(enablingReason)
+					lastTrapSpeciesSighting = time.Now()
+					break
+				}
+
+				log.Debug("No animals need to be protected or trapped, not changing trap state.")
+
+			default:
+				log.Debugf("Ignoring non tracking event: %+v", t)
+				continue
 			}
-
-			trap, animal, conf := t.Species.MatchSpeciesWithConfidence(config.TrapSpecies)
-			if trap {
-				enablingReason = fmt.Sprintf("Found an %s of confidence %d that needs to be trapped", animal, conf)
-				log.Debug(enablingReason)
-				lastTrapSpeciesSighting = time.Now()
-				break
-			}
-
-			log.Debug("No animals need to be protected or trapped, not changing trap state.")
 
 		case <-time.After(delay):
 			log.Debug("Scheduled check")

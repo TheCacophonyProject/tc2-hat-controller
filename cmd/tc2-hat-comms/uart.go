@@ -14,6 +14,10 @@ import (
 	"periph.io/x/conn/v3/gpio"
 )
 
+type UartMessenger struct {
+	baudRate int
+}
+
 // TODO
 
 // UartMessage represents the data structure for communication with a device connected on UART.
@@ -38,11 +42,11 @@ type Write struct {
 	Val interface{} `json:"val,omitempty"`
 }
 
-func sendTrapActiveState(active bool) error {
-	return sendWriteMessage("active", active)
+func (u UartMessenger) sendTrapActiveState(active bool) error {
+	return u.sendWriteMessage("active", active)
 }
 
-func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan trackingEvent) error {
+func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event) error {
 	if testClassification != nil {
 		log.Println("Sending a test classification over UART")
 
@@ -66,50 +70,64 @@ func processUart(config *CommsConfig, testClassification *TestClassification, tr
 
 		log.Printf("Sending payload: '%s'", payload)
 
-		serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')))
+		serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')), config.BaudRate)
 
 		return nil
 	}
 
-	//release, err := serialHelper.GetLock()
-	// defer release()
-
-	// err := serialHelper.SetOut(serialHelper.AUX_PORT)
-
-	// Get serial port ready for writing to and reading to
+	messenger := UartMessenger{
+		baudRate: config.BaudRate,
+	}
 
 	for {
 		log.Debug("Waiting")
-		t := <-trackingSignals
-		log.Debugf("Found new track: %+v", t)
-
-		species := tracks.Species{}
-		for k, v := range t.Species {
-			if v > 0 {
-				species[k] = v
+		for e := range trackingSignals {
+			switch v := e.(type) {
+			case trackingEvent:
+				fmt.Println("Tracking event:", v.Species)
+				err := messenger.processTrackingEvent(v)
+				if err != nil {
+					log.Error("Error processing tracking event:", err)
+				}
+			default:
+				log.Debug("Not processing event:", v)
+				continue
 			}
 		}
-
-		message := UartMessage{
-			Type: "classification",
-			Data: ClassificationData{
-				Species:    species,
-				Confidence: t.Confidence,
-			},
-		}
-
-		payload, err := json.Marshal(message)
-		if err != nil {
-			return err
-		}
-
-		log.Printf("Sending payload: '%s'", payload)
-		start := time.Now()
-
-		serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')))
-
-		log.Printf("Sent payload in %s", time.Since(start))
 	}
+}
+
+func (u UartMessenger) processTrackingEvent(t trackingEvent) error {
+	log.Debugf("Found new track: %+v", t)
+
+	species := tracks.Species{}
+	for k, v := range t.Species {
+		if v > 0 {
+			species[k] = v
+		}
+	}
+
+	message := UartMessage{
+		Type: "classification",
+		Data: ClassificationData{
+			Species:    species,
+			Confidence: t.Confidence,
+		},
+	}
+
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Sending payload: '%s'", payload)
+	start := time.Now()
+
+	serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')), u.baudRate)
+
+	log.Printf("Sent payload in %s", time.Since(start))
+
+	return nil
 }
 
 type ClassificationData struct {
@@ -117,7 +135,7 @@ type ClassificationData struct {
 	Confidence int32
 }
 
-func sendClassification(event trackingEvent) {
+func (u UartMessenger) sendClassification(event trackingEvent) {
 
 	data := map[string]interface{}{
 		"species":    event.Species,
@@ -136,10 +154,10 @@ func sendClassification(event trackingEvent) {
 	sendMessage(UartMessage{
 		Type: "classification",
 		Data: string(jsonBytes),
-	})
+	}, u.baudRate)
 }
 
-func sendWriteMessage(varName string, val interface{}) error {
+func (u UartMessenger) sendWriteMessage(varName string, val interface{}) error {
 	data, err := json.Marshal(&Write{
 		Var: varName,
 		Val: val,
@@ -151,7 +169,7 @@ func sendWriteMessage(varName string, val interface{}) error {
 		Type: "write",
 		Data: string(data),
 	}
-	response, err := sendMessage(message)
+	response, err := sendMessage(message, u.baudRate)
 	if err != nil {
 		return err
 	}
@@ -161,12 +179,12 @@ func sendWriteMessage(varName string, val interface{}) error {
 	return nil
 }
 
-func beep() error {
+func beep(baudRate int) error {
 	log.Println("beep")
-	return sendCommandMessage("beep")
+	return sendCommandMessage("beep", baudRate)
 }
 
-func sendCommandMessage(cmd string) error {
+func sendCommandMessage(cmd string, baudRate int) error {
 	data, err := json.Marshal(&Command{
 		Command: cmd,
 	})
@@ -177,7 +195,7 @@ func sendCommandMessage(cmd string) error {
 		Type: "command",
 		Data: string(data),
 	}
-	response, err := sendMessage(message)
+	response, err := sendMessage(message, baudRate)
 	if err != nil {
 		return err
 	}
@@ -248,7 +266,7 @@ func computeChecksum(message []byte) int {
 	return checksum % 256
 }
 
-func sendMessage(cmd UartMessage) (*UartMessage, error) {
+func sendMessage(cmd UartMessage, baudRate int) (*UartMessage, error) {
 	cmdData, err := json.Marshal(cmd)
 	if err != nil {
 		return nil, err
@@ -256,7 +274,7 @@ func sendMessage(cmd UartMessage) (*UartMessage, error) {
 	message := fmt.Sprintf("<%s|%d>", cmdData, computeChecksum(cmdData))
 
 	log.Println("Message: ", message)
-	responseData, err := serialhelper.SerialSendReceive(3, gpio.High, gpio.Low, time.Second, []byte(message))
+	responseData, err := serialhelper.SerialSendReceive(3, gpio.High, gpio.Low, time.Second, []byte(message), baudRate)
 
 	if err != nil {
 		return nil, err

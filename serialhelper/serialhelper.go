@@ -153,8 +153,7 @@ func ReleaseSerial(serialFile *os.File) error {
 	return syscall.Flock(int(serialFile.Fd()), syscall.LOCK_UN)
 }
 
-func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte) ([]byte, error) {
-
+func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int) ([]byte, error) {
 	serialFile, err := GetSerial(retries, mul0, mul1, wait)
 	if err != nil {
 		return nil, err
@@ -162,7 +161,7 @@ func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, d
 
 	defer ReleaseSerial(serialFile)
 
-	c := &serial.Config{Name: "/dev/serial0", Baud: 9600, ReadTimeout: time.Second * 5}
+	c := &serial.Config{Name: "/dev/serial0", Baud: baud, ReadTimeout: time.Second * 5}
 	serialPort, err := serial.OpenPort(c)
 	if err != nil {
 		return nil, err
@@ -176,11 +175,11 @@ func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, d
 	if n != len(data) {
 		return nil, fmt.Errorf("wrote %d bytes, expected %d", n, len(data))
 	}
-
 	time.Sleep(time.Second)
-
 	buf := make([]byte, 256)
 	n, err = serialPort.Read(buf)
+	log.Infof("Received %d bytes", n)
+	log.Info("Received:", buf[:n])
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +187,7 @@ func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, d
 	return buf[:n], nil
 }
 
-func SerialSend(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte) error {
+func SerialSend(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int) error {
 	start := time.Now()
 
 	serialFile, err := GetSerial(retries, mul0, mul1, wait)
@@ -201,7 +200,7 @@ func SerialSend(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []b
 	log.Print("Serial lock took ", elapsed)
 
 	start = time.Now()
-	c := &serial.Config{Name: "/dev/serial0", Baud: 115200, ReadTimeout: time.Second * 5}
+	c := &serial.Config{Name: "/dev/serial0", Baud: baud, ReadTimeout: time.Second * 5}
 	serialPort, err := serial.OpenPort(c)
 	if err != nil {
 		return err

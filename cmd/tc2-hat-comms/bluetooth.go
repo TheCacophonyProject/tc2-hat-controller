@@ -2,7 +2,9 @@
 
 package main
 
+/*
 func processBluetooth() error {
 	// TODO
 	return nil
 }
+*/
