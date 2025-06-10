@@ -27,13 +27,13 @@ func (t trackingEvent) isEvent() {}
 
 type batteryEvent struct {
 	event
-	Voltage float32
-	Percent float32
+	Voltage float64
+	Percent float64
 }
 
 var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby", "land-bird"}
 
-func getTrackingSignals() (chan event, error) {
+func addTrackingEvents(eventsChan chan event) error {
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -50,9 +50,6 @@ func getTrackingSignals() (chan event, error) {
 	// Create a channel to receive signals
 	c := make(chan *dbus.Signal, 10)
 	conn.Signal(c)
-
-	// Create a channel to send tracking events
-	eventsChan := make(chan event, 10)
 
 	// Listen for signals
 	log.Println("Listening for D-Bus signals from org.cacophony.thermalrecorder...")
@@ -104,5 +101,54 @@ func getTrackingSignals() (chan event, error) {
 		}
 	}()
 
-	return eventsChan, nil
+	return nil
+}
+
+func addBatteryEvents(eventsChan chan event) error {
+	// Connect to the system bus
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		log.Fatalf("Failed to connect to system bus: %v", err)
+	}
+
+	// Add a match rule to listen for our dbus signals
+	rule := "type='signal',interface='org.cacophony.attiny'"
+	call := conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, rule)
+	if call.Err != nil {
+		log.Fatalf("Failed to add match rule: %v", call.Err)
+	}
+
+	// Create a channel to receive signals
+	c := make(chan *dbus.Signal, 10)
+	conn.Signal(c)
+
+	// Listen for signals
+	log.Println("Listening for D-Bus signals from org.cacophony.attiny...")
+
+	// Listen for signals, process and send tracking events to the channel.
+	go func() {
+		for signal := range c {
+			if signal.Name == "org.cacophony.attiny.Battery" {
+				log.Debug("Received battery event.")
+				if len(signal.Body) != 2 {
+					log.Errorf("Unexpected signal format in body: %v", signal.Body)
+					continue
+				}
+
+				log.Debugf("Voltage: %v", signal.Body[0])
+				log.Debugf("Percent: %v", signal.Body[1])
+
+				t := batteryEvent{
+					Voltage: signal.Body[0].(float64),
+					Percent: signal.Body[1].(float64),
+				}
+
+				log.Debugf("Sending battery event: %+v", t)
+
+				eventsChan <- t
+			}
+		}
+	}()
+
+	return nil
 }

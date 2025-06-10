@@ -20,6 +20,12 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 		baudRate: config.BaudRate,
 	}
 
+	err := messenger.wakeUp()
+	if err != nil {
+		log.Info("Failed to wake up - try again:", err)
+		return err
+	}
+
 	if testClassification != nil {
 		log.Println("Sending a test classification for AT ESL")
 		testTrackingEvent := trackingEvent{
@@ -27,7 +33,7 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 				testClassification.Animal: testClassification.Confidence,
 			},
 		}
-		err := messenger.processTrackingEvent(testTrackingEvent)
+		err := messenger.processTrackingEvent(testTrackingEvent, config)
 		if err != nil {
 			log.Error("Error processing test tracking event:", err)
 		}
@@ -42,7 +48,7 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 		// Process the event, depending on the type
 		switch v := e.(type) {
 		case trackingEvent:
-			err := messenger.processTrackingEvent(v)
+			err := messenger.processTrackingEvent(v, config)
 			if err != nil {
 				log.Error("Error sending classification:", err)
 			}
@@ -59,7 +65,22 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 	}
 }
 
+func (a ATESLMessenger) wakeUp() error {
+	log.Debugf("Wake up serial device.")
+	payload := []byte("\r\rAT\r")
+
+	log.Debugf("Sending wakeup command: %q, baud rate: %d", string(payload), a.baudRate)
+
+	err := serialhelper.SerialSend(1, gpio.High, gpio.Low, 5*time.Second, payload, a.baudRate)
+	if err != nil {
+		return fmt.Errorf("serial send error: %w", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
 func (a ATESLMessenger) processBatteryEvent(b batteryEvent) error {
+	log.Info("Processing battery event")
 	log.Debugf("Processing battery event: %+v", b)
 	// AT command, sending a battery reading as tenths of a volt
 	atCmd := fmt.Sprintf("AT+CAMBAT=%d", int32(b.Voltage*10))
@@ -72,44 +93,46 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent) error {
 	return nil
 }
 
-func (a ATESLMessenger) processTrackingEvent(t trackingEvent) error {
-	log.Debugf("Processing tracking event: %+v", t)
-	for animal, confidence := range t.Species {
-		if confidence > 0 {
-			// TODO: We will want to limit the number of classifications that we send as we can get up to one every frame (9 FPS)
-			// Maybe something like only send a new classification if the confidence has increases.
-			atCmd := fmt.Sprintf("AT+CAM=%s,%d", animal, confidence)
+func (a ATESLMessenger) processTrackingEvent(t trackingEvent, config *CommsConfig) error {
 
-			err := sendATCommand(atCmd, a.baudRate)
-			if err != nil {
-				log.Error("Error sending classification:", err)
-				return err
-			}
+	log.Debugf("Processing tracking event: %+v", t)
+
+	match, animal, confidence := t.Species.MatchSpeciesWithConfidence(config.TrapSpecies)
+
+	if match {
+		atCmd := fmt.Sprintf("AT+CAM=%s,%d", animal, confidence)
+
+		err := sendATCommand(atCmd, a.baudRate)
+		if err != nil {
+			log.Error("Error sending classification:", err)
+			return err
 		}
+	} else {
+		log.Debug("No match found")
 	}
 	return nil
 }
 
 func sendATCommand(command string, baudRate int) error {
-	log.Debugf("Sending command: %s", strings.TrimSpace(command))
 
-	payload := append([]byte(command), byte('\r'), byte('\n'))
+	payload := append([]byte(command), byte('\r'))
+	log.Debugf("Sending command: %q", string(payload))
 
-	response, err := serialhelper.SerialSendReceive(3, gpio.High, gpio.Low, 5*time.Second, payload, baudRate)
+	response, err := serialhelper.SerialSendReceive(1, gpio.High, gpio.Low, 5*time.Second, payload, baudRate)
 	if err != nil {
 		return fmt.Errorf("serial send receive error: %w", err)
 	}
 
-	log.Debugf("Raw response: %s", strings.TrimSpace(string(response)))
+	log.Debugf("Raw response: %q", string(response))
 
 	// Read back response and check for OK or ERROR
 	scanner := bufio.NewScanner(bytes.NewReader(response))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "OK" {
+		if line == "O^K" {
 			return nil
 		}
-		if line == "ERROR" {
+		if line == "E^RROR" {
 			return fmt.Errorf("device returned ERROR")
 		}
 	}
@@ -118,5 +141,5 @@ func sendATCommand(command string, baudRate int) error {
 		return fmt.Errorf("scanner error: %w", err)
 	}
 
-	return fmt.Errorf("no valid OK/ERROR response received")
+	return fmt.Errorf("no valid O^K/E^RROR response received")
 }

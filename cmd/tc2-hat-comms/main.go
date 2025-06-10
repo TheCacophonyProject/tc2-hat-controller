@@ -110,7 +110,14 @@ func runMain() error {
 	log.Info("Species to trap:\n", tracks.Species(config.TrapSpecies))
 	log.Info("Species to protect:\n", tracks.Species(config.ProtectSpecies))
 
-	trackingSignals, err := getTrackingSignals()
+	eventsChan := make(chan event, 10)
+
+	err = addTrackingEvents(eventsChan)
+	if err != nil {
+		return err
+	}
+
+	err = addBatteryEvents(eventsChan)
 	if err != nil {
 		return err
 	}
@@ -118,17 +125,17 @@ func runMain() error {
 	switch config.CommsOut {
 	case "uart":
 		log.Info("Running UART output.")
-		if err := processUart(config, args.SendTestClassification, trackingSignals); err != nil {
+		if err := processUart(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
 	case "simple":
 		log.Info("Running simple output.")
-		if err := processSimpleOutput(config, trackingSignals); err != nil {
+		if err := processSimpleOutput(config, eventsChan); err != nil {
 			return err
 		}
 	case "at-esl":
 		log.Info("Running AT-ESL output.")
-		if err := processATESL(config, args.SendTestClassification, trackingSignals); err != nil {
+		if err := processATESL(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
 	default:
