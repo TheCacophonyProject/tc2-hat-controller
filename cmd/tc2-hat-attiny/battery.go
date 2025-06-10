@@ -9,6 +9,7 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	goconfig "github.com/TheCacophonyProject/go-config"
+	"github.com/godbus/dbus"
 )
 
 func getBatteryType(batteryConfig *goconfig.Battery, voltage float32) (*goconfig.BatteryType, error) {
@@ -143,7 +144,7 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 		if batteryPercent == -1 || math.Abs(float64(batteryPercent-newPercent)) >= 10 {
 			//log battery percent
 			batteryPercent = newPercent
-			eventclient.AddEvent(eventclient.Event{
+			err := eventclient.AddEvent(eventclient.Event{
 				Timestamp: time.Now(),
 				Type:      "rpiBattery",
 				Details: map[string]interface{}{
@@ -152,6 +153,14 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 					"voltage":     voltage,
 				},
 			})
+			if err != nil {
+				log.Error("Error sending battery event:", err)
+			}
+
+			err = sendBatterySignal(float64(voltage), float64(batteryPercent))
+			if err != nil {
+				log.Error("Error sending battery signal:", err)
+			}
 			log.Infof("New battery event: type=%s, voltage=%v, percent=%v", batteryType, voltage, batteryPercent)
 		}
 		time.Sleep(2 * time.Minute)
@@ -205,5 +214,36 @@ func makeBatteryReadings(attiny *attiny) error {
 	diffMean := calculateMean(rawDiffs)
 
 	log.Infof("Raw SD: %.2f, Raw Mean: %.2f, Diff SD: %.2f, Diff Mean: %.2f", rawSD, rawMean, diffSD, diffMean)
+	return nil
+}
+
+func sendBatterySignal(voltage, percent float64) error {
+	// Connect to the system bus
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		return err
+	}
+
+	// Request a name on the bus (required for sending signals)
+	const busName = "org.cacophony.attiny.Sender"
+	reply, err := conn.RequestName(busName, dbus.NameFlagDoNotQueue)
+	if err != nil {
+		return err
+	}
+	if reply != dbus.RequestNameReplyPrimaryOwner {
+		return err
+	}
+
+	// Define the signal
+	sig := &dbus.Signal{
+		Path: dbus.ObjectPath("/org/cacophony/attiny"),
+		Name: "org.cacophony.attiny.Battery",
+		Body: []interface{}{voltage, percent},
+	}
+
+	// Emit the signal
+	conn.Emit(sig.Path, sig.Name, sig.Body...)
+	log.Printf("Emitted battery signal: voltage=%.2f, percent=%.2f", float64(voltage), float64(percent))
+
 	return nil
 }
