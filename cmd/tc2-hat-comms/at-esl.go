@@ -45,7 +45,6 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 	for {
 		log.Debug("Waiting")
 		e := <-eventChannel
-		log.Debugf("Found new event: %+v", e)
 
 		// Process the event, depending on the type
 		switch v := e.(type) {
@@ -82,36 +81,54 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent) error {
 
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent) error {
 
+	log.Debugf("Received new tracking event What: %v, Confidence : %v, Region: %v, LastPredictionFrame: %v, Frame: %v",
+                    t.What, t.Confidence, t.Region, t.LastPredictionFrame, t.Frame)
+
 	// What:possum Confidence:99 Region:[16 65 29 79] Frame:218 Mass:17 BlankRegion:false Tracking:true LastPredictionFrame:194
     // We don't really need tracks - just process predictions
 	if t.Frame != t.LastPredictionFrame {
         return nil
     }
 
-	log.Infof("Processing tracking prediction event What: %v, Confidence : %v, Region: %v, Frame: %v",
+    // It's a prediction frame but within the same video stream so skip until a new stream starts
+    // Note: the side-effect here is that we notify about the first target species we identify (with confidence).
+    //       That prediction may change - but we can't change the past and, well simply - how long do we wait?
+    if a.lastPredictionFrame > 0 && t.LastPredictionFrame > a.lastPredictionFrame {
+	    log.Infof("Skipping tracking prediction (frame) event: saved last Prediction Frame: %v, event last Prediction Frame : %v",
+                    a.lastPredictionFrame, t.LastPredictionFrame)
+        return nil
+    }
+
+	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence : %v, Region: %v, Frame: %v",
                     t.What, t.Confidence, t.Region, t.Frame)
 
+    targetConfidence := int32(0)
+    target := false
     // We've found an object - is it a target (trapable) species?
-    if _, found := a.trapSpecies[t.What]; found { 
+    if _, found := a.trapSpecies["any"]; found { 
+        target = true
+        targetConfidence = a.trapSpecies["any"]
+    } else if _, found := a.trapSpecies[t.What]; found { 
+        target = true
+        targetConfidence = a.trapSpecies[t.What]
+    }
 
-        confidence := a.trapSpecies[t.What]
-        if t.Confidence >= confidence {
-	        log.Infof("Track prediction of a target species with confidence: %s,%d", t.What, t.Confidence)
-	        log.Infof("Last prediction details %s (%d), Frame: %d: Region: %v", a.lastPrediction, a.lastConfidence, a.lastPredictionFrame, a.lastRegion)
+    if target && t.Confidence >= targetConfidence {
+        log.Infof("Track prediction of a target species with confidence: %s,%d", t.What, t.Confidence)
+	    log.Infof("Last prediction details %s (%d), Frame: %d: Region: %v", a.lastPrediction, a.lastConfidence, a.lastPredictionFrame, a.lastRegion)
 
-    		atCmd := fmt.Sprintf("AT+CAM=%s,%d", t.What, t.Confidence)
+    	atCmd := fmt.Sprintf("AT+CAM=%s,%d", t.What, t.Confidence)
 
-            a.lastPrediction = t.What
-            a.lastConfidence = t.Confidence
-            a.lastPredictionFrame = t.Frame
-            a.lastRegion = t.Region
+        a.lastPrediction = t.What
+        a.lastConfidence = t.Confidence
+        a.lastPredictionFrame = t.Frame
+        a.lastRegion = t.Region
 
-    		err := sendATCommand(atCmd, a.baudRate)
-    		if err != nil {
-    			log.Error("Error sending classification:", err)
-    			return err
-            }
-		}
+    	err := sendATCommand(atCmd, a.baudRate)
+    	if err != nil {
+    		log.Error("Error sending classification:", err)
+    		return err
+        }
 	}
 
 	return nil
