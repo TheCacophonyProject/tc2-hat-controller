@@ -14,17 +14,19 @@ import (
 type ATESLMessenger struct {
 	baudRate    int
 	trapSpecies map[string]int32
-    lastPrediction string
-    lastConfidence int32
-    lastPredictionFrame int32
-    lastRegion [4]int32
+}
+
+type ATESLLastPrediction struct {
+	Frame int32
+	What string
 }
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
-	messenger := ATESLMessenger{
-		baudRate:    config.BaudRate,
-		trapSpecies: config.TrapSpecies,
+	messenger := ATESLMessenger {
+			config.BaudRate,
+			config.TrapSpecies,
 	}
+	lastPrediction := ATESLLastPrediction{}
 
 	if testClassification != nil {
 		log.Println("Sending a test classification for AT ESL")
@@ -32,10 +34,10 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 			Species: map[string]int32{
 				testClassification.Animal: testClassification.Confidence,
 			},
-            What: testClassification.Animal,
-            Confidence: testClassification.Confidence,
+			What: testClassification.Animal,
+			Confidence: testClassification.Confidence,
 		}
-		err := messenger.processTrackingEvent(testTrackingEvent)
+		err := messenger.processTrackingEvent(testTrackingEvent, &lastPrediction)
 		if err != nil {
 			log.Error("Error processing test tracking event:", err)
 		}
@@ -49,7 +51,7 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 		// Process the event, depending on the type
 		switch v := e.(type) {
 		case trackingEvent:
-			err := messenger.processTrackingEvent(v)
+			err := messenger.processTrackingEvent(v, &lastPrediction)
 			if err != nil {
 				log.Error("Error sending classification:", err)
 			}
@@ -79,56 +81,59 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent) error {
 	return nil
 }
 
-func (a ATESLMessenger) processTrackingEvent(t trackingEvent) error {
+func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
 	log.Debugf("Received new tracking event What: %v, Confidence : %v, Region: %v, LastPredictionFrame: %v, Frame: %v",
                     t.What, t.Confidence, t.Region, t.LastPredictionFrame, t.Frame)
 
-	// What:possum Confidence:99 Region:[16 65 29 79] Frame:218 Mass:17 BlankRegion:false Tracking:true LastPredictionFrame:194
-    // We don't really need tracks - just process predictions
-	if t.Frame != t.LastPredictionFrame {
-        return nil
-    }
+	if t.Frame == 1 {
+		l.Frame = 0 // let's start again
+		l.What = ""
+	}
 
-    // It's a prediction frame but within the same video stream so skip until a new stream starts
-    // Note: the side-effect here is that we notify about the first target species we identify (with confidence).
-    //       That prediction may change - but we can't change the past and, well simply - how long do we wait?
-    if a.lastPredictionFrame > 0 && t.LastPredictionFrame > a.lastPredictionFrame {
-	    log.Infof("Skipping tracking prediction (frame) event: saved last Prediction Frame: %v, event last Prediction Frame : %v",
-                    a.lastPredictionFrame, t.LastPredictionFrame)
-        return nil
-    }
+	// We can do without false-positives :)
+	if t.What == "false-positive" {
+		return nil
+	}
+
+	// What:possum Confidence:99 Region:[16 65 29 79] Frame:218 Mass:17 BlankRegion:false Tracking:true LastPredictionFrame:194
+	// We don't really need tracks - just process predictions
+	if t.Frame != t.LastPredictionFrame {
+		return nil
+	}
+
+	// It's a prediction frame but within the same video stream and prediction so skip until a new stream starts
+	if l.Frame > 0 && t.Frame > l.Frame && t.What == l.What {
+		log.Infof("Skipping tracking prediction (frame) event: saved (%v) v event (%v) frame [%v v %v ]",
+				l.Frame, t.LastPredictionFrame, l.What, t.What)
+		return nil
+	}
 
 	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence : %v, Region: %v, Frame: %v",
                     t.What, t.Confidence, t.Region, t.Frame)
 
-    targetConfidence := int32(0)
-    target := false
-    // We've found an object - is it a target (trapable) species?
-    if _, found := a.trapSpecies["any"]; found { 
-        target = true
-        targetConfidence = a.trapSpecies["any"]
-    } else if _, found := a.trapSpecies[t.What]; found { 
-        target = true
-        targetConfidence = a.trapSpecies[t.What]
-    }
+	targetConfidence := int32(0)
+	target := false
+	// We've found an object - is it a target (trapable) species?
+	if _, found := a.trapSpecies["any"]; found {
+		target = true
+		targetConfidence = a.trapSpecies["any"]
+	} else if _, found := a.trapSpecies[t.What]; found {
+		target = true
+		targetConfidence = a.trapSpecies[t.What]
+	}
 
-    if target && t.Confidence >= targetConfidence {
-        log.Infof("Track prediction of a target species with confidence: %s,%d", t.What, t.Confidence)
-	    log.Infof("Last prediction details %s (%d), Frame: %d: Region: %v", a.lastPrediction, a.lastConfidence, a.lastPredictionFrame, a.lastRegion)
+	if target && t.Confidence >= targetConfidence {
+		log.Infof("Track prediction of a target species with confidence: %s,%d", t.What, t.Confidence)
 
-    	atCmd := fmt.Sprintf("AT+CAM=%s,%d", t.What, t.Confidence)
+		atCmd := fmt.Sprintf("AT+CAM=%s,%d", t.What, t.Confidence)
+		l.Frame = t.Frame // remember the frame
 
-        a.lastPrediction = t.What
-        a.lastConfidence = t.Confidence
-        a.lastPredictionFrame = t.Frame
-        a.lastRegion = t.Region
-
-    	err := sendATCommand(atCmd, a.baudRate)
-    	if err != nil {
-    		log.Error("Error sending classification:", err)
-    		return err
-        }
+		err := sendATCommand(atCmd, a.baudRate)
+		if err != nil {
+			log.Error("Error sending classification:", err)
+			return err
+		}
 	}
 
 	return nil
@@ -139,8 +144,8 @@ func sendATWakeUp(baudRate int) error {
 	log.Debugf("Wake up serial device.")
 	payload := []byte("\r\rAT\r")
 
-    retries := 5 // somewhat random - but don't hold it open forever if nothing is coming back
-    attempt := 1
+	retries := 5 // somewhat random - but don't hold it open forever if nothing is coming back
+	attempt := 1
 
     for {
     	log.Infof("Sending AT wakeup command[%d]: %q", attempt, string(payload))
@@ -149,7 +154,7 @@ func sendATWakeUp(baudRate int) error {
     	if err != nil {
     		return fmt.Errorf("serial send receive error: %w", err)
     	}
-	    log.Debugf("Raw AT response: %q, %v", string(response), response)
+	log.Debugf("Raw AT response: %q, %v", string(response), response)
 
     	// Read back response and check for OK or ERROR
     	scanner := bufio.NewScanner(bytes.NewReader(response))
@@ -157,7 +162,7 @@ func sendATWakeUp(baudRate int) error {
     	for scanner.Scan() {
     		line := strings.TrimSpace(scanner.Text())
     		if line == "O^K" {
-                awake = true
+			awake = true
     		}
     		if line == "E^RROR" {
     			return fmt.Errorf("device returned ERROR")
@@ -183,14 +188,14 @@ func sendATWakeUp(baudRate int) error {
 
 func sendATCommand(command string, baudRate int) error {
 
-    // Test mode :)
-    if baudRate == 0 {
-	    log.Infof("Baud rate 0 - assuming test mode, no serial device.")
-        return nil
-    }
+	// Test mode :)
+	if baudRate == 0 {
+		log.Infof("Baud rate 0 - assuming test mode, no serial device.")
+		return nil
+	}
 
-    // Try and wake up the serial receiver first
-    err := sendATWakeUp(baudRate)
+	// Try and wake up the serial receiver first
+	err := sendATWakeUp(baudRate)
 	if err != nil {
 		return fmt.Errorf("could not wake serial receiver: %w", err)
 	}
