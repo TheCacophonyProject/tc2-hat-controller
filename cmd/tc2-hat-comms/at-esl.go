@@ -19,6 +19,7 @@ type ATESLMessenger struct {
 type ATESLLastPrediction struct {
 	What string
 	When time.Time
+	Lockout int
 }
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
@@ -73,7 +74,7 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent) error {
 	// AT command, sending a battery reading as tenths of a volt
 	atCmd := fmt.Sprintf("AT+CAMBAT=%d", int32(b.Voltage*10))
 
-	err := sendATCommand(atCmd, a.baudRate)
+	_, err := sendATCommand(atCmd, a.baudRate)
 	if err != nil {
 		log.Error("Error sending battery reading:", err)
 		return err
@@ -90,16 +91,11 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		return nil
 	}
 
-	var coolDownSeconds float64 = 60.0
 	lastPrediction := time.Since(l.When).Seconds()
 
-	// It's a prediction frame, but it's the same object within the last 60 seconds - let's skip notifying (likely same object)
-	if t.What == l.What && lastPrediction < coolDownSeconds {
-		log.Infof("Skipping prediction of %v - same as last prediction and within %vs", l.What, lastPrediction)
-
-		// But .. let's update the time we last saw it to now - if it's just sitting in a trap or in front of us
-		// we don't need to keep notifying
-		l.When = time.Now()
+	// It's a prediction frame, but within the event lockout - skip notifying
+	if lastPrediction < float64(l.Lockout) {
+		log.Infof("Skipping prediction of %v - within event lockout %vs (%d)", l.What, lastPrediction, l.Lockout)
 		return nil
 	}
 
@@ -131,11 +127,14 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		l.What = t.What   	// Remember the object
 		l.When = time.Now()	// Remember when we detected it
 
-		err := sendATCommand(atCmd, a.baudRate)
+		_, err := sendATCommand(atCmd, a.baudRate)
 		if err != nil {
 			log.Error("Error sending classification:", err)
 			return err
 		}
+
+		// Now let's check the event lockout
+		l.Lockout = getEventLockout(a.baudRate)
 	}
 
 	return nil
@@ -168,27 +167,29 @@ func sendATWakeUp(baudRate int) error {
 	}
 }
 
-func sendATCommand(command string, baudRate int) error {
+func sendATCommand(command string, baudRate int) ([]byte, error) {
+
+	response := []byte("")
 
 	// Test mode :)
 	if baudRate == 0 {
 		log.Infof("Baud rate 0 - assuming test mode, no serial device.")
-		return nil
+		return response, nil
 	}
 
 	// Try and wake up the serial receiver first
 	err := sendATWakeUp(baudRate)
 	if err != nil {
-		return fmt.Errorf("could not wake serial receiver: %w", err)
+		return response, fmt.Errorf("could not wake serial receiver: %w", err)
 	}
 
 	// O^K now send the AT command
 	payload := append([]byte(command), byte('\r'))
 	log.Infof("Sending AT command: %s", command)
 
-	response, err := serialhelper.SerialSendReceive(1, gpio.High, gpio.Low, 5*time.Second, payload, baudRate)
+	response, err = serialhelper.SerialSendReceive(1, gpio.High, gpio.Low, 5*time.Second, payload, baudRate)
 	if err != nil {
-		return fmt.Errorf("serial send receive error: %w", err)
+		return response, fmt.Errorf("serial send receive error: %w", err)
 	}
 
 	log.Debugf("Raw AT response: %q, %v", string(response), response)
@@ -197,16 +198,92 @@ func sendATCommand(command string, baudRate int) error {
 	scanner := bufio.NewScanner(bytes.NewReader(response))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "O^K" {
-			return nil
-		} else if line == "E^RROR" {
-			return fmt.Errorf("device returned ERROR")
+		if line == "E^RROR" {
+			return response, fmt.Errorf("device returned ERROR")
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanner error: %w", err)
+		return response, fmt.Errorf("scanner error: %w", err)
 	}
 
-	return fmt.Errorf("no valid O^K/E^RROR response received")
+	return response, nil
+}
+
+func getEventLockout(baudRate int) int {
+
+	// Default
+	lockout_minutes_default := 30 // mins
+
+	cmd := append([]byte("AT+XCMD=m00"), calcCRC16([]byte("m00"))...)
+	log.Infof("get event lockout via command %v", cmd)
+
+	response, _ := sendATCommand(string(cmd), baudRate)
+
+	// w05..
+	// response.. \xa5\xfc\r\nm00\r\n\r\n00: ff ff ff ff ff 02
+	seq := [3]byte{'0', '0', ':'} // First row of node register block - 00:
+	pos := 0
+
+	for i := 0; i <= len(response)-3; i++ {
+		if response[i] == seq[0] && response[i+1] == seq[1] && response[i+2] == seq[2] {
+			log.Debugf("Found %v - position: %d", seq, i)
+			pos = i + 3 + 5 * 3 + 1 // aka it's the 6th element + drop the leading space
+			break
+		}
+	}
+
+	lockout_minutes := toInt(response[pos:pos+2])
+	if lockout_minutes == 0 {
+		lockout_minutes = lockout_minutes_default
+		log.Infof("Lockout time not set - using default (%d)", lockout_minutes_default)
+	}
+
+	lockout_seconds := lockout_minutes * 60
+	log.Infof("Lockout time = %d (s)", lockout_seconds)
+
+	return lockout_seconds
+}
+
+func feedCRC16(crc uint16, dat byte) uint16 {
+	for i := 0; i < 8; i++ {
+		bit0 := (crc ^ uint16(dat)) & 1
+		crc >>= 1
+		if bit0 == 1 {
+			crc ^= 0x8408
+		}
+		dat >>= 1
+	}
+	return crc
+}
+
+func calcCRC16(msg []byte) []byte {
+	crc := uint16(0xFFFF)
+	for _, b := range msg {
+		crc = feedCRC16(crc, b)
+	}
+	return []byte{byte(crc & 0xFF), byte(crc >> 8)}
+}
+
+func toInt(hexBytes []byte) int {
+	result := 0
+	for _, b := range hexBytes {
+		result = result*16 + hexCharToInt(b)
+	}
+
+	return result
+}
+
+func hexCharToInt(b byte) int {
+	switch {
+	case '0' <= b && b <= '9':
+		return int(b - '0')
+	case 'a' <= b && b <= 'f':
+		return int(b - 'a' + 10)
+	case 'A' <= b && b <= 'F':
+		return int(b - 'A' + 10)
+	default:
+		log.Errorf("invalid hex character: %c", b)
+		return 0
+	}
 }
