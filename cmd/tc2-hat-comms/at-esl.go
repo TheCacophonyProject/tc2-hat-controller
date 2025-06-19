@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"strconv"
 
 	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
@@ -19,7 +20,7 @@ type ATESLMessenger struct {
 type ATESLLastPrediction struct {
 	What string
 	When time.Time
-	Lockout int
+	Lockout int64
 }
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
@@ -210,10 +211,20 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 	return response, nil
 }
 
-func getEventLockout(baudRate int) int {
+/*
+ 
+    EVENT_LOCKOUT_MINS
+    Time in minutes to have an event lockout; default 30mins. Activated on an event.
 
-	// Default
-	lockout_minutes_default := 30 // mins
+    2min = 'w0502’
+    10min = 'w050a’
+    30min = 'w051e’
+
+ */
+
+func getEventLockout(baudRate int) int64 {
+
+	var lockout_minutes_default int64 = 30 // default 30mins.
 
 	cmd := append([]byte("AT+XCMD=m00"), calcCRC16([]byte("m00"))...)
 	log.Infof("get event lockout via command %v", cmd)
@@ -233,7 +244,14 @@ func getEventLockout(baudRate int) int {
 		}
 	}
 
-	lockout_minutes := toInt(response[pos:pos+2])
+	hexstr := string(response[pos:pos+2])
+	lockout_minutes, err := strconv.ParseInt(hexstr, 16, 64)
+	log.Debugf("Converted %v to lockout minutes: %d", hexstr, lockout_minutes)
+
+	if err != nil {
+		log.Errorf("parseInt error: %w", err)
+		lockout_minutes = 0
+	}
 	if lockout_minutes == 0 {
 		lockout_minutes = lockout_minutes_default
 		log.Infof("Lockout time not set - using default (%d)", lockout_minutes_default)
@@ -263,27 +281,4 @@ func calcCRC16(msg []byte) []byte {
 		crc = feedCRC16(crc, b)
 	}
 	return []byte{byte(crc & 0xFF), byte(crc >> 8)}
-}
-
-func toInt(hexBytes []byte) int {
-	result := 0
-	for _, b := range hexBytes {
-		result = result*16 + hexCharToInt(b)
-	}
-
-	return result
-}
-
-func hexCharToInt(b byte) int {
-	switch {
-	case '0' <= b && b <= '9':
-		return int(b - '0')
-	case 'a' <= b && b <= 'f':
-		return int(b - 'a' + 10)
-	case 'A' <= b && b <= 'F':
-		return int(b - 'A' + 10)
-	default:
-		log.Errorf("invalid hex character: %c", b)
-		return 0
-	}
 }
