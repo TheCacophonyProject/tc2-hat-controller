@@ -146,37 +146,23 @@ func sendATWakeUp(baudRate int) error {
 	log.Debugf("Wake up serial device.")
 	payload := []byte("\r\rAT\r")
 
-	retries := 5 // somewhat random - but don't hold up the process if ther serial receiver is dead
+	retries := 0 // Don't retry (for now)
 	attempt := 1
 
 	for {
 		log.Infof("Sending AT wakeup command[%d]: %q", attempt, string(payload))
 
-		response, err := serialhelper.SerialSendReceive(1, gpio.High, gpio.Low, 10*time.Second, payload, baudRate)
+		err := serialhelper.SerialSend(1, gpio.High, gpio.Low, 10*time.Second, payload, baudRate)
+	        attempt = attempt + 1
+
+		// response, err := serialhelper.SerialSendReceive(1, gpio.High, gpio.Low, 10*time.Second, payload, baudRate)
 		if err != nil {
-			return fmt.Errorf("serial send receive error: %w", err)
+			return fmt.Errorf("serial send error: %w", err)
 		}
-		log.Debugf("Raw AT response: %q, %v", string(response), response)
-
-		// Read back response and check for OK or ERROR
-		scanner := bufio.NewScanner(bytes.NewReader(response))
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "O^K" {
-				return nil
-			} else if line == "E^RROR" {
-				return fmt.Errorf("device returned ERROR")
-			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("scanner error: %w", err)
-		}
-
-		log.Debugf("no valid O^K/E^RROR response received")
-
 		if attempt > retries {
-			return fmt.Errorf("Failed to wake up serial device after %d attempts!", attempt)
+			return nil
+			// Don't error - just carry on
+			// return fmt.Errorf("Failed to wake up serial device after %d attempts!", attempt)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
