@@ -12,6 +12,10 @@ import (
 	"periph.io/x/conn/v3/gpio"
 )
 
+var (
+    lockout_minutes_default int64 = 30 // default 30mins.
+)
+
 type ATESLMessenger struct {
 	baudRate    int
 	trapSpecies map[string]int32
@@ -223,8 +227,6 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
  */
 
 func getEventLockout(baudRate int) int64 {
-
-	var lockout_minutes_default int64 = 30 // default 30mins.
 
 	cmd := append([]byte("AT+XCMD=m00"), calcCRC16([]byte("m00"))...)
 	log.Infof("get event lockout via command %v", cmd)
