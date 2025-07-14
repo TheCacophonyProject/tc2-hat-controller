@@ -16,7 +16,7 @@ import (
 
 var (
 	version = "<not set>"
-	log     = logging.NewLogger("debug")
+	log     = logging.NewLogger("info")
 )
 
 type Args struct {
