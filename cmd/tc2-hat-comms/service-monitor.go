@@ -20,6 +20,7 @@ type trackingEvent struct {
 }
 
 var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby", "land-bird"}
+var fpModelLabels = []string{"false-positive", "animal"}
 
 func getTrackingSignals() (chan trackingEvent, error) {
 	// Connect to the system bus
@@ -71,8 +72,14 @@ func getTrackingSignals() (chan trackingEvent, error) {
 				copy(region[:], signal.Body[5].([]int32))
 
 				species := tracks.Species{}
-				for i, v := range animalsList {
-					species[v] = signal.Body[2].([]int32)[i]
+				if len(signal.Body[2].([]int32)) == 2 {
+					for i, v := range fpModelLabels {
+						species[v] = signal.Body[2].([]int32)[i]
+					}
+				} else {
+					for i, v := range animalsList {
+						species[v] = signal.Body[2].([]int32)[i]
+					}
 				}
 
 				t := trackingEvent{
