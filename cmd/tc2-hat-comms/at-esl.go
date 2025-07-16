@@ -4,16 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
 
 	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"periph.io/x/conn/v3/gpio"
 )
 
 var (
-    lockout_minutes_default int64 = 30 // default 30mins.
+	lockout_minutes_default int64 = 30 // default 30mins.
 )
 
 type ATESLMessenger struct {
@@ -22,15 +22,15 @@ type ATESLMessenger struct {
 }
 
 type ATESLLastPrediction struct {
-	What string
-	When time.Time
+	What    string
+	When    time.Time
 	Lockout int64
 }
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
-	messenger := ATESLMessenger {
-			config.BaudRate,
-			config.TrapSpecies,
+	messenger := ATESLMessenger{
+		config.BaudRate,
+		config.TrapSpecies,
 	}
 	lastPrediction := ATESLLastPrediction{}
 
@@ -40,7 +40,7 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 			Species: map[string]int32{
 				testClassification.Animal: testClassification.Confidence,
 			},
-			What: testClassification.Animal,
+			What:       testClassification.Animal,
 			Confidence: testClassification.Confidence,
 		}
 		err := messenger.processTrackingEvent(testTrackingEvent, &lastPrediction)
@@ -90,7 +90,7 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent) error {
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
 	log.Debugf("Received new tracking event What: %v, Confidence : %v, Region: %v, LastPredictionFrame: %v, Frame: %v",
-                    t.What, t.Confidence, t.Region, t.LastPredictionFrame, t.Frame)
+		t.What, t.Confidence, t.Region, t.LastPredictionFrame, t.Frame)
 
 	if t.Frame != t.LastPredictionFrame {
 		return nil
@@ -105,7 +105,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 	}
 
 	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence : %v, Region: %v, Frame: %v",
-                    t.What, t.Confidence, t.Region, t.Frame)
+		t.What, t.Confidence, t.Region, t.Frame)
 
 	var targetConfidence int32 = 0
 	target := false
@@ -129,8 +129,8 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		log.Infof("Track prediction of a target species with confidence: %s,%d", t.What, t.Confidence)
 
 		atCmd := fmt.Sprintf("AT+CAM=%s,%d", t.What, t.Confidence)
-		l.What = t.What   	// Remember the object
-		l.When = time.Now()	// Remember when we detected it
+		l.What = t.What     // Remember the object
+		l.When = time.Now() // Remember when we detected it
 
 		_, err := sendATCommand(atCmd, a.baudRate)
 		if err != nil {
@@ -157,7 +157,7 @@ func sendATWakeUp(baudRate int) error {
 		log.Infof("Sending AT wakeup command[%d]: %q", attempt, string(payload))
 
 		err := serialhelper.SerialSend(1, gpio.High, gpio.Low, 10*time.Second, payload, baudRate)
-	        attempt = attempt + 1
+		attempt = attempt + 1
 
 		// response, err := serialhelper.SerialSendReceive(1, gpio.High, gpio.Low, 10*time.Second, payload, baudRate)
 		if err != nil {
@@ -216,15 +216,15 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 }
 
 /*
- 
-    EVENT_LOCKOUT_MINS
-    Time in minutes to have an event lockout; default 30mins. Activated on an event.
 
-    2min = 'w0502’
-    10min = 'w050a’
-    30min = 'w051e’
+   EVENT_LOCKOUT_MINS
+   Time in minutes to have an event lockout; default 30mins. Activated on an event.
 
- */
+   2min = 'w0502’
+   10min = 'w050a’
+   30min = 'w051e’
+
+*/
 
 func getEventLockout(baudRate int) int64 {
 
@@ -241,17 +241,17 @@ func getEventLockout(baudRate int) int64 {
 	for i := 0; i <= len(response)-3; i++ {
 		if response[i] == seq[0] && response[i+1] == seq[1] && response[i+2] == seq[2] {
 			log.Debugf("Found %v - position: %d", seq, i)
-			pos = i + 3 + 5 * 3 + 1 // aka it's the 6th element + drop the leading space
+			pos = i + 3 + 5*3 + 1 // aka it's the 6th element + drop the leading space
 			break
 		}
 	}
 
-	hexstr := string(response[pos:pos+2])
+	hexstr := string(response[pos : pos+2])
 	lockout_minutes, err := strconv.ParseInt(hexstr, 16, 64)
 	log.Debugf("Converted %v to lockout minutes: %d", hexstr, lockout_minutes)
 
 	if err != nil {
-		log.Errorf("parseInt error: %w", err)
+		log.Errorf("parseInt error: %v", err)
 		lockout_minutes = 0
 	}
 	if lockout_minutes == 0 {
