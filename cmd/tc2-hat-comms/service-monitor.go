@@ -32,6 +32,7 @@ type batteryEvent struct {
 }
 
 var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby", "land-bird"}
+var fpModelLabels = []string{"false-positive", "animal"}
 
 func addTrackingEvents(eventsChan chan event) error {
 	// Connect to the system bus
@@ -59,39 +60,47 @@ func addTrackingEvents(eventsChan chan event) error {
 		for signal := range c {
 			if signal.Name == "org.cacophony.thermalrecorder.Tracking" {
 				log.Debug("Received tracking event:")
-				if len(signal.Body) != 9 {
+				if len(signal.Body) != 12 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)
 					continue
 				}
-
-				log.Debugf("Scores: %v", signal.Body[0])
-				log.Debugf("What: %v", signal.Body[1])
-				log.Debugf("Confidences: %v", signal.Body[2])
-				log.Debugf("Region: %v", signal.Body[3])
-				log.Debugf("Frame: %v", signal.Body[4])
-				log.Debugf("Mass: %v", signal.Body[5])
-				log.Debugf("Blank region: %v", signal.Body[6])
-				log.Debugf("Tracking: %v", signal.Body[7])
-				log.Debugf("Last prediction frame: %v", signal.Body[8])
+				log.Debugf("ClipId: %v", signal.Body[0])
+				log.Debugf("TrackId: %v", signal.Body[1])
+				log.Debugf("Scores: %v", signal.Body[2])
+				log.Debugf("What: %v", signal.Body[3])
+				log.Debugf("Confidences: %v", signal.Body[4])
+				log.Debugf("Region: %v", signal.Body[5])
+				log.Debugf("Frame: %v", signal.Body[6])
+				log.Debugf("Mass: %v", signal.Body[7])
+				log.Debugf("Blank region: %v", signal.Body[8])
+				log.Debugf("Tracking: %v", signal.Body[9])
+				log.Debugf("Last prediction frame: %v", signal.Body[10])
+				log.Debugf("Model Id: %v", signal.Body[11])
 
 				var region [4]int32
-				copy(region[:], signal.Body[3].([]int32))
+				copy(region[:], signal.Body[5].([]int32))
 
 				species := tracks.Species{}
-				for i, v := range animalsList {
-					species[v] = signal.Body[0].([]int32)[i]
+				if len(signal.Body[2].([]int32)) == 2 {
+					for i, v := range fpModelLabels {
+						species[v] = signal.Body[2].([]int32)[i]
+					}
+				} else {
+					for i, v := range animalsList {
+						species[v] = signal.Body[2].([]int32)[i]
+					}
 				}
 
 				t := trackingEvent{
 					Species:             species,
-					What:                signal.Body[1].(string),
-					Confidence:          signal.Body[2].(int32),
+					What:                signal.Body[3].(string),
+					Confidence:          signal.Body[4].(int32),
 					Region:              region,
-					Frame:               signal.Body[4].(int32),
-					Mass:                signal.Body[5].(int32),
-					BlankRegion:         signal.Body[6].(bool),
-					Tracking:            signal.Body[7].(bool),
-					LastPredictionFrame: signal.Body[8].(int32),
+					Frame:               signal.Body[6].(int32),
+					Mass:                signal.Body[7].(int32),
+					BlankRegion:         signal.Body[8].(bool),
+					Tracking:            signal.Body[9].(bool),
+					LastPredictionFrame: signal.Body[10].(int32),
 				}
 
 				log.Debugf("Sending tracking event: %+v", t)
