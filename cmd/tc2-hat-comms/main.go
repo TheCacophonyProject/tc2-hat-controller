@@ -21,13 +21,14 @@ var (
 
 type Args struct {
 	SendTestClassification *TestClassification `arg:"subcommand:send-test-classification" help:"Send a test classification."`
+	Baud                   int                 `arg:"--baud" help:"The serial baud rate (this will be removed and put in the config in the future)." default:"115200"`
 	goconfig.ConfigArgs
 	logging.LogArgs
 }
 
 type TestClassification struct {
 	Animal     string `arg:"--animal" help:"The animal to send a test classification for."`
-	Confidence int    `arg:"--confidence" help:"The confidence level to send a test classification for."`
+	Confidence int32  `arg:"--confidence" help:"The confidence level to send a test classification for."`
 }
 
 func (Args) Version() string {
@@ -90,6 +91,7 @@ func runMain() error {
 	if err != nil {
 		return err
 	}
+	config.BaudRate = args.Baud
 
 	go checkConfigChanges(config, args.ConfigDir)
 
@@ -108,7 +110,14 @@ func runMain() error {
 	log.Info("Species to trap:\n", tracks.Species(config.TrapSpecies))
 	log.Info("Species to protect:\n", tracks.Species(config.ProtectSpecies))
 
-	trackingSignals, err := getTrackingSignals()
+	eventsChan := make(chan event, 10)
+
+	err = addTrackingEvents(eventsChan)
+	if err != nil {
+		return err
+	}
+
+	err = addBatteryEvents(eventsChan)
 	if err != nil {
 		return err
 	}
@@ -116,12 +125,17 @@ func runMain() error {
 	switch config.CommsOut {
 	case "uart":
 		log.Info("Running UART output.")
-		if err := processUart(config, args.SendTestClassification, trackingSignals); err != nil {
+		if err := processUart(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
 	case "simple":
 		log.Info("Running simple output.")
-		if err := processSimpleOutput(config, trackingSignals); err != nil {
+		if err := processSimpleOutput(config, eventsChan); err != nil {
+			return err
+		}
+	case "at-esl":
+		log.Info("Running AT-ESL output.")
+		if err := processATESL(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
 	default:
