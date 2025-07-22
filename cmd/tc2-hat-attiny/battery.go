@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
@@ -591,7 +590,7 @@ func (m *BatteryMonitor) loadConfiguredType() {
 }
 
 func (m *BatteryMonitor) loadPersistentState() error {
-	data, err := ioutil.ReadFile(m.stateFilePath)
+	data, err := os.ReadFile(m.stateFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // No state file yet
@@ -656,7 +655,7 @@ func (m *BatteryMonitor) savePersistentState() {
 		return
 	}
 	
-	if err := ioutil.WriteFile(m.stateFilePath, data, 0644); err != nil {
+	if err := os.WriteFile(m.stateFilePath, data, 0644); err != nil {
 		log.Printf("Failed to save battery state: %v", err)
 	}
 }
