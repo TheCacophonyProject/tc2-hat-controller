@@ -340,3 +340,266 @@ func TestReadBatteryCSV(t *testing.T) {
 	// Verify we have multiple readings
 	assert.Greater(t, len(readings), 10, "Expected at least 10 readings")
 }
+
+func TestBatteryDepletionEstimation(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	batteryConfig.EnableDepletionEstimate = true
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
+		observedMinVoltage:  999.0,
+		observedMaxVoltage:  0.0,
+		lastReportedPercent: -1,
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		historicalAverages:  make(map[string]float32),
+		maxHistoryHours:     batteryConfig.DepletionHistoryHours,
+	}
+
+	// Set known battery type
+	for i := range config.PresetBatteryTypes {
+		if config.PresetBatteryTypes[i].Name == "lime" {
+			monitor.currentType = &config.PresetBatteryTypes[i]
+			break
+		}
+	}
+	require.NotNil(t, monitor.currentType, "Failed to set lime battery type")
+
+	// Simulate discharge pattern over time
+	baseTime := time.Now().Add(-2 * time.Hour)
+	voltages := []float32{35.0, 34.5, 34.0, 33.5, 33.0, 32.5, 32.0, 31.5, 31.0}
+	
+	for i, voltage := range voltages {
+		timestamp := baseTime.Add(time.Duration(i) * 15 * time.Minute) // 15 minute intervals
+		
+		// Calculate percentage for this voltage
+		percent, err := monitor.calculatePercent(voltage)
+		require.NoError(t, err, "Failed to calculate percentage")
+		
+		status := &BatteryStatus{
+			Voltage:     voltage,
+			Percent:     percent,
+			Type:        monitor.currentType.Name,
+			Chemistry:   monitor.currentType.Chemistry,
+			Rail:        "hv",
+			LastUpdated: timestamp,
+		}
+		
+		monitor.UpdateDischargeHistory(status)
+		monitor.lastValidStatus = status
+	}
+
+	// Test discharge rate calculation
+	rate30min, err := monitor.CalculateDischargeRate(30 * time.Minute)
+	assert.NoError(t, err, "Should calculate 30-minute discharge rate")
+	assert.Greater(t, rate30min, float32(0), "Discharge rate should be positive")
+
+	rate2hour, err := monitor.CalculateDischargeRate(2 * time.Hour)
+	assert.NoError(t, err, "Should calculate 2-hour discharge rate")
+	assert.Greater(t, rate2hour, float32(0), "Discharge rate should be positive")
+
+	// Test depletion estimate
+	estimate := monitor.GetDepletionEstimate()
+	assert.NotNil(t, estimate, "Should provide depletion estimate")
+	assert.Greater(t, estimate.EstimatedHours, float32(0), "Should estimate positive time remaining")
+	assert.GreaterOrEqual(t, estimate.Confidence, float32(0), "Confidence should be >= 0")
+	assert.LessOrEqual(t, estimate.Confidence, float32(100), "Confidence should be <= 100")
+	assert.Contains(t, []string{"short_term", "averaged", "historical"}, estimate.Method, "Should use valid estimation method")
+}
+
+func TestBatteryChargingDetection(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	batteryConfig.EnableDepletionEstimate = true
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		historicalAverages:  make(map[string]float32),
+		maxHistoryHours:     batteryConfig.DepletionHistoryHours,
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+	}
+
+	// Test voltage increase detection
+	assert.True(t, monitor.DetectChargingEvent(13.0, 12.0, 60.0, 50.0), 
+		"Should detect charging on 1V increase")
+	
+	// Test percentage increase detection
+	assert.True(t, monitor.DetectChargingEvent(12.5, 12.4, 60.0, 50.0), 
+		"Should detect charging on 10% increase")
+	
+	// Test no charging detection
+	assert.False(t, monitor.DetectChargingEvent(12.0, 12.1, 50.0, 51.0), 
+		"Should not detect charging on small decrease")
+
+	// Test discharge history clearing on charge detection
+	// Add some discharge history first
+	entry := DischargeRateHistory{
+		Timestamp: time.Now(),
+		Voltage:   12.0,
+		Percent:   50.0,
+	}
+	monitor.dischargeHistory = append(monitor.dischargeHistory, entry)
+	
+	status := &BatteryStatus{
+		Voltage:     13.0, // Higher voltage indicates charging
+		Percent:     60.0, // Higher percentage indicates charging
+		Type:        "test",
+		Chemistry:   "test",
+		Rail:        "hv",
+		LastUpdated: time.Now(),
+	}
+	
+	monitor.UpdateDischargeHistory(status)
+	assert.Empty(t, monitor.dischargeHistory, "Discharge history should be cleared on charging")
+	assert.False(t, monitor.lastChargeEvent.IsZero(), "Last charge event should be recorded")
+}
+
+func TestBatteryDischargeRateCalculation(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+	}
+
+	// Test insufficient data
+	_, err := monitor.CalculateDischargeRate(1 * time.Hour)
+	assert.Error(t, err, "Should error with insufficient data")
+
+	// Add test data spanning 2 hours
+	baseTime := time.Now().Add(-2 * time.Hour)
+	testData := []struct {
+		minutes int
+		percent float32
+	}{
+		{0, 100.0},
+		{30, 95.0},
+		{60, 90.0},
+		{90, 85.0},
+		{120, 80.0},
+	}
+
+	for _, data := range testData {
+		entry := DischargeRateHistory{
+			Timestamp: baseTime.Add(time.Duration(data.minutes) * time.Minute),
+			Voltage:   12.0, // Fixed voltage for simplicity
+			Percent:   data.percent,
+		}
+		monitor.dischargeHistory = append(monitor.dischargeHistory, entry)
+	}
+
+	// Test 1-hour rate calculation
+	rate1h, err := monitor.CalculateDischargeRate(1 * time.Hour)
+	assert.NoError(t, err, "Should calculate 1-hour rate")
+	assert.InDelta(t, 10.0, rate1h, 1.0, "Should calculate approximately 10%/hour rate")
+
+	// Test 2-hour rate calculation
+	rate2h, err := monitor.CalculateDischargeRate(2 * time.Hour)
+	assert.NoError(t, err, "Should calculate 2-hour rate")
+	assert.InDelta(t, 10.0, rate2h, 1.0, "Should calculate approximately 10%/hour rate")
+}
+
+func TestBatteryConfidenceCalculation(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	batteryConfig.PresetBatteryType = "lime" // Configured type
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		voltageRangeReadings: 25, // Good data
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+	}
+
+	// Set battery type
+	for i := range config.PresetBatteryTypes {
+		if config.PresetBatteryTypes[i].Name == "lime" {
+			monitor.currentType = &config.PresetBatteryTypes[i]
+			break
+		}
+	}
+
+	// Add 24+ hours of discharge history
+	baseTime := time.Now().Add(-25 * time.Hour)
+	for i := 0; i < 25; i++ {
+		entry := DischargeRateHistory{
+			Timestamp: baseTime.Add(time.Duration(i) * time.Hour),
+			Voltage:   35.0 - float32(i)*0.1,
+			Percent:   100.0 - float32(i)*2.0,
+		}
+		monitor.dischargeHistory = append(monitor.dischargeHistory, entry)
+	}
+
+	// Set stable discharge rates
+	monitor.dischargeStats.ShortTermRate = 2.0
+	monitor.dischargeStats.MediumTermRate = 2.1
+	monitor.dischargeStats.LongTermRate = 1.9
+
+	// Test confidence with configured type and good data
+	confidence := monitor.calculateDepletionConfidence("short_term")
+	assert.GreaterOrEqual(t, confidence, float32(70), "Should have high confidence with configured type and good data")
+
+	// Test confidence with historical method (should be lower)
+	confidenceHistorical := monitor.calculateDepletionConfidence("historical")
+	assert.Less(t, confidenceHistorical, confidence, "Historical method should have lower confidence")
+
+	// Test with no discharge history (should be lower)
+	monitor.dischargeHistory = make([]DischargeRateHistory, 0)
+	confidenceNoData := monitor.calculateDepletionConfidence("short_term")
+	assert.Less(t, confidenceNoData, confidence, "No data should result in lower confidence")
+}
+
+func TestBatteryDepletionWarningLevels(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	batteryConfig.EnableDepletionEstimate = true
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+	}
+
+	// Set battery type and valid status
+	for i := range config.PresetBatteryTypes {
+		if config.PresetBatteryTypes[i].Name == "lime" {
+			monitor.currentType = &config.PresetBatteryTypes[i]
+			break
+		}
+	}
+
+	monitor.lastValidStatus = &BatteryStatus{
+		Voltage:   30.0,
+		Percent:   20.0,
+		Type:      "lime",
+		Chemistry: "li-ion",
+	}
+
+	// Set known discharge rate for predictable estimates
+	monitor.dischargeStats.AverageRate = 5.0 // 5% per hour
+
+	// Test critical warning (< 6 hours)
+	monitor.lastValidStatus.Percent = 20.0 // 20% / 5%/hour = 4 hours
+	estimate := monitor.GetDepletionEstimate()
+	assert.NotNil(t, estimate, "Should provide estimate")
+	assert.Equal(t, "critical", estimate.WarningLevel, "Should be critical warning")
+
+	// Test low warning (6-24 hours)
+	monitor.lastValidStatus.Percent = 50.0 // 50% / 5%/hour = 10 hours
+	estimate = monitor.GetDepletionEstimate()
+	assert.NotNil(t, estimate, "Should provide estimate")
+	assert.Equal(t, "low", estimate.WarningLevel, "Should be low warning")
+
+	// Test normal (> 24 hours)
+	monitor.lastValidStatus.Percent = 80.0 // 80% / 5%/hour = 16 hours
+	monitor.config.DepletionWarningHours = 15.0 // Set warning threshold to 15 hours
+	estimate = monitor.GetDepletionEstimate()
+	assert.NotNil(t, estimate, "Should provide estimate")
+	assert.Equal(t, "normal", estimate.WarningLevel, "Should be normal")
+}
