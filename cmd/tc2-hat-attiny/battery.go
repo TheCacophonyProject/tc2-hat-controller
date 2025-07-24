@@ -353,33 +353,38 @@ func (m *BatteryMonitor) ensureBatteryType(voltage float32) error {
 		} else {
 			return fmt.Errorf("manually configured battery type not found")
 		}
-	}
+	} else {
+		// Auto-detection mode for non-manually configured batteries
+		// Update voltage range tracking
+		m.updateVoltageRange(voltage)
 
-	// Continue with auto-detection for non-manually configured batteries
-	// Update voltage range tracking
-	m.updateVoltageRange(voltage)
-
-	// Check for battery change
-	if m.detectBatteryChange(voltage) {
-		log.Printf("Battery change detected at voltage %.2fV", voltage)
-		m.resetDetection()
-		m.savePersistentState()
-	}
-
-	// If we have a type, validate it's still in range
-	if m.currentType != nil {
-		if voltage >= m.currentType.MinVoltage && voltage <= m.currentType.MaxVoltage {
-			return nil
+		// Check for battery change
+		if m.detectBatteryChange(voltage) {
+			log.Printf("Battery change detected at voltage %.2fV", voltage)
+			m.resetDetection()
+			m.savePersistentState()
 		}
-		// Voltage out of range, but could be normal discharge/charge
-		// Don't immediately invalidate unless it's a significant change
-	}
 
-	return m.autoDetectType(voltage)
+		// If we have a type, validate it's still in range
+		if m.currentType != nil {
+			if voltage >= m.currentType.MinVoltage && voltage <= m.currentType.MaxVoltage {
+				return nil
+			}
+			// Voltage out of range, but could be normal discharge/charge
+			// Don't immediately invalidate unless it's a significant change
+		}
+
+		return m.autoDetectType(voltage)
+	}
 }
 
 // autoDetectType attempts to detect battery type from voltage ranges
 func (m *BatteryMonitor) autoDetectType(voltage float32) error {
+	// Safety check: never override manual configuration
+	if m.config.IsManuallyConfigured() {
+		return fmt.Errorf("auto-detection called on manually configured battery - this should not happen")
+	}
+	
 	// Need sufficient readings before attempting detection
 	if m.voltageRangeReadings < 5 {
 		return fmt.Errorf("collecting voltage data (%d/5 readings)", m.voltageRangeReadings)
