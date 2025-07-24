@@ -686,15 +686,28 @@ func (m *BatteryMonitor) GetRTCVoltage() float32 {
 func (m *BatteryMonitor) loadConfiguredType() {
 	configuredType := m.config.GetBatteryType()
 	if configuredType != nil {
+		// Validate the battery type before using it
+		if len(configuredType.Voltages) == 0 || len(configuredType.Percent) == 0 {
+			log.Printf("ERROR: Invalid battery type '%s' - empty voltage/percent curves", configuredType.Name)
+			return
+		}
+		if len(configuredType.Voltages) != len(configuredType.Percent) {
+			log.Printf("ERROR: Invalid battery type '%s' - voltage/percent curve length mismatch (%d vs %d)", 
+				configuredType.Name, len(configuredType.Voltages), len(configuredType.Percent))
+			return
+		}
+		
 		m.currentType = configuredType
 		if m.config.IsManuallyConfigured() {
-			log.Printf("Using manually configured battery type: %s (%s chemistry)",
-				m.currentType.Name, m.currentType.Chemistry)
+			log.Printf("Using manually configured battery type: %s (%s chemistry) - %d voltage points",
+				m.currentType.Name, m.currentType.Chemistry, len(m.currentType.Voltages))
 		} else {
-			log.Printf("Using configured battery type: %s (%s chemistry)",
-				m.currentType.Name, m.currentType.Chemistry)
+			log.Printf("Using configured battery type: %s (%s chemistry) - %d voltage points",
+				m.currentType.Name, m.currentType.Chemistry, len(m.currentType.Voltages))
 		}
 		m.savePersistentState()
+	} else {
+		log.Printf("No configured battery type found, will use auto-detection")
 	}
 }
 
@@ -742,11 +755,21 @@ func (m *BatteryMonitor) loadPersistentState() error {
 	// Only use saved state if no configured type and state is recent
 	if m.currentType == nil && state.DetectedType != "" &&
 		time.Since(state.LastUpdated) < 24*time.Hour {
-		for i := range goconfig.PresetBatteryTypes {
-			preset := &goconfig.PresetBatteryTypes[i]
+		for _, preset := range goconfig.PresetBatteryTypes {
 			if preset.Name == state.DetectedType {
-				preset.NormalizeCurves()
-				m.currentType = preset
+				// Create a proper copy to avoid modifying the original preset
+				bt := goconfig.BatteryType{
+					Name:       preset.Name,
+					Chemistry:  preset.Chemistry,
+					MinVoltage: preset.MinVoltage,
+					MaxVoltage: preset.MaxVoltage,
+					Voltages:   make([]float32, len(preset.Voltages)),
+					Percent:    make([]float32, len(preset.Percent)),
+				}
+				copy(bt.Voltages, preset.Voltages)
+				copy(bt.Percent, preset.Percent)
+				bt.NormalizeCurves()
+				m.currentType = &bt
 				m.lastBatteryType = preset.Name
 				log.Printf("Restored battery type from state: %s (%s chemistry)",
 					m.currentType.Name, m.currentType.Chemistry)
@@ -946,6 +969,9 @@ func checkBatteryConfigSignal(config *goconfig.Config, batteryMonitor *BatteryMo
 		log.Printf("Failed to unmarshal battery config: %v", err)
 		return false
 	}
+	
+	// Load the new configured battery type (crucial for manual overrides)
+	batteryMonitor.loadConfiguredType()
 	
 	log.Printf("Battery configuration reloaded immediately due to signal")
 	return true
