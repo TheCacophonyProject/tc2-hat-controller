@@ -813,9 +813,29 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 	configReloadCounter := 0
 
 	for {
-		// Reload config every 30 iterations (every hour) to pick up manual overrides
+		// Check for immediate config reload signal
+		if checkBatteryConfigSignal(config, batteryMonitor) {
+			// Config was reloaded, perform immediate reading to update CSV
+			status, hvBat, lvBat, rtcBat, err := performBatteryReading(a, batteryMonitor)
+			if err != nil {
+				log.Printf("Error during immediate battery reading after config reload: %v", err)
+			} else {
+				log.Printf("Immediate reading after config reload: HV=%.2f, LV=%.2f, RTC=%.2f - %s (%s) %.1f%% on %s rail",
+					hvBat, lvBat, rtcBat, status.Type, status.Chemistry, status.Percent, status.Rail)
+				
+				// Report event and send D-Bus signal for immediate UI update
+				if batteryMonitor.ShouldReportEvent(status) {
+					reportBatteryEvent(status, rtcBat)
+					if err := sendBatterySignal(float64(status.Voltage), float64(status.Percent)); err != nil {
+						log.Error("Error sending battery signal:", err)
+					}
+				}
+			}
+		}
+
+		// Reload config every 30 iterations (every hour) as backup
 		if configReloadCounter >= 30 {
-			log.Printf("Reloading battery configuration...")
+			log.Printf("Periodic battery configuration reload...")
 			if err := config.Reload(); err != nil {
 				log.Printf("Failed to reload config: %v", err)
 			} else {
@@ -823,40 +843,19 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 				if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
 					log.Printf("Failed to unmarshal battery config: %v", err)
 				} else {
-					log.Printf("Battery configuration reloaded")
+					log.Printf("Battery configuration reloaded (periodic)")
 				}
 			}
 			configReloadCounter = 0
 		}
 		configReloadCounter++
 
-		// Read voltage values from ATtiny
-		hvBat, err := a.readHVBattery()
+		// Perform regular battery reading
+		status, hvBat, lvBat, rtcBat, err := performBatteryReading(a, batteryMonitor)
 		if err != nil {
-			log.Error("Error reading HV battery:", err)
+			log.Error("Error during battery reading:", err)
 			time.Sleep(2 * time.Minute)
 			continue
-		}
-
-		lvBat, err := a.readLVBattery()
-		if err != nil {
-			log.Error("Error reading LV battery:", err)
-			time.Sleep(2 * time.Minute)
-			continue
-		}
-
-		rtcBat, err := a.readRTCBattery()
-		if err != nil {
-			log.Error("Error reading RTC battery:", err)
-			rtcBat = 0 // Continue without RTC voltage
-		}
-
-		// Process readings with new battery monitor
-		status := batteryMonitor.ProcessReading(hvBat, lvBat, rtcBat)
-
-		// Log to CSV file
-		if err := logBatteryReadingToFile(hvBat, lvBat, rtcBat, status); err != nil {
-			log.Error("Error logging battery reading:", err)
 		}
 
 		// Log to console periodically
@@ -916,6 +915,70 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 
 		time.Sleep(2 * time.Minute)
 	}
+}
+
+// checkBatteryConfigSignal checks for battery config change signal and reloads config if needed
+func checkBatteryConfigSignal(config *goconfig.Config, batteryMonitor *BatteryMonitor) bool {
+	signalFile := "/tmp/battery-config-changed"
+	
+	// Check if signal file exists
+	if _, err := os.Stat(signalFile); os.IsNotExist(err) {
+		return false
+	}
+	
+	// Signal file exists, reload config
+	log.Printf("Battery config change signal detected, reloading configuration...")
+	
+	// Remove signal file
+	if err := os.Remove(signalFile); err != nil {
+		log.Printf("Failed to remove signal file: %v", err)
+		// Continue anyway
+	}
+	
+	// Reload config
+	if err := config.Reload(); err != nil {
+		log.Printf("Failed to reload config: %v", err)
+		return false
+	}
+	
+	// Update battery monitor config
+	if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
+		log.Printf("Failed to unmarshal battery config: %v", err)
+		return false
+	}
+	
+	log.Printf("Battery configuration reloaded immediately due to signal")
+	return true
+}
+
+// performBatteryReading performs a single battery reading cycle
+func performBatteryReading(a *attiny, batteryMonitor *BatteryMonitor) (*BatteryStatus, float32, float32, float32, error) {
+	// Read voltage values from ATtiny
+	hvBat, err := a.readHVBattery()
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("error reading HV battery: %w", err)
+	}
+
+	lvBat, err := a.readLVBattery()
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("error reading LV battery: %w", err)
+	}
+
+	rtcBat, err := a.readRTCBattery()
+	if err != nil {
+		log.Error("Error reading RTC battery:", err)
+		rtcBat = 0 // Continue without RTC voltage
+	}
+
+	// Process readings with battery monitor
+	status := batteryMonitor.ProcessReading(hvBat, lvBat, rtcBat)
+
+	// Log to CSV file
+	if err := logBatteryReadingToFile(hvBat, lvBat, rtcBat, status); err != nil {
+		log.Error("Error logging battery reading:", err)
+	}
+
+	return status, hvBat, lvBat, rtcBat, nil
 }
 
 // logBatteryReadingToFile logs battery readings to CSV file
