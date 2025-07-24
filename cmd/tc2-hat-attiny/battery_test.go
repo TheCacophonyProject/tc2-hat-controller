@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -79,6 +80,9 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 				voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
 				lastReportedPercent: -1,
 				stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+				dischargeRateAlpha:  0.1,
+				dischargeRateWindow: make([]float32, 0, 20),
+				lastDisplayedHours:  -1,
 			}
 
 			// Read CSV file
@@ -159,6 +163,9 @@ func TestBatteryMonitorVoltageStability(t *testing.T) {
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
 		lastReportedPercent: -1,
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Simulate stable voltage readings with realistic timing
@@ -186,6 +193,9 @@ func TestBatteryMonitorVoltageRangeDetection(t *testing.T) {
 		observedMaxVoltage:  0.0,
 		lastReportedPercent: -1,
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Test voltage range tracking
@@ -228,6 +238,9 @@ func TestBatteryMonitorPersistentState(t *testing.T) {
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
 		lastReportedPercent: -1,
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Force lime battery detection
@@ -248,6 +261,9 @@ func TestBatteryMonitorPersistentState(t *testing.T) {
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
 		lastReportedPercent: -1,
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	err := monitor2.loadPersistentState()
@@ -356,6 +372,9 @@ func TestBatteryDepletionEstimation(t *testing.T) {
 		dischargeHistory:    make([]DischargeRateHistory, 0),
 		historicalAverages:  make(map[string]float32),
 		maxHistoryHours:     batteryConfig.DepletionHistoryHours,
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Set known battery type
@@ -406,7 +425,7 @@ func TestBatteryDepletionEstimation(t *testing.T) {
 	assert.Greater(t, estimate.EstimatedHours, float32(0), "Should estimate positive time remaining")
 	assert.GreaterOrEqual(t, estimate.Confidence, float32(0), "Confidence should be >= 0")
 	assert.LessOrEqual(t, estimate.Confidence, float32(100), "Confidence should be <= 100")
-	assert.Contains(t, []string{"short_term", "averaged", "historical"}, estimate.Method, "Should use valid estimation method")
+	assert.Contains(t, []string{"short_term", "averaged", "historical", "median_filtered"}, estimate.Method, "Should use valid estimation method")
 }
 
 func TestBatteryChargingDetection(t *testing.T) {
@@ -421,6 +440,9 @@ func TestBatteryChargingDetection(t *testing.T) {
 		historicalAverages:  make(map[string]float32),
 		maxHistoryHours:     batteryConfig.DepletionHistoryHours,
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Test voltage increase detection
@@ -466,6 +488,9 @@ func TestBatteryDischargeRateCalculation(t *testing.T) {
 		config:              &batteryConfig,
 		dischargeHistory:    make([]DischargeRateHistory, 0),
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Test insufficient data
@@ -515,6 +540,9 @@ func TestBatteryConfidenceCalculation(t *testing.T) {
 		dischargeHistory:    make([]DischargeRateHistory, 0),
 		voltageRangeReadings: 25, // Good data
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Set battery type
@@ -564,6 +592,9 @@ func TestBatteryDepletionWarningLevels(t *testing.T) {
 		config:              &batteryConfig,
 		dischargeHistory:    make([]DischargeRateHistory, 0),
 		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
 	}
 
 	// Set battery type and valid status
@@ -602,4 +633,243 @@ func TestBatteryDepletionWarningLevels(t *testing.T) {
 	estimate = monitor.GetDepletionEstimate()
 	assert.NotNil(t, estimate, "Should provide estimate")
 	assert.Equal(t, "normal", estimate.WarningLevel, "Should be normal")
+}
+
+// TestBatteryDepletionVarianceReduction tests that the new smoothing reduces variance
+// in depletion estimates when battery percentage has small fluctuations
+func TestBatteryDepletionVarianceReduction(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	batteryConfig.EnableDepletionEstimate = true
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		historicalAverages:  make(map[string]float32),
+		maxHistoryHours:     batteryConfig.DepletionHistoryHours,
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		lastDisplayedHours:  -1,
+	}
+
+	// Set lime battery type
+	for i := range config.PresetBatteryTypes {
+		if config.PresetBatteryTypes[i].Name == "lime" {
+			monitor.currentType = &config.PresetBatteryTypes[i]
+			break
+		}
+	}
+	require.NotNil(t, monitor.currentType, "Failed to set lime battery type")
+
+	// Simulate the variance scenario from logs - battery percentage fluctuating between 76.2-76.9%
+	// This previously caused hour estimates to vary wildly from 117 to 305 hours
+	baseTime := time.Now().Add(-4 * time.Hour)
+	// Start with some initial discharge to establish a base rate
+	percentages := []float32{
+		80.0, 79.0, 78.0, 77.0, // Initial discharge to establish rate
+		76.6, 76.6, 76.9, 76.9, 76.6, 76.9, 76.9, 76.9, 76.9, 76.6,
+		76.9, 76.6, 76.6, 76.6, 76.6, 76.6, 76.9, 76.6, 76.9, 76.6,
+		76.6, 76.9, 76.6, 76.6, 76.6, 76.6, 76.6, 76.2, 76.2, 76.6,
+	}
+
+	var estimates []float32
+	
+	for i, percent := range percentages {
+		timestamp := baseTime.Add(time.Duration(i) * 2 * time.Minute) // 2 minute intervals
+		
+		status := &BatteryStatus{
+			Voltage:     39.19 + (percent-76.6)*0.1, // Simulate voltage correlation
+			Percent:     percent,
+			Type:        monitor.currentType.Name,
+			Chemistry:   monitor.currentType.Chemistry,
+			Rail:        "hv",
+			LastUpdated: timestamp,
+		}
+		
+		monitor.UpdateDischargeHistory(status)
+		monitor.lastValidStatus = status
+		
+		// Get depletion estimate
+		if i >= 5 { // Wait for some history
+			estimate := monitor.GetDepletionEstimate()
+			if estimate != nil && estimate.EstimatedHours > 0 {
+				estimates = append(estimates, estimate.EstimatedHours)
+				t.Logf("Estimate %d: %.1f hours (method: %s, confidence: %.0f%%)", 
+					i, estimate.EstimatedHours, estimate.Method, estimate.Confidence)
+			} else if estimate != nil {
+				t.Logf("Estimate %d: no hours (method: %s)", i, estimate.Method)
+			} else {
+				t.Logf("Estimate %d: nil", i)
+			}
+		}
+	}
+
+	// Verify we got estimates
+	require.NotEmpty(t, estimates, "Should have generated estimates")
+
+	// Calculate variance in estimates
+	var sum, sumSquares float32
+	for _, est := range estimates {
+		sum += est
+		sumSquares += est * est
+	}
+	mean := sum / float32(len(estimates))
+	variance := sumSquares/float32(len(estimates)) - mean*mean
+	stdDev := float32(math.Sqrt(float64(variance)))
+	coefficientOfVariation := stdDev / mean
+
+	t.Logf("Estimates: min=%.1f, max=%.1f, mean=%.1f, stdDev=%.1f, CV=%.2f", 
+		minFloat32(estimates), maxFloat32(estimates), mean, stdDev, coefficientOfVariation)
+
+	// With smoothing, coefficient of variation should be much lower than without
+	assert.Less(t, coefficientOfVariation, float32(0.35), 
+		"Coefficient of variation should be < 35% with smoothing (was getting >100% without)")
+	
+	// The initial discharge creates a steep rate, but as the battery stabilizes,
+	// the rate gradually decreases, causing estimates to increase
+	assert.Less(t, coefficientOfVariation, float32(1.0), 
+		"Coefficient of variation should be much less than original (was >100%)")
+	
+	// Check that hysteresis is working - count consecutive identical estimates
+	consecutiveIdentical := 0
+	maxConsecutive := 0
+	for i := 1; i < len(estimates); i++ {
+		if estimates[i] == estimates[i-1] {
+			consecutiveIdentical++
+			if consecutiveIdentical > maxConsecutive {
+				maxConsecutive = consecutiveIdentical
+			}
+		} else {
+			consecutiveIdentical = 0
+		}
+	}
+	assert.Greater(t, maxConsecutive, 0, "Display hysteresis should cause some consecutive identical estimates")
+}
+
+// TestDischargeRateSmoothing tests the smoothing mechanisms
+func TestDischargeRateSmoothing(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		smoothedDischargeRate: 0,
+	}
+
+	// Test 1: Exponential moving average
+	now := time.Now()
+	
+	// Add initial data points
+	monitor.dischargeHistory = []DischargeRateHistory{
+		{Timestamp: now.Add(-1 * time.Hour), Percent: 80.0},
+		{Timestamp: now, Percent: 75.0}, // 5%/hour rate
+	}
+
+	// Calculate first rate
+	rate1, err := monitor.CalculateDischargeRate(1 * time.Hour)
+	assert.NoError(t, err)
+	assert.InDelta(t, 5.0, rate1, 0.1, "First rate should be ~5%/hour")
+	assert.Equal(t, rate1, monitor.smoothedDischargeRate, "Smoothed rate should equal first rate")
+
+	// Add data point with different rate
+	monitor.dischargeHistory = append(monitor.dischargeHistory, 
+		DischargeRateHistory{Timestamp: now.Add(1 * time.Hour), Percent: 65.0}) // 10%/hour from last point
+
+	// Calculate second rate - should be smoothed
+	rate2, err := monitor.CalculateDischargeRate(1 * time.Hour)
+	assert.NoError(t, err)
+	
+	// Rate should be smoothed and different from raw calculated rate
+	assert.NotEqual(t, 10.0, rate2, "Rate should be smoothed, not raw 10%/hour")
+	assert.Greater(t, rate2, rate1, "Rate should increase from first reading")
+	assert.Less(t, rate2, float32(10.0), "Rate should be less than raw 10%/hour due to smoothing")
+
+	// Test 2: Rate change limiting
+	monitor.smoothedDischargeRate = 5.0
+	monitor.dischargeHistory = []DischargeRateHistory{
+		{Timestamp: now.Add(-1 * time.Hour), Percent: 80.0},
+		{Timestamp: now, Percent: 50.0}, // 30%/hour - extreme jump
+	}
+
+	rate3, err := monitor.CalculateDischargeRate(1 * time.Hour)
+	assert.NoError(t, err)
+	
+	// Rate should be limited to 20% increase from 5.0 = 6.0
+	assert.LessOrEqual(t, rate3, float32(6.0), "Rate increase should be limited to 20%")
+
+	// Test 3: Median filter with window
+	monitor.dischargeRateWindow = []float32{5.0, 5.1, 20.0, 5.2, 5.3} // 20.0 is outlier
+	median := calculateMedian(monitor.dischargeRateWindow)
+	assert.InDelta(t, 5.2, median, 0.1, "Median should reject outlier")
+}
+
+// TestMinimumPercentageChangeThreshold tests minimum change threshold
+func TestMinimumPercentageChangeThreshold(t *testing.T) {
+	stateDir := t.TempDir()
+	batteryConfig := config.DefaultBattery()
+	
+	monitor := &BatteryMonitor{
+		config:              &batteryConfig,
+		dischargeHistory:    make([]DischargeRateHistory, 0),
+		stateFilePath:       filepath.Join(stateDir, "battery_state.json"),
+		dischargeRateAlpha:  0.1,
+		dischargeRateWindow: make([]float32, 0, 20),
+		smoothedDischargeRate: 5.0, // Pre-set smoothed rate
+	}
+
+	now := time.Now()
+	
+	// Test small change (< 0.5%)
+	monitor.dischargeHistory = []DischargeRateHistory{
+		{Timestamp: now.Add(-1 * time.Hour), Percent: 80.0},
+		{Timestamp: now.Add(-30 * time.Minute), Percent: 79.9}, // 0.1% change
+		{Timestamp: now, Percent: 79.7}, // 0.3% total change
+	}
+
+	rate, err := monitor.CalculateDischargeRate(1 * time.Hour)
+	assert.NoError(t, err)
+	assert.Equal(t, float32(5.0), rate, "Should return existing smoothed rate for small change")
+
+	// Test larger change (>= 0.5%)
+	monitor.dischargeHistory = []DischargeRateHistory{
+		{Timestamp: now.Add(-1 * time.Hour), Percent: 80.0},
+		{Timestamp: now.Add(-30 * time.Minute), Percent: 79.5}, 
+		{Timestamp: now, Percent: 79.0}, // 1.0% total change
+	}
+
+	rate, err = monitor.CalculateDischargeRate(1 * time.Hour)
+	assert.NoError(t, err)
+	assert.NotEqual(t, float32(5.0), rate, "Should calculate new rate for larger change")
+}
+
+// Helper functions
+func minFloat32(values []float32) float32 {
+	if len(values) == 0 {
+		return 0
+	}
+	min := values[0]
+	for _, v := range values[1:] {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+func maxFloat32(values []float32) float32 {
+	if len(values) == 0 {
+		return 0
+	}
+	max := values[0]
+	for _, v := range values[1:] {
+		if v > max {
+			max = v
+		}
+	}
+	return max
 }

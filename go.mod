@@ -4,7 +4,7 @@ go 1.22.3
 
 require (
 	github.com/TheCacophonyProject/event-reporter/v3 v3.9.0
-	github.com/TheCacophonyProject/go-config v1.25.1
+	github.com/TheCacophonyProject/go-config v1.25.2
 	github.com/TheCacophonyProject/go-utils v0.1.3
 	github.com/TheCacophonyProject/rpi-net-manager v0.5.6
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
@@ -50,4 +50,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-//replace module/path/to/replace => ../local/path/to/module
+// replace github.com/TheCacophonyProject/go-config => ../go-config

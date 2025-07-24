@@ -23,6 +23,11 @@ const (
 
 	// State persistence
 	stateFileName = "battery_state.json"
+
+	// Discharge rate calculation
+	minPercentChangeForRate  = 0.5  // Minimum percentage change to calculate discharge rate
+	maxRateChangePercent     = 0.2  // Maximum 20% change in discharge rate between updates
+	displayHysteresisPercent = 0.05 // 5% change required to update display
 )
 
 // BatteryStatus represents the complete battery state
@@ -67,6 +72,14 @@ type BatteryMonitor struct {
 	historicalAverages   map[string]float32
 	maxHistoryHours      int
 	lastDepletionWarning time.Time
+
+	// Smoothing and filtering
+	smoothedDischargeRate  float32
+	dischargeRateAlpha     float32
+	dischargeRateWindow    []float32
+	lastDisplayedHours     float32
+	lastPercentForRateCalc float32
+	lastTimeForRateCalc    time.Time
 }
 
 // timestampedVoltage holds voltage with timestamp for stability calculation
@@ -91,6 +104,10 @@ type PersistentState struct {
 	LastChargeEvent    time.Time              `json:"last_charge_event,omitempty"`
 	PowerSavingActive  bool                   `json:"power_saving_active"`
 	HistoricalAverages map[string]float32     `json:"historical_averages"` // By battery type
+
+	// Smoothing state
+	SmoothedDischargeRate float32   `json:"smoothed_discharge_rate"`
+	DischargeRateWindow   []float32 `json:"discharge_rate_window"`
 }
 
 // DischargeRateHistory tracks discharge patterns
@@ -143,6 +160,9 @@ func NewBatteryMonitor(config *goconfig.Config, stateDir string) (*BatteryMonito
 		dischargeHistory:    make([]DischargeRateHistory, 0),
 		historicalAverages:  make(map[string]float32),
 		maxHistoryHours:     batteryConfig.DepletionHistoryHours,
+		dischargeRateAlpha:  0.1,                    // 10% new value, 90% old value
+		dischargeRateWindow: make([]float32, 0, 20), // Keep last 20 rate calculations
+		lastDisplayedHours:  -1,
 	}
 
 	// Load persistent state if available
@@ -317,6 +337,25 @@ func (m *BatteryMonitor) determineActiveRail(hvBat, lvBat float32) (float32, str
 }
 
 func (m *BatteryMonitor) ensureBatteryType(voltage float32) error {
+	// Check if battery type is manually configured
+	if m.config.IsManuallyConfigured() {
+		// Use manually configured type, don't auto-detect
+		configuredType := m.config.GetBatteryType()
+		if configuredType != nil {
+			// Update current type if it changed from manual configuration
+			if m.currentType == nil || m.currentType.Name != configuredType.Name {
+				m.currentType = configuredType
+				log.Printf("Using manually configured battery type: %s (%s chemistry)",
+					m.currentType.Name, m.currentType.Chemistry)
+				m.savePersistentState()
+			}
+			return nil
+		} else {
+			return fmt.Errorf("manually configured battery type not found")
+		}
+	}
+
+	// Continue with auto-detection for non-manually configured batteries
 	// Update voltage range tracking
 	m.updateVoltageRange(voltage)
 
@@ -648,8 +687,13 @@ func (m *BatteryMonitor) loadConfiguredType() {
 	configuredType := m.config.GetBatteryType()
 	if configuredType != nil {
 		m.currentType = configuredType
-		log.Printf("Using configured battery type: %s (%s chemistry)",
-			m.currentType.Name, m.currentType.Chemistry)
+		if m.config.IsManuallyConfigured() {
+			log.Printf("Using manually configured battery type: %s (%s chemistry)",
+				m.currentType.Name, m.currentType.Chemistry)
+		} else {
+			log.Printf("Using configured battery type: %s (%s chemistry)",
+				m.currentType.Name, m.currentType.Chemistry)
+		}
 		m.savePersistentState()
 	}
 }
@@ -689,6 +733,12 @@ func (m *BatteryMonitor) loadPersistentState() error {
 		m.historicalAverages = state.HistoricalAverages
 	}
 
+	// Restore smoothing state
+	m.smoothedDischargeRate = state.SmoothedDischargeRate
+	if state.DischargeRateWindow != nil {
+		m.dischargeRateWindow = state.DischargeRateWindow
+	}
+
 	// Only use saved state if no configured type and state is recent
 	if m.currentType == nil && state.DetectedType != "" &&
 		time.Since(state.LastUpdated) < 24*time.Hour {
@@ -710,15 +760,17 @@ func (m *BatteryMonitor) loadPersistentState() error {
 
 func (m *BatteryMonitor) savePersistentState() {
 	state := PersistentState{
-		ObservedMinVoltage:   m.observedMinVoltage,
-		ObservedMaxVoltage:   m.observedMaxVoltage,
-		VoltageRangeReadings: m.voltageRangeReadings,
-		ActiveRail:           m.activeRail,
-		LastUpdated:          time.Now(),
-		DischargeHistory:     m.dischargeHistory,
-		DischargeStats:       m.dischargeStats,
-		LastChargeEvent:      m.lastChargeEvent,
-		HistoricalAverages:   m.historicalAverages,
+		ObservedMinVoltage:    m.observedMinVoltage,
+		ObservedMaxVoltage:    m.observedMaxVoltage,
+		VoltageRangeReadings:  m.voltageRangeReadings,
+		ActiveRail:            m.activeRail,
+		LastUpdated:           time.Now(),
+		DischargeHistory:      m.dischargeHistory,
+		DischargeStats:        m.dischargeStats,
+		LastChargeEvent:       m.lastChargeEvent,
+		HistoricalAverages:    m.historicalAverages,
+		SmoothedDischargeRate: m.smoothedDischargeRate,
+		DischargeRateWindow:   m.dischargeRateWindow,
 	}
 
 	if m.currentType != nil {
@@ -737,10 +789,8 @@ func (m *BatteryMonitor) savePersistentState() {
 	}
 }
 
-// monitorVoltageLoop monitors battery voltage and reports status
 func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
-	// Initialize battery monitor
-	stateDir := "/var/lib/tc2-hat-controller" // Or use appropriate state directory
+	stateDir := "/var/lib/tc2-hat-controller"
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		log.Printf("Failed to create state directory: %v", err)
 		return
@@ -760,8 +810,26 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 
 	startTime := time.Now()
 	logCounter := 5
+	configReloadCounter := 0
 
 	for {
+		// Reload config every 30 iterations (every hour) to pick up manual overrides
+		if configReloadCounter >= 30 {
+			log.Printf("Reloading battery configuration...")
+			if err := config.Reload(); err != nil {
+				log.Printf("Failed to reload config: %v", err)
+			} else {
+				// Update battery monitor config
+				if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
+					log.Printf("Failed to unmarshal battery config: %v", err)
+				} else {
+					log.Printf("Battery configuration reloaded")
+				}
+			}
+			configReloadCounter = 0
+		}
+		configReloadCounter++
+
 		// Read voltage values from ATtiny
 		hvBat, err := a.readHVBattery()
 		if err != nil {
@@ -1183,7 +1251,10 @@ func (m *BatteryMonitor) UpdateDischargeHistory(status *BatteryStatus) {
 			m.lastChargeEvent = time.Now()
 			// Clear discharge history on charge event
 			m.dischargeHistory = make([]DischargeRateHistory, 0)
-			m.dischargeStats = DischargeStatistics{} // Reset stats
+			m.dischargeStats = DischargeStatistics{}       // Reset stats
+			m.smoothedDischargeRate = 0                    // Reset smoothed rate
+			m.dischargeRateWindow = make([]float32, 0, 20) // Clear rate window
+			m.lastDisplayedHours = -1                      // Reset displayed hours
 			log.Printf("Discharge history cleared due to charging event")
 			return
 		}
@@ -1251,6 +1322,16 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 	}
 
 	percentDrop := startEntry.Percent - endEntry.Percent
+
+	// Check minimum percentage change threshold
+	if math.Abs(float64(percentDrop)) < minPercentChangeForRate {
+		// Use last calculated rate if change is too small
+		if m.smoothedDischargeRate > 0 {
+			return m.smoothedDischargeRate, nil
+		}
+		return 0, fmt.Errorf("percentage change %.2f%% below minimum threshold", percentDrop)
+	}
+
 	ratePerHour := percentDrop / float32(timeDiff)
 
 	// Ensure rate is positive (discharge rate)
@@ -1258,7 +1339,30 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 		ratePerHour = 0
 	}
 
-	return ratePerHour, nil
+	// Apply rate change limiting
+	if m.smoothedDischargeRate > 0 && ratePerHour > 0 {
+		maxChange := m.smoothedDischargeRate * maxRateChangePercent
+		if ratePerHour > m.smoothedDischargeRate+maxChange {
+			ratePerHour = m.smoothedDischargeRate + maxChange
+		} else if ratePerHour < m.smoothedDischargeRate-maxChange {
+			ratePerHour = m.smoothedDischargeRate - maxChange
+		}
+	}
+
+	// Apply exponential moving average
+	if m.smoothedDischargeRate > 0 {
+		m.smoothedDischargeRate = m.dischargeRateAlpha*ratePerHour + (1-m.dischargeRateAlpha)*m.smoothedDischargeRate
+	} else {
+		m.smoothedDischargeRate = ratePerHour
+	}
+
+	// Add to rolling window
+	m.dischargeRateWindow = append(m.dischargeRateWindow, m.smoothedDischargeRate)
+	if len(m.dischargeRateWindow) > 20 {
+		m.dischargeRateWindow = m.dischargeRateWindow[1:]
+	}
+
+	return m.smoothedDischargeRate, nil
 }
 
 // UpdateDischargeStatistics calculates and updates discharge rate statistics
@@ -1321,8 +1425,11 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 	var dischargeRate float32
 	var method string
 
-	// Prefer short-term rate if available and significant
-	if m.dischargeStats.ShortTermRate > 0.1 && m.dischargeStats.DataPoints >= 15 {
+	// Use median of discharge rate window if available
+	if len(m.dischargeRateWindow) >= 5 {
+		dischargeRate = calculateMedian(m.dischargeRateWindow)
+		method = "median_filtered"
+	} else if m.dischargeStats.ShortTermRate > 0.1 && m.dischargeStats.DataPoints >= 15 {
 		dischargeRate = m.dischargeStats.ShortTermRate
 		method = "short_term"
 	} else if m.dischargeStats.AverageRate > 0 {
@@ -1342,6 +1449,17 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 		}
 	}
 
+	// Ensure we have a valid discharge rate
+	if dischargeRate <= 0 {
+		return &DepletionEstimate{
+			EstimatedHours:     -1,
+			EstimatedDepletion: time.Time{},
+			Confidence:         0,
+			Method:             method,
+			WarningLevel:       "normal",
+		}
+	}
+
 	// Calculate remaining hours
 	currentPercent := m.lastValidStatus.Percent
 	remainingHours := currentPercent / dischargeRate
@@ -1349,6 +1467,20 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 	// Cap at reasonable maximum
 	if remainingHours > 720 { // 30 days
 		remainingHours = 720
+	}
+
+	// Apply display hysteresis
+	if m.lastDisplayedHours > 0 {
+		percentChange := math.Abs(float64(remainingHours-m.lastDisplayedHours)) / float64(m.lastDisplayedHours)
+		if percentChange < displayHysteresisPercent {
+			// Use previous displayed value if change is small
+			remainingHours = m.lastDisplayedHours
+		} else {
+			// Update displayed hours
+			m.lastDisplayedHours = remainingHours
+		}
+	} else {
+		m.lastDisplayedHours = remainingHours
 	}
 
 	// Calculate depletion time
@@ -1362,7 +1494,7 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 		warningLevel = "low"
 	}
 
-	// Calculate confidence (will be implemented in next task)
+	// Calculate confidence
 	confidence := m.calculateDepletionConfidence(method)
 
 	return &DepletionEstimate{
@@ -1425,8 +1557,11 @@ func (m *BatteryMonitor) calculateDepletionConfidence(method string) float32 {
 		}
 	}
 
-	// Method penalty
-	if method == "historical" {
+	// Method bonus/penalty
+	switch method {
+	case "median_filtered":
+		confidence += 10 // Bonus for using filtered data
+	case "historical":
 		confidence = confidence * 0.7 // Reduce confidence for historical data
 	}
 
@@ -1438,3 +1573,29 @@ func (m *BatteryMonitor) calculateDepletionConfidence(method string) float32 {
 	return confidence
 }
 
+// calculateMedian calculates the median of a float32 slice
+func calculateMedian(values []float32) float32 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	// Create a copy to avoid modifying original
+	sorted := make([]float32, len(values))
+	copy(sorted, values)
+
+	// Sort the values
+	for i := 0; i < len(sorted); i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j] < sorted[i] {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	// Calculate median
+	n := len(sorted)
+	if n%2 == 0 {
+		return (sorted[n/2-1] + sorted[n/2]) / 2
+	}
+	return sorted[n/2]
+}
