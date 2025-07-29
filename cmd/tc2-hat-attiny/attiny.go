@@ -176,6 +176,10 @@ const (
 	BAD_I2C_LENGTH_SHORT          ErrorCode = 0x0C
 	BAD_I2C_LENGTH_LONG           ErrorCode = 0x0D
 	BAD_I2C                       ErrorCode = 0x0E
+	HOLDING_SDA_LOW               ErrorCode = 0x0F
+	WDT_TRIGGERED                 ErrorCode = 0x10
+	BOR_TRIGGERED                 ErrorCode = 0x11
+	RP2040_WDT_TIMEOUT            ErrorCode = 0x12
 )
 
 func (e ErrorCode) String() string {
@@ -206,6 +210,14 @@ func (e ErrorCode) String() string {
 		return "BAD_I2C_LENGTH_SHORT"
 	case BAD_I2C:
 		return "BAD_I2C"
+	case HOLDING_SDA_LOW:
+		return "HOLDING_SDA_LOW"
+	case WDT_TRIGGERED:
+		return "WDT_TRIGGERED"
+	case BOR_TRIGGERED:
+		return "BOR_TRIGGERED"
+	case RP2040_WDT_TIMEOUT:
+		return "RP2040_WDT_TIMEOUT"
 	default:
 		return fmt.Sprintf("UNKNOWN_ERROR_CODE 0x%02X", uint8(e))
 	}
@@ -362,9 +374,9 @@ func connectToATtiny() (*attiny, error) {
 
 	found, err := i2crequest.CheckAddress(attinyI2CAddress, 1000)
 	if err != nil {
+		//TODO, issue here with flashing a new ATtiny that doesn't have any firmware on it.
 		log.Errorf("Error checking for attiny device: %v", err)
-		time.Sleep(3 * time.Second)
-		return connectToATtiny()
+		return nil, err
 	}
 	if !found {
 		return nil, fmt.Errorf("failed to find attiny device on i2c bus: %v", err)
