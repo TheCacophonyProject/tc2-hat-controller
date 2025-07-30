@@ -66,6 +66,7 @@ type Args struct {
 	Timestamps         bool   `arg:"-t,--timestamps" help:"include timestamps in log output"`
 	SkipSystemShutdown bool   `arg:"--skip-system-shutdown" help:"don't shut down operating system when powering down"`
 	BatteryReading     bool   `arg:"--battery-reading" help:"Run helper code to read battery voltage."`
+	ATtinyFirmwareInfo bool   `arg:"--attiny-firmware-info" help:"Print ATtiny firmware info."`
 
 	logging.LogArgs
 }
@@ -93,6 +94,13 @@ func runMain() error {
 	args := procArgs()
 
 	log = logging.NewLogger(args.LogLevel)
+
+	if args.ATtinyFirmwareInfo {
+		log.Infof("ATtiny firmware info: v%s.%s.%s", attinyMajorStr, attinyMinorStr, attinyPatchStr)
+		log.Infof("To set the ATtiny firmware environment variables for development of tc2-hat-controller run \n\t`export ATTINY_MAJOR=%s; export ATTINY_MINOR=%s; export ATTINY_PATCH=%s; export ATTINY_HASH=%s`", attinyMajorStr, attinyMinorStr, attinyPatchStr, attinyHexHash)
+		log.Infof("To set the ATtiny firmware environment variables for development on attiny1616 run \n\t`export export MAJOR_VERSION=%s; export MINOR_VERSION=%s; export PATCH_VERSION=%s`", attinyMajorStr, attinyMinorStr, attinyPatchStr)
+		return nil
+	}
 
 	config, err := goconfig.New(args.ConfigDir)
 	if err != nil {
