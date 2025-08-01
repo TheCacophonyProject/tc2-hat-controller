@@ -28,6 +28,7 @@ import (
 type Args struct {
 	Service *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
 	SetTime string      `arg:"--set-time" help:"Set the time on the RTC. Format: 2006-01-02 15:04:05. Just used for debugging purposes."`
+	Status  *subcommand `arg:"subcommand:status" help:"Get the status of the RTC."`
 	logging.LogArgs
 }
 
@@ -76,6 +77,38 @@ func runMain() error {
 			return err
 		}
 		return rtc.SetTime(newTime)
+	} else if args.Status != nil {
+		rtc := &pcf8563{}
+
+		log.Println("Getting RTC status")
+		alarmTime, err := rtc.ReadAlarmTime()
+		if err != nil {
+			log.Error("Error getting alarm time:", err)
+		} else {
+			log.Info("Alarm time:", alarmTime)
+		}
+
+		alarmEnabled, err := rtc.ReadAlarmEnabled()
+		if err != nil {
+			log.Error("Error getting alarm enabled:", err)
+		} else {
+			log.Info("Alarm enabled:", alarmEnabled)
+		}
+
+		alarmFlag, err := rtc.ReadAlarmFlag()
+		if err != nil {
+			log.Error("Error getting alarm flag:", err)
+		} else {
+			log.Info("Alarm flag:", alarmFlag)
+		}
+
+		rtcTime, integrity, err := rtc.GetTime()
+		if err != nil {
+			log.Error("Error getting RTC time/integrity:", err)
+		} else {
+			log.Info("RTC time:", rtcTime)
+			log.Info("RTC integrity:", integrity)
+		}
 	}
 	return nil
 }
@@ -93,5 +126,8 @@ func startService() error {
 	if err := rtc.SetSystemTime(); err != nil {
 		log.Println(err)
 	}
+
+	//
+
 	return nil
 }
