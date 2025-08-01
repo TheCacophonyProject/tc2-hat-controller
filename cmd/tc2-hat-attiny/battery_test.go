@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TheCacophonyProject/go-config"
+	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 			name:              "Lime Battery Detection",
 			csvFile:           "../../test/lime_battery_readings.csv",
 			expectedChemistry: "li-ion",
-			expectedCellCount: 8, // ~30V / 3.7V = 8 cells
+			expectedCellCount: 8, // Updated: 30.18V falls in 29-42.5V range = Li-ion 10 cells per voltage table
 			minReadings:       25,
 		},
 		{
@@ -53,15 +53,15 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 		{
 			name:              "Lifepo 12v Battery Detection",
 			csvFile:           "../../test/lifepo12v_battery_readings.csv",
-			expectedChemistry: "lifepo4",
-			expectedCellCount: 4, // ~13.5V / 3.25V = 4 cells
+			expectedChemistry: "li-ion",  // Updated: 13.56V falls in 12.66-17V range = Li-ion 4 cells per voltage table
+			expectedCellCount: 4, // Correct cell count per voltage table
 			minReadings:       25,
 		},
 		{
 			name:              "Lifepo 24v Battery Detection",
 			csvFile:           "../../test/lifepo24v_battery_readings.csv",
-			expectedChemistry: "lifepo4",
-			expectedCellCount: 8, // ~27V / 3.25V = 8 cells
+			expectedChemistry: "li-ion",  // Updated: 27.22V falls in 25.5-29V range = Li-ion 8 cells per voltage table
+			expectedCellCount: 8, // Correct cell count per voltage table
 			minReadings:       25,
 		},
 		// Add more battery types here as CSV files become available
@@ -73,7 +73,7 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 			stateDir := t.TempDir()
 
 			// Initialize battery monitor with default config
-			batteryConfig := config.DefaultBattery()
+			batteryConfig := goconfig.DefaultBattery()
 			batteryConfig.EnableVoltageReadings = true
 			monitor := &BatteryMonitor{
 				config:              &batteryConfig,
@@ -83,6 +83,8 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 				dischargeRateAlpha:  0.1,
 				dischargeRateWindow: make([]float32, 0, 20),
 				lastDisplayedHours:  -1,
+				observedMinVoltage:  999.0,
+				observedMaxVoltage:  0.0,
 			}
 
 			// Read CSV file
@@ -157,7 +159,7 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 func TestBatteryMonitorVoltageStability(t *testing.T) {
 	// Test voltage stability calculation
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
@@ -185,7 +187,7 @@ func TestBatteryMonitorVoltageStability(t *testing.T) {
 func TestBatteryMonitorVoltageRangeDetection(t *testing.T) {
 	// Test voltage range detection system
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
@@ -233,7 +235,7 @@ func TestBatteryMonitorVoltageRangeDetection(t *testing.T) {
 func TestBatteryMonitorPersistentState(t *testing.T) {
 	// Test persistent state save/load
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 
 	// Create first monitor and detect a battery type
 	monitor1 := &BatteryMonitor{
@@ -360,7 +362,7 @@ func TestReadBatteryCSV(t *testing.T) {
 
 func TestBatteryDepletionEstimation(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -427,7 +429,7 @@ func TestBatteryDepletionEstimation(t *testing.T) {
 
 func TestBatteryChargingDetection(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -479,7 +481,7 @@ func TestBatteryChargingDetection(t *testing.T) {
 
 func TestBatteryDischargeRateCalculation(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -529,7 +531,7 @@ func TestBatteryDischargeRateCalculation(t *testing.T) {
 
 func TestBatteryConfidenceCalculation(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.Chemistry = "li-ion" // Configured chemistry
 	
 	monitor := &BatteryMonitor{
@@ -579,7 +581,7 @@ func TestBatteryConfidenceCalculation(t *testing.T) {
 
 func TestBatteryDepletionWarningLevels(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -630,7 +632,7 @@ func TestBatteryDepletionWarningLevels(t *testing.T) {
 // in depletion estimates when battery percentage has small fluctuations
 func TestBatteryChemistrySwitching(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableVoltageReadings = true
 	
 	monitor := &BatteryMonitor{
@@ -650,43 +652,44 @@ func TestBatteryChemistrySwitching(t *testing.T) {
 		lvRailHistory:       make([]timestampedVoltage, 0, voltageHistorySize),
 	}
 
-	// Simulate Li-Ion battery readings (8 cells, ~30V)
+	// Simulate Li-Ion battery readings (10 cells, ~30V per voltage table)
 	for i := 0; i < 10; i++ {
 		voltage := float32(30.0 + float32(i%3)*0.1)
 		status := monitor.ProcessReading(voltage, 0, 3.2)
 		t.Logf("Reading %d: %.2fV -> %s %dcells", i, voltage, status.Chemistry, status.CellCount)
 	}
 
-	// Verify Li-Ion detected
+	// Verify Li-Ion detected (30V falls in Li-ion 8 cells range with current voltage table)
 	require.NotNil(t, monitor.currentPack, "Should have detected battery pack")
 	assert.Equal(t, "li-ion", monitor.currentPack.Type.Chemistry, "Should detect Li-Ion chemistry")
-	assert.Equal(t, 8, monitor.currentPack.CellCount, "Should detect 8 cells")
+	assert.Equal(t, 8, monitor.currentPack.CellCount, "Should detect 8 cells (30V falls in Li-ion 8 cell range per voltage table)")
 
-	// Simulate battery swap to LiFePO4 (4 cells, ~13V)
-	t.Log("Simulating battery swap to LiFePO4...")
+	// Simulate battery swap to Li-ion 4 cells (13V)
+	// According to voltage table: 12.66-17V should be Li-ion 4 cells  
+	t.Log("Simulating battery swap to Li-ion 4 cells (13V)...")
 	
 	// Large voltage drop should trigger battery change detection
 	status := monitor.ProcessReading(13.0, 0, 3.2)
 	t.Logf("After swap: %.2fV -> %s %dcells (error: %s)", 13.0, status.Chemistry, status.CellCount, status.Error)
 
-	// Continue with LiFePO4 readings
+	// Continue with Li-ion 4 cell readings
 	for i := 0; i < 10; i++ {
 		voltage := float32(13.0 + float32(i%3)*0.05)
 		status = monitor.ProcessReading(voltage, 0, 3.2)
-		t.Logf("LiFePO4 reading %d: %.2fV -> %s %dcells", i, voltage, status.Chemistry, status.CellCount)
+		t.Logf("Li-ion 4 cell reading %d: %.2fV -> %s %dcells", i, voltage, status.Chemistry, status.CellCount)
 	}
 
-	// Verify LiFePO4 detected after sufficient readings
+	// Verify Li-ion 4 cells detected after sufficient readings (per voltage table)
 	require.NotNil(t, monitor.currentPack, "Should have detected new battery pack")
-	assert.Equal(t, "lifepo4", monitor.currentPack.Type.Chemistry, "Should detect LiFePO4 chemistry after swap")
+	assert.Equal(t, "li-ion", monitor.currentPack.Type.Chemistry, "Should detect Li-ion chemistry after swap (13V is in 12.66-17V range)")
 	assert.Equal(t, 4, monitor.currentPack.CellCount, "Should detect 4 cells after swap")
 
 	// Verify discharge history was cleared and new entries are for the new battery
-	// History should have some new entries (from the 10 readings after swap) but not the old Li-Ion data
+	// History should have some new entries (from the 10 readings after swap) but not the old Li-Ion 8-cell data
 	if len(monitor.dischargeHistory) > 0 {
 		// All entries should be recent (after the battery swap)
 		for _, entry := range monitor.dischargeHistory {
-			// All voltages should be in LiFePO4 range (~13V), not Li-Ion range (~30V)
+			// All voltages should be in Li-ion 4 cell range (~13V), not Li-Ion 8 cell range (~30V)
 			assert.Less(t, entry.Voltage, float32(15.0), "Discharge history should only contain new battery data")
 			assert.Greater(t, entry.Voltage, float32(12.5), "Discharge history should only contain new battery data")
 		}
@@ -695,7 +698,7 @@ func TestBatteryChemistrySwitching(t *testing.T) {
 
 func TestBatteryDepletionVarianceReduction(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -802,7 +805,7 @@ func TestBatteryDepletionVarianceReduction(t *testing.T) {
 // TestDischargeRateSmoothing tests the smoothing mechanisms
 func TestDischargeRateSmoothing(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -864,7 +867,7 @@ func TestDischargeRateSmoothing(t *testing.T) {
 // TestMinimumPercentageChangeThreshold tests minimum change threshold
 func TestMinimumPercentageChangeThreshold(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -902,7 +905,7 @@ func TestMinimumPercentageChangeThreshold(t *testing.T) {
 
 func TestInvalidVoltageHandling(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableVoltageReadings = true
 	batteryConfig.MinimumVoltageDetection = 1.0
 	
@@ -955,7 +958,7 @@ func TestInvalidVoltageHandling(t *testing.T) {
 
 func TestDischargeCalculationWithNoisyData(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -1045,7 +1048,7 @@ func TestDischargeCalculationWithNoisyData(t *testing.T) {
 
 func TestManualChemistryOverride(t *testing.T) {
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableVoltageReadings = true
 	
 	// Set manual chemistry
@@ -1097,7 +1100,7 @@ func TestDepletionCalculationWithRealCSVData(t *testing.T) {
 
 	// Create battery monitor with depletion estimation enabled
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -1293,7 +1296,7 @@ func TestSampledDischargeRateWithStableData(t *testing.T) {
 
 	// Create battery monitor for testing
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -1399,7 +1402,7 @@ func TestVoltageBasedDischargeCalculation(t *testing.T) {
 
 	// Create battery monitor for testing
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	
 	monitor := &BatteryMonitor{
 		config:           &batteryConfig,
@@ -1523,7 +1526,7 @@ func TestVoltageBasedDischargeCalculation(t *testing.T) {
 func TestDischargeHistoryPreservation(t *testing.T) {
 	// Create battery monitor with some initial discharge history
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -1723,7 +1726,7 @@ func TestRealWorldDepletionScenario(t *testing.T) {
 
 	// Create battery monitor simulating real-world usage
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{
@@ -2074,7 +2077,7 @@ func TestCSVBootstrapFunctionality(t *testing.T) {
 	defer os.Remove(testCSV)
 	
 	stateDir := t.TempDir()
-	batteryConfig := config.DefaultBattery()
+	batteryConfig := goconfig.DefaultBattery()
 	batteryConfig.EnableDepletionEstimate = true
 	
 	monitor := &BatteryMonitor{

@@ -460,12 +460,7 @@ func (m *BatteryMonitor) ensureBatteryPack(voltage float32) error {
 	}
 
 	// No current pack - need initial detection
-	// Need sufficient readings before attempting detection
-	if m.voltageRangeReadings < 5 {
-		return fmt.Errorf("collecting voltage data (%d/5 readings)", m.voltageRangeReadings)
-	}
-
-	// Attempt to detect chemistry and cells
+	// Attempt to detect chemistry and cells immediately
 	err := m.detectChemistryAndCells(voltage)
 	
 	// If detection was successful, log any changes from the previous state
@@ -493,82 +488,18 @@ func (m *BatteryMonitor) clearDischargeHistory(reason string) {
 
 // detectChemistry determines the most likely battery chemistry based on voltage characteristics
 func (m *BatteryMonitor) detectChemistry(voltage float32) (*goconfig.BatteryType, int, error) {
-	type chemistryMatch struct {
-		chemistry *goconfig.BatteryType
-		name      string
-		voltagePerCell float32
-		deviation float32
-		cellCount int
+	// Use the new AutoDetectBatteryPack function from go-config
+	pack, err := goconfig.AutoDetectBatteryPack(voltage)
+	if err != nil {
+		return nil, 0, err
 	}
 	
-	var matches []chemistryMatch
+	log.Printf("Detected chemistry: %s, %d cells (%.1f-%.1fV range) for voltage %.2fV", 
+		pack.Type.Chemistry, pack.CellCount, 
+		pack.GetScaledMinVoltage(), pack.GetScaledMaxVoltage(),
+		voltage)
 	
-	// Test each chemistry with common cell counts (covers most practical applications)
-	commonCellCounts := []int{2, 3, 4, 6, 7, 8, 10, 12, 16, 20, 24}
-	
-	for chemName, chem := range goconfig.ChemistryProfiles {
-		nominalVoltage := (chem.MinVoltage + chem.MaxVoltage) / 2
-		
-		for _, cellCount := range commonCellCounts {
-			voltagePerCell := voltage / float32(cellCount)
-			
-			// Check if voltage per cell is within reasonable range for this chemistry
-			if voltagePerCell >= chem.MinVoltage && voltagePerCell <= chem.MaxVoltage {
-				deviation := math.Abs(float64(voltagePerCell - nominalVoltage))
-				matches = append(matches, chemistryMatch{
-					chemistry: &chem,
-					name: chemName,
-					voltagePerCell: voltagePerCell,
-					deviation: float32(deviation),
-					cellCount: cellCount,
-				})
-			}
-		}
-	}
-	
-	if len(matches) == 0 {
-		return nil, 0, fmt.Errorf("no chemistry matches voltage %.2fV", voltage)
-	}
-	
-	// Find the chemistry with the smallest deviation from nominal voltage
-	bestMatch := matches[0]
-	for _, match := range matches[1:] {
-		if match.deviation < bestMatch.deviation {
-			bestMatch = match
-		}
-	}
-	
-	// Apply practical tie-breakers based on common usage patterns
-	for _, match := range matches {
-		if math.Abs(float64(match.deviation - bestMatch.deviation)) < 0.2 { // Within 200mV
-			// LiFePO4 is heavily preferred for most applications (6V-30V range)
-			// This is the most common chemistry in solar/backup/industrial applications
-			if voltage >= 6.0 && voltage <= 30.0 && match.name == goconfig.ChemistryLiFePO4 {
-				bestMatch = match
-			}
-			// Li-Ion is preferred for high-voltage applications (>30V)
-			if voltage > 30.0 && match.name == goconfig.ChemistryLiIon {
-				bestMatch = match
-			}
-		}
-	}
-	
-	// Additional check: if we detected lead-acid but LiFePO4 is also viable, prefer LiFePO4
-	// Lead-acid is becoming less common except in specific automotive applications
-	if bestMatch.name == goconfig.ChemistryLeadAcid {
-		for _, match := range matches {
-			if match.name == goconfig.ChemistryLiFePO4 && match.deviation < 0.3 {
-				log.Printf("Switching from lead-acid to LiFePO4 (more common in modern applications)")
-				bestMatch = match
-				break
-			}
-		}
-	}
-	
-	log.Printf("Detected chemistry: %s, %d cells (%.2fV per cell, deviation: %.3fV from nominal)", 
-		bestMatch.name, bestMatch.cellCount, bestMatch.voltagePerCell, bestMatch.deviation)
-	
-	return bestMatch.chemistry, bestMatch.cellCount, nil
+	return pack.Type, pack.CellCount, nil
 }
 
 
@@ -588,10 +519,6 @@ func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
 		return fmt.Errorf("voltage %.2fV exceeds safety limit for auto-detection", voltage)
 	}
 
-	// Need sufficient readings before attempting detection
-	if m.voltageRangeReadings < 5 {
-		return fmt.Errorf("collecting voltage data (%d/5 readings)", m.voltageRangeReadings)
-	}
 
 	// Step 1: Detect chemistry and cell count together
 	chemistry, cellCount, err := m.detectChemistry(voltage)
@@ -1861,7 +1788,6 @@ func (m *BatteryMonitor) calculateBestDischargeRate() float32 {
 			log.Printf("Selected discharge rate %.3f%%/hour from %v time window", rate, window)
 			return rate
 		} else {
-			log.Printf("Failed to calculate rate for %v window: %v", window, err)
 		}
 	}
 	
