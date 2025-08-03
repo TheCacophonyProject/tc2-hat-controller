@@ -97,9 +97,9 @@ func (s service) StayOnForProcess(processName string, maxDuration int) *dbus.Err
 	return nil
 }
 
-// TimeSinceHumanInteraction returns the number of minutes since the last human interaction (initial power on or button pressed).
-func (s service) TimeSinceHumanInteraction() (uint8, *dbus.Error) {
-	minutes, err := s.attiny.timeSinceHumanInteraction()
+// MinutesSinceHumanInteraction returns the number of minutes since the last human interaction (initial power on or button pressed).
+func (s service) MinutesSinceHumanInteraction() (uint8, *dbus.Error) {
+	minutes, err := s.attiny.minutesSinceHumanInteraction()
 	if err != nil {
 		return 0, dbusErr(err)
 	}

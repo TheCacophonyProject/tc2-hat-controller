@@ -460,7 +460,7 @@ func (a *attiny) writeCameraState(newState CameraState) error {
 	return nil
 }
 
-func (a *attiny) timeSinceHumanInteraction() (uint8, error) {
+func (a *attiny) minutesSinceHumanInteraction() (uint8, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	return a.readRegister(timeSinceInteractionReg)
