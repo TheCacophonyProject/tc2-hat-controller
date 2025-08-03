@@ -176,6 +176,7 @@ func startService() error {
 					"endTime":                    endTime.Format(time.DateTime),
 					"timeBetweenChecks":          timeBetweenChecks.String(),
 					"timeDifferenceFromExpected": diffFromExpected.String(),
+					eventclient.SeverityKey:      eventclient.SeverityError,
 				},
 			})
 			if err != nil {
