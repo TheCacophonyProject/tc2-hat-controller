@@ -21,6 +21,7 @@ package main
 import (
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/alexflint/go-arg"
 )
@@ -127,7 +128,62 @@ func startService() error {
 		log.Println(err)
 	}
 
-	//
+	// Read the time from the RTC then read it again after a few seconds to check that it is "ticking".
+	checks := 0
+	timeBetweenChecks := 10 * time.Second
+	for {
+		// Wait 10 seconds before doing another check.
+		time.Sleep(10 * time.Second)
+
+		// Get the time from the RTC 10 seconds apart.
+		startTime, integrity, err := rtc.GetTime()
+		if err != nil {
+			log.Error("Error getting RTC time/integrity:", err)
+			continue
+		}
+		if !integrity {
+			log.Debug("RTC clock does't have integrity")
+			continue
+		}
+		time.Sleep(timeBetweenChecks)
+		endTime, integrity, err := rtc.GetTime()
+		if err != nil {
+			log.Error("Error getting RTC time/integrity:", err)
+			continue
+		}
+		if !integrity {
+			log.Debug("RTC clock does't have integrity")
+			continue
+		}
+
+		// Compare the times, check if the RTC is ticking correctly.
+		checks++
+		diffFromExpected := (endTime.Sub(startTime) - timeBetweenChecks).Abs()
+		if diffFromExpected > 2*time.Second {
+			log.Debug("RTC clock is not ticking, or ticking incorrectly")
+
+			if checks < 5 {
+				// Let it try a few times as the RTC time might be getting updated, causing a false positive.
+				continue
+			}
+
+			log.Errorf("RTC clock is not ticking, or ticking incorrectly times should be different by %s. Times: %s, %s", timeBetweenChecks, startTime, endTime)
+			err := eventclient.AddEvent(eventclient.Event{
+				Timestamp: time.Now(),
+				Type:      "rtcNotTicking",
+				Details: map[string]interface{}{
+					"startTime":                  startTime.Format(time.DateTime),
+					"endTime":                    endTime.Format(time.DateTime),
+					"timeBetweenChecks":          timeBetweenChecks.String(),
+					"timeDifferenceFromExpected": diffFromExpected.String(),
+				},
+			})
+			if err != nil {
+				log.Errorf("Error adding 'rtcNotTicking' event: %v", err)
+			}
+			break
+		}
+	}
 
 	return nil
 }
