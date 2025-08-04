@@ -234,6 +234,13 @@ func (m *BatteryMonitor) ProcessReading(hvBat, lvBat, rtcBat float32) *BatterySt
 		return status
 	}
 
+	// Check for battery change if not manually configured
+	if !m.config.IsManuallyConfigured() && m.detectBatteryChange(voltage) {
+		log.Printf("Battery change detected! Voltage: %.2fV (previous range: %.2fV - %.2fV)", 
+			voltage, m.observedMinVoltage, m.observedMaxVoltage)
+		m.resetDetection()
+	}
+
 	// Update voltage history
 	m.addToHistory(voltage)
 
@@ -460,6 +467,7 @@ func (m *BatteryMonitor) ensureBatteryPack(voltage float32) error {
 	}
 
 	// No current pack - need initial detection
+	log.Printf("No current battery pack configured - performing auto-detection for voltage %.2fV", voltage)
 	// Attempt to detect chemistry and cells immediately
 	err := m.detectChemistryAndCells(voltage)
 	
@@ -468,6 +476,8 @@ func (m *BatteryMonitor) ensureBatteryPack(voltage float32) error {
 		if previousChemistry != "" && (previousChemistry != m.currentPack.Type.Chemistry || previousCellCount != m.currentPack.CellCount) {
 			log.Printf("Auto-detected battery chemistry updated from %s %dcells to %s %dcells - preserving discharge history",
 				previousChemistry, previousCellCount, m.currentPack.Type.Chemistry, m.currentPack.CellCount)
+		} else {
+			log.Printf("Auto-detected battery: %s chemistry, %d cells", m.currentPack.Type.Chemistry, m.currentPack.CellCount)
 		}
 	}
 
@@ -615,6 +625,7 @@ func (m *BatteryMonitor) detectBatteryChange(voltage float32) bool {
 
 // resetDetection clears detection state for new battery
 func (m *BatteryMonitor) resetDetection() {
+	log.Printf("Resetting battery detection state - clearing current battery pack and voltage history")
 	m.currentPack = nil
 	m.observedMinVoltage = 999.0
 	m.observedMaxVoltage = 0.0
@@ -624,6 +635,8 @@ func (m *BatteryMonitor) resetDetection() {
 	m.lvRailHistory = make([]timestampedVoltage, 0, voltageHistorySize)
 	m.activeRail = ""
 	m.railDeterminationReadings = 0
+	// Clear discharge history for battery change detection
+	m.clearDischargeHistory("battery change detected")
 }
 
 // addToRailHistory adds voltage readings to both rail histories
