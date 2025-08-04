@@ -135,6 +135,9 @@ func runMain() error {
 		Type:      "programmingRP2040",
 		Details:   map[string]interface{}{"success": success},
 	})
+	if !success {
+		return errors.New("failed to program RP2040")
+	}
 
 	log.Println("Done.")
 	return nil
