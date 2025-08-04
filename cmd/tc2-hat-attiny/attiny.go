@@ -52,6 +52,8 @@ const (
 	patchVersionReg
 	bootDuration1Reg
 	bootDuration2Reg
+	wdtRP2040Reg
+	timeSinceInteractionReg
 )
 
 const (
@@ -456,6 +458,12 @@ func (a *attiny) writeCameraState(newState CameraState) error {
 	}
 	a.CameraState = newState
 	return nil
+}
+
+func (a *attiny) minutesSinceHumanInteraction() (uint8, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	return a.readRegister(timeSinceInteractionReg)
 }
 
 func (a *attiny) readPiCommands(clear bool) (uint8, error) {
