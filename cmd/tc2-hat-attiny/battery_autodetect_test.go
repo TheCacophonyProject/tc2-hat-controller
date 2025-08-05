@@ -42,8 +42,7 @@ func TestSpecificVoltageDetection(t *testing.T) {
 
 			// Initialize battery monitor with default config
 			batteryConfig := goconfig.DefaultBattery()
-			batteryConfig.EnableVoltageReadings = true
-			
+
 			monitor := &BatteryMonitor{
 				config:              &batteryConfig,
 				voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
@@ -62,26 +61,26 @@ func TestSpecificVoltageDetection(t *testing.T) {
 
 			// Process the voltage reading
 			status := monitor.ProcessReading(tc.voltage, 0, 3.2)
-			
+
 			// Log the result
 			t.Logf("Voltage %.2fV detected as: %s %d cells", tc.voltage, status.Chemistry, status.CellCount)
 			t.Logf("Reason: %s", tc.description)
-			
+
 			// Verify the detection
-			assert.Equal(t, tc.expectedChemistry, status.Chemistry, 
+			assert.Equal(t, tc.expectedChemistry, status.Chemistry,
 				"Chemistry detection failed for %.2fV", tc.voltage)
 			assert.Equal(t, tc.expectedCells, status.CellCount,
 				"Cell count detection failed for %.2fV", tc.voltage)
-			
+
 			// Verify the pack was created correctly
 			require.NotNil(t, monitor.currentPack, "Battery pack should be created")
 			assert.Equal(t, tc.expectedChemistry, monitor.currentPack.Type.Chemistry)
 			assert.Equal(t, tc.expectedCells, monitor.currentPack.CellCount)
-			
+
 			// Verify voltage is within the detected pack's range
 			minV := monitor.currentPack.GetScaledMinVoltage()
 			maxV := monitor.currentPack.GetScaledMaxVoltage()
-			assert.GreaterOrEqual(t, tc.voltage, minV, 
+			assert.GreaterOrEqual(t, tc.voltage, minV,
 				"Voltage %.2fV should be >= min voltage %.2fV", tc.voltage, minV)
 			assert.LessOrEqual(t, tc.voltage, maxV,
 				"Voltage %.2fV should be <= max voltage %.2fV", tc.voltage, maxV)
@@ -92,11 +91,10 @@ func TestSpecificVoltageDetection(t *testing.T) {
 // TestImmediateDetection verifies that detection happens on first reading
 func TestImmediateDetection(t *testing.T) {
 	stateDir := t.TempDir()
-	
+
 	// Initialize battery monitor
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableVoltageReadings = true
-	
+
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
@@ -112,16 +110,17 @@ func TestImmediateDetection(t *testing.T) {
 		historicalAverages:  make(map[string]float32),
 		maxHistoryHours:     batteryConfig.DepletionHistoryHours,
 	}
-	
+
 	// Process first reading - should detect immediately
 	voltage := float32(12.5)
 	status := monitor.ProcessReading(voltage, 0, 3.2)
-	
+
 	// Should have detected battery on first reading
 	assert.NotEqual(t, "unknown", status.Chemistry, "Should detect chemistry on first reading")
 	assert.Greater(t, status.CellCount, 0, "Should detect cell count on first reading")
 	assert.NotContains(t, status.Error, "collecting voltage data", "Should not wait for multiple readings")
-	
-	t.Logf("First reading %.2fV immediately detected as: %s %d cells", 
+
+	t.Logf("First reading %.2fV immediately detected as: %s %d cells",
 		voltage, status.Chemistry, status.CellCount)
 }
+

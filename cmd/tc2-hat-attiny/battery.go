@@ -34,12 +34,12 @@ const (
 	displayHysteresisPercent = 0.05 // 5% change required to update display
 
 	// CSV Bootstrap configuration
-	csvBootstrapEnabled        = true        // Enable CSV bootstrap by default
-	csvBootstrapTimeWindow     = 48          // Hours of CSV data to consider for bootstrap
-	csvBootstrapMinEntries     = 3           // Minimum entries required to trigger bootstrap
-	csvBootstrapMaxEntries     = 200         // Maximum entries to load from CSV
-	csvBootstrapMinInterval    = 5           // Minimum minutes between CSV entries
-	csvBootstrapMaxEntryAge    = 4           // Hours - consider state stale if most recent entry is older
+	csvBootstrapEnabled     = true // Enable CSV bootstrap by default
+	csvBootstrapTimeWindow  = 48   // Hours of CSV data to consider for bootstrap
+	csvBootstrapMinEntries  = 3    // Minimum entries required to trigger bootstrap
+	csvBootstrapMaxEntries  = 200  // Maximum entries to load from CSV
+	csvBootstrapMinInterval = 5    // Minimum minutes between CSV entries
+	csvBootstrapMaxEntryAge = 4    // Hours - consider state stale if most recent entry is older
 )
 
 // BatteryStatus represents the complete battery state
@@ -60,7 +60,7 @@ type BatteryStatus struct {
 type BatteryMonitor struct {
 	config      *goconfig.Battery
 	currentPack *goconfig.BatteryPack
-	
+
 	// Voltage tracking
 	voltageHistory       []timestampedVoltage
 	observedMinVoltage   float32
@@ -159,10 +159,6 @@ func NewBatteryMonitor(config *goconfig.Config, stateDir string) (*BatteryMonito
 		return nil, fmt.Errorf("failed to load battery config: %w", err)
 	}
 
-	if !batteryConfig.EnableVoltageReadings {
-		return nil, fmt.Errorf("battery voltage readings disabled")
-	}
-
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
@@ -236,7 +232,7 @@ func (m *BatteryMonitor) ProcessReading(hvBat, lvBat, rtcBat float32) *BatterySt
 
 	// Check for battery change if not manually configured
 	if !m.config.IsManuallyConfigured() && m.detectBatteryChange(voltage) {
-		log.Printf("Battery change detected! Voltage: %.2fV (previous range: %.2fV - %.2fV)", 
+		log.Printf("Battery change detected! Voltage: %.2fV (previous range: %.2fV - %.2fV)",
 			voltage, m.observedMinVoltage, m.observedMaxVoltage)
 		m.resetDetection()
 	}
@@ -290,23 +286,20 @@ func (m *BatteryMonitor) ProcessReading(hvBat, lvBat, rtcBat float32) *BatterySt
 		LastUpdated: time.Now(),
 	}
 
-	// Calculate discharge rate BEFORE updating history (in case history gets cleared)
-	if m.config.EnableDepletionEstimate {
-		// Set discharge rate from existing history
-		if rate := m.calculateBestDischargeRate(); rate > 0 {
-			status.DischargeRatePerHour = rate
-			log.Printf("Using discharge rate: %.3f%%/hour (current: %.1f%%, voltage: %.2fV)", rate, percent, voltage)
-		} else {
-			log.Printf("No valid discharge rate available (history entries: %d)", len(m.dischargeHistory))
-		}
-		
-		// Now update discharge history (this might clear history due to charging detection)
-		m.UpdateDischargeHistory(status)
+	// Set discharge rate from existing history
+	if rate := m.calculateBestDischargeRate(); rate > 0 {
+		status.DischargeRatePerHour = rate
+		log.Printf("Using discharge rate: %.3f%%/hour (current: %.1f%%, voltage: %.2fV)", rate, percent, voltage)
+	} else {
+		log.Printf("No valid discharge rate available (history entries: %d)", len(m.dischargeHistory))
+	}
 
-		// Get depletion estimate if we still have data after history update
-		if len(m.dischargeHistory) > 1 {
-			status.DepletionEstimate = m.GetDepletionEstimate()
-		}
+	// Now update discharge history (this might clear history due to charging detection)
+	m.UpdateDischargeHistory(status)
+
+	// Get depletion estimate if we still have data after history update
+	if len(m.dischargeHistory) > 1 {
+		status.DepletionEstimate = m.GetDepletionEstimate()
 	}
 
 	// Check for charging
@@ -410,24 +403,23 @@ func (m *BatteryMonitor) ensureBatteryPack(voltage float32) error {
 				return fmt.Errorf("manually configured battery chemistry not found: %v", err)
 			}
 		} else {
-			if m.currentPack == nil || 
-			   m.currentPack.Type.Chemistry != pack.Type.Chemistry || 
-			   m.currentPack.CellCount != pack.CellCount {
+			if m.currentPack == nil ||
+				m.currentPack.Type.Chemistry != pack.Type.Chemistry ||
+				m.currentPack.CellCount != pack.CellCount {
 				m.currentPack = pack
 				log.Printf("Using manually configured battery: %s chemistry, %d cells",
 					m.currentPack.Type.Chemistry, m.currentPack.CellCount)
 
-				if previousChemistry != "" && 
-				   (previousChemistry != m.currentPack.Type.Chemistry || previousCellCount != m.currentPack.CellCount) {
-					log.Printf("Manual battery chemistry changed from %s %dcells to %s %dcells - preserving discharge history", 
+				if previousChemistry != "" &&
+					(previousChemistry != m.currentPack.Type.Chemistry || previousCellCount != m.currentPack.CellCount) {
+					log.Printf("Manual battery chemistry changed from %s %dcells to %s %dcells - preserving discharge history",
 						previousChemistry, previousCellCount, m.currentPack.Type.Chemistry, m.currentPack.CellCount)
 				}
 				m.savePersistentState()
 			}
 			return nil
 		}
-	} 
-	
+	}
 
 	// Update voltage range tracking
 	m.updateVoltageRange(voltage)
@@ -436,12 +428,12 @@ func (m *BatteryMonitor) ensureBatteryPack(voltage float32) error {
 	if m.currentPack != nil {
 		minVoltage := m.currentPack.GetScaledMinVoltage()
 		maxVoltage := m.currentPack.GetScaledMaxVoltage()
-		
+
 		// Check if voltage is outside the expected range (with 1V tolerance)
 		if voltage < minVoltage-1.0 || voltage > maxVoltage+1.0 {
 			log.Printf("Voltage %.2fV is outside expected range [%.2f-%.2f] for %s %d cells. Re-detecting...",
 				voltage, minVoltage-1.0, maxVoltage+1.0, m.currentPack.Type.Chemistry, m.currentPack.CellCount)
-			
+
 			// Attempt immediate re-detection with current voltage
 			chemistry, cellCount, err := m.detectChemistry(voltage)
 			if err == nil {
@@ -449,7 +441,7 @@ func (m *BatteryMonitor) ensureBatteryPack(voltage float32) error {
 					Type:      chemistry,
 					CellCount: cellCount,
 				}
-				
+
 				// Verify the new detection makes sense for this voltage
 				newMin := newPack.GetScaledMinVoltage()
 				newMax := newPack.GetScaledMaxVoltage()
@@ -470,7 +462,7 @@ func (m *BatteryMonitor) ensureBatteryPack(voltage float32) error {
 	log.Printf("No current battery pack configured - performing auto-detection for voltage %.2fV", voltage)
 	// Attempt to detect chemistry and cells immediately
 	err := m.detectChemistryAndCells(voltage)
-	
+
 	// If detection was successful, log any changes from the previous state
 	if err == nil && m.currentPack != nil {
 		if previousChemistry != "" && (previousChemistry != m.currentPack.Type.Chemistry || previousCellCount != m.currentPack.CellCount) {
@@ -503,15 +495,14 @@ func (m *BatteryMonitor) detectChemistry(voltage float32) (*goconfig.BatteryType
 	if err != nil {
 		return nil, 0, err
 	}
-	
-	log.Printf("Detected chemistry: %s, %d cells (%.1f-%.1fV range) for voltage %.2fV", 
-		pack.Type.Chemistry, pack.CellCount, 
+
+	log.Printf("Detected chemistry: %s, %d cells (%.1f-%.1fV range) for voltage %.2fV",
+		pack.Type.Chemistry, pack.CellCount,
 		pack.GetScaledMinVoltage(), pack.GetScaledMaxVoltage(),
 		voltage)
-	
+
 	return pack.Type, pack.CellCount, nil
 }
-
 
 // detectChemistryAndCells attempts to detect battery chemistry and cell count from voltage
 func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
@@ -524,11 +515,10 @@ func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
 	if voltage <= 0 {
 		return fmt.Errorf("invalid voltage for detection: %.2fV", voltage)
 	}
-	
+
 	if voltage > 60.0 {
 		return fmt.Errorf("voltage %.2fV exceeds safety limit for auto-detection", voltage)
 	}
-
 
 	// Step 1: Detect chemistry and cell count together
 	chemistry, cellCount, err := m.detectChemistry(voltage)
@@ -545,11 +535,11 @@ func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
 			}
 			scaledMin := chem.MinVoltage * float32(closestCells)
 			scaledMax := chem.MaxVoltage * float32(closestCells)
-			suggestions = append(suggestions, fmt.Sprintf("%s %dcells: %.1f-%.1fV", 
+			suggestions = append(suggestions, fmt.Sprintf("%s %dcells: %.1f-%.1fV",
 				chemName, closestCells, scaledMin, scaledMax))
 		}
-		
-		return fmt.Errorf("failed to detect chemistry for %.2fV. Possible matches: %s", 
+
+		return fmt.Errorf("failed to detect chemistry for %.2fV. Possible matches: %s",
 			voltage, strings.Join(suggestions, ", "))
 	}
 
@@ -558,12 +548,12 @@ func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
 		Type:      chemistry,
 		CellCount: cellCount,
 	}
-	
+
 	log.Printf("Auto-detected battery: %s chemistry, %d cells (%.1f-%.1fV) based on voltage %.2fV",
 		m.currentPack.Type.Chemistry, m.currentPack.CellCount,
 		m.currentPack.GetScaledMinVoltage(), m.currentPack.GetScaledMaxVoltage(),
 		voltage)
-	
+
 	m.savePersistentState()
 	return nil
 }
@@ -726,8 +716,8 @@ func (m *BatteryMonitor) ShouldReportEvent(status *BatteryStatus) bool {
 	}
 
 	// Report on chemistry/cell count change
-	if m.lastValidStatus != nil && 
-	   (m.lastValidStatus.Chemistry != status.Chemistry || m.lastValidStatus.CellCount != status.CellCount) {
+	if m.lastValidStatus != nil &&
+		(m.lastValidStatus.Chemistry != status.Chemistry || m.lastValidStatus.CellCount != status.CellCount) {
 		return true
 	}
 
@@ -878,7 +868,7 @@ func (m *BatteryMonitor) loadPersistentState() error {
 	// Only attempt CSV bootstrap if we have a detected battery pack
 	if m.currentPack != nil {
 		shouldLoadCSV := false
-		
+
 		// Load CSV if discharge history is empty or very sparse
 		if len(m.dischargeHistory) == 0 {
 			log.Printf("No discharge history found in state, loading from CSV")
@@ -896,7 +886,7 @@ func (m *BatteryMonitor) loadPersistentState() error {
 				shouldLoadCSV = true
 			}
 		}
-		
+
 		if shouldLoadCSV {
 			if err := m.bootstrapFromCSV(); err != nil {
 				log.Printf("CSV loading failed: %v", err)
@@ -969,7 +959,7 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 	cutoffTime := time.Now().Add(-time.Duration(csvBootstrapTimeWindow) * time.Hour)
 
 	log.Printf("Bootstrapping with current pack: %s %d cells. All historical data will be interpreted using this profile.", m.currentPack.Type.Chemistry, m.currentPack.CellCount)
-	
+
 	minValidVoltage := m.currentPack.GetScaledMinVoltage() - 1.0 // With 1.0V tolerance
 	maxValidVoltage := m.currentPack.GetScaledMaxVoltage() + 1.0 // With 1.0V tolerance
 
@@ -997,13 +987,13 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 		if err != nil || timestamp.Before(cutoffTime) {
 			continue
 		}
-		
+
 		// We only need the voltage from the historical record.
 		voltage, err := strconv.ParseFloat(strings.TrimSpace(record[1]), 32)
 		if err != nil {
 			continue
 		}
-		
+
 		// --- START: CORE LOGIC ---
 
 		// 1. Validate that the historical voltage is plausible for the CURRENT pack.
@@ -1011,7 +1001,7 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 			skippedEntries++
 			continue // This voltage doesn't belong to the current battery type.
 		}
-		
+
 		// 2. Recalculate the percentage using the CURRENT pack's profile.
 		// This is the most important step for ensuring data consistency.
 		recalculatedPercent, err := m.currentPack.VoltageToPercent(float32(voltage))
@@ -1028,7 +1018,7 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 			Percent:   recalculatedPercent, // Always use the newly calculated, consistent percentage.
 		})
 	}
-	
+
 	if len(entries) < csvBootstrapMinEntries {
 		return fmt.Errorf("insufficient valid entries found in CSV file (%d found, %d required)", len(entries), csvBootstrapMinEntries)
 	}
@@ -1047,7 +1037,7 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 		}
 		dischargeOnlyEntries = append(dischargeOnlyEntries, entry)
 	}
-	
+
 	// Validate overall discharge rate from CSV data
 	if len(dischargeOnlyEntries) > 1 {
 		firstEntry := dischargeOnlyEntries[0]
@@ -1058,18 +1048,18 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 			overallRate := percentDrop / float32(totalHours)
 			log.Printf("CSV bootstrap validation: %.1f%% drop over %.1f hours = %.3f%%/hour overall rate",
 				percentDrop, totalHours, overallRate)
-			
+
 			// If overall rate is unrealistic, something is wrong with the data
 			if overallRate > 3.0 {
 				log.Printf("WARNING: CSV data shows unrealistic discharge rate %.3f%%/hour - may indicate configuration mismatch", overallRate)
 			}
 		}
 	}
-	
+
 	if len(dischargeOnlyEntries) < csvBootstrapMinEntries {
 		return fmt.Errorf("insufficient discharge-only entries after filtering (%d)", len(dischargeOnlyEntries))
 	}
-	
+
 	// Final filtering by time interval.
 	var filteredEntries []DischargeRateHistory
 	lastTime := time.Time{}
@@ -1084,7 +1074,7 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 	if len(filteredEntries) < csvBootstrapMinEntries {
 		return fmt.Errorf("not enough filtered entries after time sampling (%d)", len(filteredEntries))
 	}
-	
+
 	if len(filteredEntries) > csvBootstrapMaxEntries {
 		filteredEntries = filteredEntries[len(filteredEntries)-csvBootstrapMaxEntries:]
 	}
@@ -1370,12 +1360,12 @@ func reportBatteryEvent(status *BatteryStatus, rtcVoltage float32) {
 		Timestamp: time.Now(),
 		Type:      "rpiBattery",
 		Details: map[string]interface{}{
-			"battery":     roundedPercent,
-			"chemistry":   status.Chemistry,
-			"cellCount":   status.CellCount,
-			"voltage":     status.Voltage,
-			"rail":        status.Rail,
-			"rtcVoltage":  fmt.Sprintf("%.2f", rtcVoltage),
+			"battery":    roundedPercent,
+			"chemistry":  status.Chemistry,
+			"cellCount":  status.CellCount,
+			"voltage":    status.Voltage,
+			"rail":       status.Rail,
+			"rtcVoltage": fmt.Sprintf("%.2f", rtcVoltage),
 		},
 	}
 
@@ -1691,7 +1681,7 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 	cutoffTime := now.Add(-duration)
 
 	var startIndex, endIndex int = -1, len(m.dischargeHistory) - 1
-	
+
 	// Find the first entry that is within our time window.
 	for i := range m.dischargeHistory {
 		if m.dischargeHistory[i].Timestamp.After(cutoffTime) {
@@ -1714,7 +1704,7 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 			return 0, fmt.Errorf("no data within the %v time window", duration)
 		}
 	}
-	
+
 	startEntry := m.dischargeHistory[startIndex]
 	endEntry := m.dischargeHistory[endIndex]
 
@@ -1728,7 +1718,7 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 	}
 
 	percentDrop := startEntry.Percent - endEntry.Percent
-	
+
 	// The rate must be positive (discharging). Negative implies charging.
 	if percentDrop <= 0 {
 		return 0, fmt.Errorf("battery is not discharging (percent change: %.2f)", percentDrop)
@@ -1741,19 +1731,19 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 
 	// This is the raw, unsmoothed rate for this specific time window.
 	ratePerHour := percentDrop / float32(timeDiffHours)
-	
+
 	// Add detailed debugging for discharge rate calculation
 	log.Printf("Discharge rate calculation: %.2f%% drop over %.2f hours = %.3f%%/hour (window: %v, start: %.1f%% @ %v, end: %.1f%% @ %v)",
 		percentDrop, timeDiffHours, ratePerHour, duration,
 		startEntry.Percent, startEntry.Timestamp.Format("15:04:05"),
 		endEntry.Percent, endEntry.Timestamp.Format("15:04:05"))
-	
+
 	// Sanity check: cap unrealistic discharge rates
 	if ratePerHour > 5.0 {
 		log.Printf("WARNING: Calculated discharge rate %.3f%%/hour exceeds realistic maximum (5%%/hour) - capping", ratePerHour)
 		ratePerHour = 5.0
 	}
-	
+
 	// Apply smoothing.
 	// If smoothedDischargeRate is zero, this is our first valid calculation, so we set it directly.
 	if m.smoothedDischargeRate <= 0 {
@@ -1767,7 +1757,7 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 		log.Printf("EWMA discharge rate: raw=%.3f%%/hour, previous=%.3f%%/hour, smoothed=%.3f%%/hour (alpha=%.1f)",
 			ratePerHour, previousRate, m.smoothedDischargeRate, m.dischargeRateAlpha)
 	}
-	
+
 	// Add the new smoothed rate to our rolling window for median calculation.
 	m.dischargeRateWindow = append(m.dischargeRateWindow, m.smoothedDischargeRate)
 	if len(m.dischargeRateWindow) > 20 {
@@ -1782,20 +1772,20 @@ func (m *BatteryMonitor) calculateBestDischargeRate() float32 {
 	if len(m.dischargeHistory) < 2 {
 		return 0
 	}
-	
+
 	// Try different calculation methods in order of preference
 	// Prioritize longer time windows for more stable rates
 	timeWindows := []time.Duration{
-		6 * time.Hour,     // Longer term (prioritized for stability)
-		2 * time.Hour,     // Medium term  
-		24 * time.Hour,    // Very long term
-		30 * time.Minute,  // Short term (fallback only)
+		6 * time.Hour,    // Longer term (prioritized for stability)
+		2 * time.Hour,    // Medium term
+		24 * time.Hour,   // Very long term
+		30 * time.Minute, // Short term (fallback only)
 	}
-	
+
 	log.Printf("Calculating best discharge rate from %d history entries spanning %v",
 		len(m.dischargeHistory),
 		m.dischargeHistory[len(m.dischargeHistory)-1].Timestamp.Sub(m.dischargeHistory[0].Timestamp))
-	
+
 	for _, window := range timeWindows {
 		if rate, err := m.CalculateDischargeRate(window); err == nil && rate > 0 {
 			log.Printf("Selected discharge rate %.3f%%/hour from %v time window", rate, window)
@@ -1803,21 +1793,21 @@ func (m *BatteryMonitor) calculateBestDischargeRate() float32 {
 		} else {
 		}
 	}
-	
+
 	// If none of the time window calculations work, try using existing statistics
 	if m.dischargeStats.AverageRate > 0 {
 		return m.dischargeStats.AverageRate
 	}
-	
+
 	if m.dischargeStats.ShortTermRate > 0 {
 		return m.dischargeStats.ShortTermRate
 	}
-	
+
 	// Last resort: use median of rate window if available
 	if len(m.dischargeRateWindow) > 0 {
 		return calculateMedian(m.dischargeRateWindow)
 	}
-	
+
 	return 0
 }
 
@@ -1825,7 +1815,7 @@ func (m *BatteryMonitor) calculateBestDischargeRate() float32 {
 func (m *BatteryMonitor) UpdateDischargeStatistics() {
 	// Store previous rates for potential fallback
 	prevAverageRate := m.dischargeStats.AverageRate
-	
+
 	// Calculate rates for different time windows
 	shortTermRate, err := m.CalculateDischargeRate(30 * time.Minute)
 	if err == nil {
@@ -1877,11 +1867,11 @@ func (m *BatteryMonitor) UpdateDischargeStatistics() {
 
 	m.dischargeStats.DataPoints = len(m.dischargeHistory)
 	m.dischargeStats.LastUpdated = time.Now()
-	
+
 	// Log statistics update for debugging
 	if m.dischargeStats.AverageRate > 0 {
-		log.Printf("Updated discharge statistics: Short=%.3f, Medium=%.3f, Long=%.3f, Average=%.3f", 
-			m.dischargeStats.ShortTermRate, m.dischargeStats.MediumTermRate, 
+		log.Printf("Updated discharge statistics: Short=%.3f, Medium=%.3f, Long=%.3f, Average=%.3f",
+			m.dischargeStats.ShortTermRate, m.dischargeStats.MediumTermRate,
 			m.dischargeStats.LongTermRate, m.dischargeStats.AverageRate)
 	}
 }
@@ -1912,7 +1902,7 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 		method = "averaged"
 	} else if len(m.dischargeHistory) >= 10 {
 		// Try multiple approaches for stable batteries
-		
+
 		// First try sampled intervals
 		sampledRate, err := m.calculateSampledDischargeRate(10 * time.Minute)
 		if err == nil && sampledRate > 0 && sampledRate <= 5.0 {
@@ -1927,7 +1917,7 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 			}
 		}
 	}
-	
+
 	// Use historical average as last resort
 	if dischargeRate <= 0 && m.currentPack != nil {
 		batteryKey := fmt.Sprintf("%s_%dcells", m.lastValidStatus.Chemistry, m.lastValidStatus.CellCount)
@@ -1978,7 +1968,7 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 		if m.lastDisplayedHours > 100 {
 			hysteresisThreshold = 0.1 // 10% for estimates over 100 hours
 		}
-		
+
 		// Define method quality ranking (higher is better)
 		methodQuality := map[string]int{
 			"chemistry_default": 1,
@@ -1989,12 +1979,12 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 			"short_term":        6,
 			"median_filtered":   7,
 		}
-		
+
 		// Check if this is a significant method improvement
 		currentQuality := methodQuality[method]
 		lastQuality := methodQuality[m.lastDisplayedMethod]
 		isMethodUpgrade := currentQuality > lastQuality
-		
+
 		if percentChange < hysteresisThreshold && !isMethodUpgrade {
 			// Use previous displayed value if change is small and not a method upgrade
 			remainingHours = m.lastDisplayedHours
@@ -2021,7 +2011,7 @@ func (m *BatteryMonitor) GetDepletionEstimate() *DepletionEstimate {
 
 	// Calculate confidence (adjusted for new methods)
 	confidence := m.calculateDepletionConfidence(method)
-	
+
 	// Reduce confidence for chemistry defaults
 	if method == "chemistry_default" {
 		confidence = confidence * 0.5 // 50% confidence for defaults
@@ -2113,9 +2103,9 @@ func (m *BatteryMonitor) calculateVoltageBasedDischargeRate() (float32, error) {
 	// Use entries from at least 30 minutes ago
 	now := time.Now()
 	cutoffTime := now.Add(-30 * time.Minute)
-	
+
 	var startEntry, endEntry *DischargeRateHistory
-	
+
 	// Find oldest entry that's at least 30 minutes old
 	for i := range m.dischargeHistory {
 		entry := &m.dischargeHistory[i]
@@ -2123,30 +2113,30 @@ func (m *BatteryMonitor) calculateVoltageBasedDischargeRate() (float32, error) {
 			startEntry = entry
 		}
 	}
-	
+
 	// Use most recent entry as end
 	endEntry = &m.dischargeHistory[len(m.dischargeHistory)-1]
-	
+
 	if startEntry == nil {
 		return 0, fmt.Errorf("insufficient time span for voltage-based calculation")
 	}
-	
+
 	timeDiff := endEntry.Timestamp.Sub(startEntry.Timestamp).Hours()
 	if timeDiff < 0.5 {
 		return 0, fmt.Errorf("insufficient time span: %.2f hours", timeDiff)
 	}
-	
+
 	// Calculate voltage drop
 	voltageDropPerHour := (startEntry.Voltage - endEntry.Voltage) / float32(timeDiff)
-	
+
 	log.Printf("Voltage-based discharge: %.2fV->%.2fV over %.1fh = %.4fV/hour",
 		startEntry.Voltage, endEntry.Voltage, timeDiff, voltageDropPerHour)
-	
+
 	// Convert voltage drop to approximate percentage drop using current battery pack
 	if m.currentPack == nil {
 		return 0, fmt.Errorf("no current battery pack for voltage conversion")
 	}
-	
+
 	// Calculate what percentage drop this voltage drop represents
 	startPercent, err1 := m.currentPack.VoltageToPercent(startEntry.Voltage)
 	endPercent, err2 := m.currentPack.VoltageToPercent(endEntry.Voltage)
@@ -2158,12 +2148,12 @@ func (m *BatteryMonitor) calculateVoltageBasedDischargeRate() (float32, error) {
 		}
 		return estimatedPercentPerHour, nil
 	}
-	
+
 	percentDropPerHour := (startPercent - endPercent) / float32(timeDiff)
-	
+
 	log.Printf("Voltage-based percentage: %.1f%%->%.1f%% = %.3f%%/hour",
 		startPercent, endPercent, percentDropPerHour)
-	
+
 	// Apply reasonable bounds
 	if percentDropPerHour <= 0 {
 		return 0, fmt.Errorf("voltage not dropping (%.4fV/hour, %.3f%%/hour)", voltageDropPerHour, percentDropPerHour)
@@ -2172,7 +2162,7 @@ func (m *BatteryMonitor) calculateVoltageBasedDischargeRate() (float32, error) {
 		log.Printf("Capping voltage-based rate from %.3f%%/hour to 3.0%%/hour", percentDropPerHour)
 		percentDropPerHour = 3.0
 	}
-	
+
 	return percentDropPerHour, nil
 }
 
@@ -2183,64 +2173,64 @@ func (m *BatteryMonitor) calculateSampledDischargeRate(sampleInterval time.Durat
 	}
 
 	now := time.Now()
-	
+
 	// Find samples at regular intervals going backwards from now
 	var samples []DischargeRateHistory
 	currentSampleTime := now
-	
+
 	// Collect samples at regular intervals (every 10 minutes)
 	for len(samples) < 10 && currentSampleTime.Sub(m.dischargeHistory[0].Timestamp) > 0 {
 		// Find the closest reading to this sample time
 		var closestEntry *DischargeRateHistory
 		var closestTimeDiff time.Duration = time.Hour * 24 // Start with a large value
-		
+
 		for i := range m.dischargeHistory {
 			entry := &m.dischargeHistory[i]
 			timeDiff := currentSampleTime.Sub(entry.Timestamp)
 			if timeDiff < 0 {
 				timeDiff = -timeDiff
 			}
-			
+
 			if timeDiff < closestTimeDiff {
 				closestTimeDiff = timeDiff
 				closestEntry = entry
 			}
 		}
-		
+
 		// Only use samples that are within 3 minutes of the target time
 		if closestEntry != nil && closestTimeDiff <= 3*time.Minute {
 			samples = append(samples, *closestEntry)
 		}
-		
+
 		// Move to next sample interval
 		currentSampleTime = currentSampleTime.Add(-sampleInterval)
 	}
-	
+
 	if len(samples) < 3 {
 		return 0, fmt.Errorf("insufficient samples found (got %d, need at least 3)", len(samples))
 	}
-	
+
 	// Calculate discharge rate using first and last samples
-	oldest := samples[len(samples)-1]  // Last sample is oldest
-	newest := samples[0]               // First sample is newest
-	
+	oldest := samples[len(samples)-1] // Last sample is oldest
+	newest := samples[0]              // First sample is newest
+
 	timeDiff := newest.Timestamp.Sub(oldest.Timestamp).Hours()
 	if timeDiff < 0.5 {
 		return 0, fmt.Errorf("insufficient time span: %.2f hours", timeDiff)
 	}
-	
+
 	percentDiff := oldest.Percent - newest.Percent
 	if percentDiff <= 0 {
 		return 0, fmt.Errorf("battery not discharging (percent diff: %.2f)", percentDiff)
 	}
-	
+
 	rate := percentDiff / float32(timeDiff)
-	
+
 	// Sanity check: reasonable discharge rate
 	if rate > 10.0 {
 		return 0, fmt.Errorf("calculated rate too high: %.2f%%/hour", rate)
 	}
-	
+
 	return rate, nil
 }
 

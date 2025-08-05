@@ -74,7 +74,6 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 
 			// Initialize battery monitor with default config
 			batteryConfig := goconfig.DefaultBattery()
-			batteryConfig.EnableVoltageReadings = true
 			monitor := &BatteryMonitor{
 				config:              &batteryConfig,
 				voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
@@ -363,7 +362,6 @@ func TestReadBatteryCSV(t *testing.T) {
 func TestBatteryDepletionEstimation(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -430,7 +428,6 @@ func TestBatteryDepletionEstimation(t *testing.T) {
 func TestBatteryChargingDetection(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -582,7 +579,6 @@ func TestBatteryConfidenceCalculation(t *testing.T) {
 func TestBatteryDepletionWarningLevels(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -633,7 +629,6 @@ func TestBatteryDepletionWarningLevels(t *testing.T) {
 func TestBatteryChemistrySwitching(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableVoltageReadings = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -699,7 +694,6 @@ func TestBatteryChemistrySwitching(t *testing.T) {
 func TestBatteryDepletionVarianceReduction(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -906,7 +900,6 @@ func TestMinimumPercentageChangeThreshold(t *testing.T) {
 func TestInvalidVoltageHandling(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableVoltageReadings = true
 	batteryConfig.MinimumVoltageDetection = 1.0
 
 	monitor := &BatteryMonitor{
@@ -959,7 +952,6 @@ func TestInvalidVoltageHandling(t *testing.T) {
 func TestDischargeCalculationWithNoisyData(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -1049,7 +1041,6 @@ func TestDischargeCalculationWithNoisyData(t *testing.T) {
 func TestManualChemistryOverride(t *testing.T) {
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableVoltageReadings = true
 
 	// Set manual chemistry
 	err := batteryConfig.SetManualChemistry("lifepo4")
@@ -1101,7 +1092,6 @@ func TestDepletionCalculationWithRealCSVData(t *testing.T) {
 	// Create battery monitor with depletion estimation enabled
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -1527,7 +1517,6 @@ func TestDischargeHistoryPreservation(t *testing.T) {
 	// Create battery monitor with some initial discharge history
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -1727,7 +1716,6 @@ func TestRealWorldDepletionScenario(t *testing.T) {
 	// Create battery monitor simulating real-world usage
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
@@ -2078,7 +2066,6 @@ func TestCSVBootstrapFunctionality(t *testing.T) {
 
 	stateDir := t.TempDir()
 	batteryConfig := goconfig.DefaultBattery()
-	batteryConfig.EnableDepletionEstimate = true
 
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
