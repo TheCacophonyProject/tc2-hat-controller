@@ -994,28 +994,21 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 			continue
 		}
 
-		// --- START: CORE LOGIC ---
-
-		// 1. Validate that the historical voltage is plausible for the CURRENT pack.
+		// Validate that the historical voltage is plausible for the CURRENT pack.
 		if float32(voltage) < minValidVoltage || float32(voltage) > maxValidVoltage {
 			skippedEntries++
 			continue // This voltage doesn't belong to the current battery type.
 		}
-
-		// 2. Recalculate the percentage using the CURRENT pack's profile.
-		// This is the most important step for ensuring data consistency.
 		recalculatedPercent, err := m.currentPack.VoltageToPercent(float32(voltage))
 		if err != nil {
 			skippedEntries++ // Voltage is in the general range but invalid for the curve.
 			continue
 		}
 
-		// --- END: CORE LOGIC ---
-
 		entries = append(entries, DischargeRateHistory{
 			Timestamp: timestamp,
 			Voltage:   float32(voltage),
-			Percent:   recalculatedPercent, // Always use the newly calculated, consistent percentage.
+			Percent:   recalculatedPercent,
 		})
 	}
 
@@ -2080,9 +2073,9 @@ func (m *BatteryMonitor) calculateDepletionConfidence(method string) float32 {
 	// Method bonus/penalty
 	switch method {
 	case "median_filtered":
-		confidence += 10 // Bonus for using filtered data
+		confidence += 10
 	case "historical":
-		confidence = confidence * 0.7 // Reduce confidence for historical data
+		confidence = confidence * 0.7
 	}
 
 	// Ensure confidence is within bounds
@@ -2094,7 +2087,6 @@ func (m *BatteryMonitor) calculateDepletionConfidence(method string) float32 {
 }
 
 // calculateVoltageBasedDischargeRate calculates discharge rate using voltage changes
-// This works regardless of chemistry interpretation and provides a stable fallback
 func (m *BatteryMonitor) calculateVoltageBasedDischargeRate() (float32, error) {
 	if len(m.dischargeHistory) < 10 {
 		return 0, fmt.Errorf("insufficient discharge history for voltage-based calculation")
