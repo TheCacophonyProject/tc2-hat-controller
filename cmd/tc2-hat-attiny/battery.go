@@ -19,21 +19,20 @@ import (
 
 const (
 	// History tracking constants
-	voltageHistorySize = 10 // More samples for better chemistry detection
-	stabilityWindow    = 5  // Window for stability calculation
+	voltageHistorySize = 10
+	stabilityWindow    = 5
 
 	// Event reporting
-	percentChangeThreshold = 5.0 // Report events on 5% change
+	percentChangeThreshold = 5.0
 
 	// State persistence
 	stateFileName = "battery_state.json"
 
 	// Discharge rate calculation
-	minPercentChangeForRate  = 0.2  // Minimum percentage change to calculate discharge rate
-	maxRateChangePercent     = 0.2  // Maximum 20% change in discharge rate between updates
-	displayHysteresisPercent = 0.05 // 5% change required to update display
+	minPercentChangeForRate  = 0.2
+	displayHysteresisPercent = 0.05
 
-	// CSV Bootstrap configuration
+	// Creating Depletion history with battery CSV
 	csvBootstrapEnabled     = true // Enable CSV bootstrap by default
 	csvBootstrapTimeWindow  = 48   // Hours of CSV data to consider for bootstrap
 	csvBootstrapMinEntries  = 3    // Minimum entries required to trigger bootstrap
@@ -506,12 +505,10 @@ func (m *BatteryMonitor) detectChemistry(voltage float32) (*goconfig.BatteryType
 
 // detectChemistryAndCells attempts to detect battery chemistry and cell count from voltage
 func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
-	// Safety check: never override manual configuration
 	if m.config.IsManuallyConfigured() {
 		return fmt.Errorf("auto-detection called on manually configured battery - this should not happen")
 	}
 
-	// Validate voltage is reasonable
 	if voltage <= 0 {
 		return fmt.Errorf("invalid voltage for detection: %.2fV", voltage)
 	}
@@ -520,10 +517,8 @@ func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
 		return fmt.Errorf("voltage %.2fV exceeds safety limit for auto-detection", voltage)
 	}
 
-	// Step 1: Detect chemistry and cell count together
 	chemistry, cellCount, err := m.detectChemistry(voltage)
 	if err != nil {
-		// Provide helpful error with suggestions
 		var suggestions []string
 		for chemName, chem := range goconfig.ChemistryProfiles {
 			nominalVoltage := (chem.MinVoltage + chem.MaxVoltage) / 2
@@ -543,7 +538,6 @@ func (m *BatteryMonitor) detectChemistryAndCells(voltage float32) error {
 			voltage, strings.Join(suggestions, ", "))
 	}
 
-	// Create the detected battery pack
 	m.currentPack = &goconfig.BatteryPack{
 		Type:      chemistry,
 		CellCount: cellCount,
@@ -570,9 +564,7 @@ func (m *BatteryMonitor) addToHistory(voltage float32) {
 	}
 }
 
-// updateVoltageRange tracks the min/max voltage seen over time
 func (m *BatteryMonitor) updateVoltageRange(voltage float32) {
-	// Initialize range on first reading
 	if m.voltageRangeReadings == 0 {
 		m.observedMinVoltage = voltage
 		m.observedMaxVoltage = voltage
@@ -587,14 +579,7 @@ func (m *BatteryMonitor) updateVoltageRange(voltage float32) {
 	m.voltageRangeReadings++
 }
 
-// detectBatteryChange checks for sudden voltage changes indicating battery swap
 func (m *BatteryMonitor) detectBatteryChange(voltage float32) bool {
-	// Don't detect changes until we have some history
-	if m.voltageRangeReadings < 5 {
-		return false
-	}
-
-	// Check for sudden voltage jump (more than 2V change)
 	if len(m.voltageHistory) > 0 {
 		lastVoltage := m.voltageHistory[len(m.voltageHistory)-1].voltage
 		if math.Abs(float64(voltage-lastVoltage)) > 2.0 {
@@ -602,7 +587,6 @@ func (m *BatteryMonitor) detectBatteryChange(voltage float32) bool {
 		}
 	}
 
-	// Check if voltage is way outside previously observed range
 	voltageRange := m.observedMaxVoltage - m.observedMinVoltage
 	if voltageRange > 1.0 { // Only if we have a reasonable range
 		if voltage < m.observedMinVoltage-1.0 || voltage > m.observedMaxVoltage+1.0 {
@@ -625,11 +609,9 @@ func (m *BatteryMonitor) resetDetection() {
 	m.lvRailHistory = make([]timestampedVoltage, 0, voltageHistorySize)
 	m.activeRail = ""
 	m.railDeterminationReadings = 0
-	// Clear discharge history for battery change detection
 	m.clearDischargeHistory("battery change detected")
 }
 
-// addToRailHistory adds voltage readings to both rail histories
 func (m *BatteryMonitor) addToRailHistory(hvBat, lvBat float32, timestamp time.Time) {
 	hvEntry := timestampedVoltage{voltage: hvBat, timestamp: timestamp}
 	lvEntry := timestampedVoltage{voltage: lvBat, timestamp: timestamp}
@@ -705,7 +687,7 @@ func (m *BatteryMonitor) calculatePercent(voltage float32) (float32, error) {
 
 func (m *BatteryMonitor) ShouldReportEvent(status *BatteryStatus) bool {
 	if status.Error != "" {
-		return false // Don't report events for errors
+		return false
 	}
 
 	// Report on significant percentage change
@@ -1783,7 +1765,6 @@ func (m *BatteryMonitor) calculateBestDischargeRate() float32 {
 		if rate, err := m.CalculateDischargeRate(window); err == nil && rate > 0 {
 			log.Printf("Selected discharge rate %.3f%%/hour from %v time window", rate, window)
 			return rate
-		} else {
 		}
 	}
 
