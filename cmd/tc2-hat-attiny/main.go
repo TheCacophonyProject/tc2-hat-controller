@@ -150,7 +150,7 @@ func runMain() error {
 	}
 
 	go monitorConnectionStateUpdates(attiny)
-	go monitorVoltageLoop(attiny, config)
+	go monitorVoltageLoop(attiny, config, args.ConfigDir)
 	go checkATtinySignalLoop(attiny)
 
 	attiny.readCameraState()

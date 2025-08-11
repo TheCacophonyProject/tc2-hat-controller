@@ -15,12 +15,12 @@ import (
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/godbus/dbus"
+	"github.com/rjeczalik/notify"
 )
 
 const (
 	// History tracking constants
 	voltageHistorySize = 10
-	stabilityWindow    = 5
 
 	// Event reporting
 	percentChangeThreshold = 5.0
@@ -713,8 +713,7 @@ func (m *BatteryMonitor) GetRTCVoltage() float32 {
 // tryCSVBasedDetection attempts to detect battery chemistry from CSV history
 func (m *BatteryMonitor) tryCSVBasedDetection() error {
 	// Read recent entries from CSV to get voltage range
-	csvFilePath := "/var/log/battery-readings.csv"
-	file, err := os.Open(csvFilePath)
+	file, err := os.Open(batteryReadingsFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("no CSV file available")
@@ -924,8 +923,7 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 		return fmt.Errorf("current pack not set, cannot interpret historical voltages")
 	}
 
-	csvFilePath := "/var/log/battery-readings.csv"
-	file, err := os.Open(csvFilePath)
+	file, err := os.Open(batteryReadingsFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // No file to bootstrap from, not an error.
@@ -1070,7 +1068,7 @@ func (m *BatteryMonitor) bootstrapFromCSV() error {
 	return nil
 }
 
-func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
+func monitorVoltageLoop(a *attiny, config *goconfig.Config, configDir string) {
 	stateDir := "/var/lib/tc2-hat-controller"
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		log.Printf("Failed to create state directory: %v", err)
@@ -1093,30 +1091,61 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 	logCounter := 5
 	configReloadCounter := 0
 
-	// Create a separate ticker for signal checking
-	signalTicker := time.NewTicker(1 * time.Second)
-	defer signalTicker.Stop()
+	// Set up file watching for config file changes
+	configFilePath := filepath.Join(configDir, goconfig.ConfigFileName)
+	configEvents := make(chan notify.EventInfo, 1)
+
+	// Watch the config file for changes
+	if err := notify.Watch(configFilePath, configEvents, notify.InCloseWrite, notify.InMovedTo); err != nil {
+		log.Printf("Failed to set up config file watcher: %v", err)
+		// Continue without watching - fall back to periodic reload
+	} else {
+		defer notify.Stop(configEvents)
+		log.Printf("Watching config file for changes: %s", configFilePath)
+	}
 
 	// Main battery reading ticker
 	batteryTicker := time.NewTicker(2 * time.Minute)
 	defer batteryTicker.Stop()
 	for {
 		select {
-		case <-signalTicker.C:
-			// Check for config signal every 10 seconds
-			if checkBatteryConfigSignal(config, batteryMonitor) {
-				// Config was reloaded, perform immediate reading
-				status, hvBat, lvBat, rtcBat, err := performBatteryReading(a, batteryMonitor)
-				if err != nil {
-					log.Printf("Error during immediate battery reading after config reload: %v", err)
+		case <-configEvents:
+			// Config file changed, reload it
+			log.Printf("Config file change detected, reloading battery configuration...")
+			if err := config.Reload(); err != nil {
+				log.Printf("Failed to reload config: %v", err)
+			} else {
+				// Update battery monitor config
+				if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
+					log.Printf("Failed to unmarshal battery config: %v", err)
 				} else {
-					log.Printf("Immediate reading after config reload: HV=%.2f, LV=%.2f, RTC=%.2f - %s %dcells %.1f%% on %s rail",
-						hvBat, lvBat, rtcBat, status.Chemistry, status.CellCount, status.Percent, status.Rail)
+					log.Printf("Battery configuration reloaded due to config file change")
+					// If switching from auto to manual, reset the current pack to force re-detection
+					if batteryMonitor.config.IsManuallyConfigured() && batteryMonitor.currentPack != nil {
+						if batteryMonitor.currentPack.Type.Chemistry != batteryMonitor.config.Chemistry {
+							batteryMonitor.currentPack = nil
+							log.Printf("Manual chemistry %s configured - will determine cell count on next reading", batteryMonitor.config.Chemistry)
+						}
+					} else if batteryMonitor.currentPack != nil && batteryMonitor.config.Chemistry == "" {
+						// Switching to auto-detection, clear any manual pack
+						batteryMonitor.currentPack = nil
+						batteryMonitor.resetDetection()
+						log.Printf("Switched to auto-detection mode")
+					}
 
-					if batteryMonitor.ShouldReportEvent(status) {
-						reportBatteryEvent(status, rtcBat)
-						if err := sendBatterySignal(float64(status.Voltage), float64(status.Percent)); err != nil {
-							log.Error("Error sending battery signal:", err)
+					// Perform immediate reading after config change
+					status, hvBat, lvBat, rtcBat, err := performBatteryReading(a, batteryMonitor)
+					if err != nil {
+						log.Printf("Error during immediate battery reading after config reload: %v", err)
+					} else {
+						log.Printf("Immediate reading after config reload: HV=%.2f, LV=%.2f, RTC=%.2f - %s %dcells %.1f%% on %s rail",
+							hvBat, lvBat, rtcBat, status.Chemistry, status.CellCount, status.Percent, status.Rail)
+
+						if batteryMonitor.ShouldReportEvent(status) {
+							reportBatteryEvent(status, rtcBat)
+							if err := sendBatterySignal(float64(status.Voltage), float64(status.Percent)); err != nil {
+								log.Error("Error sending battery signal:", err)
+							}
 						}
 					}
 				}
@@ -1211,55 +1240,6 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config) {
 	}
 }
 
-// checkBatteryConfigSignal checks for battery config change signal and reloads config if needed
-func checkBatteryConfigSignal(config *goconfig.Config, batteryMonitor *BatteryMonitor) bool {
-	signalFile := "/tmp/battery-config-changed"
-
-	// Check if signal file exists
-	if _, err := os.Stat(signalFile); os.IsNotExist(err) {
-		return false
-	}
-
-	// Signal file exists, reload config
-	log.Printf("Battery config change signal detected, reloading configuration...")
-
-	// Remove signal file
-	if err := os.Remove(signalFile); err != nil {
-		log.Printf("Failed to remove signal file: %v", err)
-		// Continue anyway
-	}
-
-	// Reload config
-	if err := config.Reload(); err != nil {
-		log.Printf("Failed to reload config: %v", err)
-		return false
-	}
-
-	// Update battery monitor config
-	if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
-		log.Printf("Failed to unmarshal battery config: %v", err)
-		return false
-	}
-
-	// If switching from auto to manual or chemistry changed, reset current pack
-	if batteryMonitor.config.IsManuallyConfigured() {
-		if batteryMonitor.currentPack == nil || batteryMonitor.currentPack.Type.Chemistry != batteryMonitor.config.Chemistry {
-			batteryMonitor.currentPack = nil
-			log.Printf("Manual chemistry %s configured - will determine cell count on next reading", batteryMonitor.config.Chemistry)
-		}
-	} else {
-		// Switching to auto-detection, clear any manual pack
-		if batteryMonitor.currentPack != nil && batteryMonitor.config.Chemistry == "" {
-			batteryMonitor.currentPack = nil
-			batteryMonitor.resetDetection()
-			log.Printf("Switched to auto-detection mode")
-		}
-	}
-
-	log.Printf("Battery configuration reloaded immediately due to signal")
-	return true
-}
-
 // performBatteryReading performs a single battery reading cycle
 func performBatteryReading(a *attiny, batteryMonitor *BatteryMonitor) (*BatteryStatus, float32, float32, float32, error) {
 	// Read voltage values from ATtiny
@@ -1331,25 +1311,46 @@ func reportBatteryEvent(status *BatteryStatus, rtcVoltage float32) {
 	roundedPercent := int(math.Round(float64(status.Percent)))
 
 	// Build event details
+	details := map[string]interface{}{
+		"battery":    roundedPercent,
+		"chemistry":  status.Chemistry,
+		"cellCount":  status.CellCount,
+		"voltage":    status.Voltage,
+		"rail":       status.Rail,
+		"rtcVoltage": fmt.Sprintf("%.2f", rtcVoltage),
+	}
+
+	// Add discharge rate if available
+	if status.DischargeRatePerHour > 0 {
+		details["dischargeRatePerHour"] = fmt.Sprintf("%.3f", status.DischargeRatePerHour)
+	}
+
+	// Add depletion estimate if available
+	if status.DepletionEstimate != nil && status.DepletionEstimate.EstimatedHours > 0 {
+		details["depletionHoursRemaining"] = fmt.Sprintf("%.1f", status.DepletionEstimate.EstimatedHours)
+		details["depletionConfidence"] = fmt.Sprintf("%.0f", status.DepletionEstimate.Confidence)
+		details["depletionMethod"] = status.DepletionEstimate.Method
+	}
+
 	event := eventclient.Event{
 		Timestamp: time.Now(),
 		Type:      "rpiBattery",
-		Details: map[string]interface{}{
-			"battery":    roundedPercent,
-			"chemistry":  status.Chemistry,
-			"cellCount":  status.CellCount,
-			"voltage":    status.Voltage,
-			"rail":       status.Rail,
-			"rtcVoltage": fmt.Sprintf("%.2f", rtcVoltage),
-		},
+		Details:   details,
 	}
 
 	err := eventclient.AddEvent(event)
 	if err != nil {
 		log.Error("Error sending battery event:", err)
 	} else {
-		log.Infof("Battery event: chemistry=%s (%dcells), voltage=%.2fV, percent=%d%%",
+		logMsg := fmt.Sprintf("Battery event: chemistry=%s (%dcells), voltage=%.2fV, percent=%d%%",
 			status.Chemistry, status.CellCount, status.Voltage, roundedPercent)
+		if status.DischargeRatePerHour > 0 {
+			logMsg += fmt.Sprintf(", discharge=%.3f%%/hr", status.DischargeRatePerHour)
+		}
+		if status.DepletionEstimate != nil && status.DepletionEstimate.EstimatedHours > 0 {
+			logMsg += fmt.Sprintf(", %.1fh remaining", status.DepletionEstimate.EstimatedHours)
+		}
+		log.Info(logMsg)
 	}
 }
 
@@ -1688,7 +1689,7 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 	}
 
 	timeDiffHours := endEntry.Timestamp.Sub(startEntry.Timestamp).Hours()
-	if timeDiffHours < 0.01 { // Less than ~36 seconds
+	if timeDiffHours < 0.1 { // Less than 6 minutes
 		return 0, fmt.Errorf("time difference too small for accurate calculation: %.2f hours", timeDiffHours)
 	}
 
@@ -1707,8 +1708,7 @@ func (m *BatteryMonitor) CalculateDischargeRate(duration time.Duration) (float32
 	// This is the raw, unsmoothed rate for this specific time window.
 	ratePerHour := percentDrop / float32(timeDiffHours)
 
-	// Add detailed debugging for discharge rate calculation
-	log.Printf("Discharge rate calculation: %.2f%% drop over %.2f hours = %.3f%%/hour (window: %v, start: %.1f%% @ %v, end: %.1f%% @ %v)",
+	log.Infof("Discharge rate calculation: %.2f%% drop over %.2f hours = %.3f%%/hour (window: %v, start: %.1f%% @ %v, end: %.1f%% @ %v)",
 		percentDrop, timeDiffHours, ratePerHour, duration,
 		startEntry.Percent, startEntry.Timestamp.Format("15:04:05"),
 		endEntry.Percent, endEntry.Timestamp.Format("15:04:05"))
