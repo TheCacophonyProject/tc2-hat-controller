@@ -1114,40 +1114,41 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config, configDir string) {
 			log.Printf("Config file change detected, reloading battery configuration...")
 			if err := config.Reload(); err != nil {
 				log.Printf("Failed to reload config: %v", err)
-			} else {
-				// Update battery monitor config
-				if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
-					log.Printf("Failed to unmarshal battery config: %v", err)
-				} else {
-					log.Printf("Battery configuration reloaded due to config file change")
-					// If switching from auto to manual, reset the current pack to force re-detection
-					if batteryMonitor.config.IsManuallyConfigured() && batteryMonitor.currentPack != nil {
-						if batteryMonitor.currentPack.Type.Chemistry != batteryMonitor.config.Chemistry {
-							batteryMonitor.currentPack = nil
-							log.Printf("Manual chemistry %s configured - will determine cell count on next reading", batteryMonitor.config.Chemistry)
-						}
-					} else if batteryMonitor.currentPack != nil && batteryMonitor.config.Chemistry == "" {
-						// Switching to auto-detection, clear any manual pack
-						batteryMonitor.currentPack = nil
-						batteryMonitor.resetDetection()
-						log.Printf("Switched to auto-detection mode")
-					}
+				continue
+			}
+			// Update battery monitor config
+			if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
+				log.Printf("Failed to unmarshal battery config: %v", err)
+				continue
+			}
 
-					// Perform immediate reading after config change
-					status, hvBat, lvBat, rtcBat, err := performBatteryReading(a, batteryMonitor)
-					if err != nil {
-						log.Printf("Error during immediate battery reading after config reload: %v", err)
-					} else {
-						log.Printf("Immediate reading after config reload: HV=%.2f, LV=%.2f, RTC=%.2f - %s %dcells %.1f%% on %s rail",
-							hvBat, lvBat, rtcBat, status.Chemistry, status.CellCount, status.Percent, status.Rail)
+			log.Printf("Battery configuration reloaded due to config file change")
+			// If switching from auto to manual, reset the current pack to force re-detection
+			if batteryMonitor.config.IsManuallyConfigured() && batteryMonitor.currentPack != nil {
+				if batteryMonitor.currentPack.Type.Chemistry != batteryMonitor.config.Chemistry {
+					batteryMonitor.currentPack = nil
+					log.Printf("Manual chemistry %s configured - will determine cell count on next reading", batteryMonitor.config.Chemistry)
+				}
+			} else if batteryMonitor.currentPack != nil && batteryMonitor.config.Chemistry == "" {
+				// Switching to auto-detection, clear any manual pack
+				batteryMonitor.currentPack = nil
+				batteryMonitor.resetDetection()
+				log.Printf("Switched to auto-detection mode")
+			}
 
-						if batteryMonitor.ShouldReportEvent(status) {
-							reportBatteryEvent(status, rtcBat)
-							if err := sendBatterySignal(float64(status.Voltage), float64(status.Percent)); err != nil {
-								log.Error("Error sending battery signal:", err)
-							}
-						}
-					}
+			// Perform immediate reading after config change
+			status, hvBat, lvBat, rtcBat, err := performBatteryReading(a, batteryMonitor)
+			if err != nil {
+				log.Printf("Error during immediate battery reading after config reload: %v", err)
+				continue
+			}
+			log.Printf("Immediate reading after config reload: HV=%.2f, LV=%.2f, RTC=%.2f - %s %dcells %.1f%% on %s rail",
+				hvBat, lvBat, rtcBat, status.Chemistry, status.CellCount, status.Percent, status.Rail)
+
+			if batteryMonitor.ShouldReportEvent(status) {
+				reportBatteryEvent(status, rtcBat)
+				if err := sendBatterySignal(float64(status.Voltage), float64(status.Percent)); err != nil {
+					log.Error("Error sending battery signal:", err)
 				}
 			}
 
@@ -1156,20 +1157,18 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config, configDir string) {
 			if configReloadCounter >= 30 {
 				log.Printf("Periodic battery configuration reload...")
 				if err := config.Reload(); err != nil {
-					log.Printf("Failed to reload config: %v", err)
-				} else {
-					// Update battery monitor config
-					if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
-						log.Printf("Failed to unmarshal battery config: %v", err)
-					} else {
-						log.Printf("Battery configuration reloaded (periodic)")
-						// If switching from auto to manual, reset the current pack to force re-detection
-						if batteryMonitor.config.IsManuallyConfigured() && batteryMonitor.currentPack != nil {
-							if batteryMonitor.currentPack.Type.Chemistry != batteryMonitor.config.Chemistry {
-								batteryMonitor.currentPack = nil
-							}
-						}
-					}
+					log.Error("Failed to reload config:", err)
+					continue
+				}
+				// Update battery monitor config
+				if err := config.Unmarshal(goconfig.BatteryKey, batteryMonitor.config); err != nil {
+					log.Printf("Failed to unmarshal battery config: %v", err)
+					continue
+				}
+				log.Printf("Battery configuration reloaded (periodic)")
+				// If switching from auto to manual, reset the current pack to force re-detection
+				if batteryMonitor.config.IsManuallyConfigured() && batteryMonitor.currentPack != nil && batteryMonitor.currentPack.Type.Chemistry != batteryMonitor.config.Chemistry {
+					batteryMonitor.currentPack = nil
 				}
 				configReloadCounter = 0
 			}
