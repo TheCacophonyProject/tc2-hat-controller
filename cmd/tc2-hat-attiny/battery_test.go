@@ -881,7 +881,7 @@ func TestMinimumPercentageChangeThreshold(t *testing.T) {
 		{Timestamp: now, Percent: 79.9},                         // 0.1% total change (below 0.2% threshold)
 	}
 
-	rate, err := monitor.CalculateDischargeRate(1 * time.Hour)
+	_, err := monitor.CalculateDischargeRate(1 * time.Hour)
 	assert.Error(t, err, "Should error for change below minimum threshold")
 	assert.Contains(t, err.Error(), "below minimum threshold", "Error should mention threshold")
 
@@ -892,7 +892,7 @@ func TestMinimumPercentageChangeThreshold(t *testing.T) {
 		{Timestamp: now, Percent: 79.0}, // 1.0% total change (above 0.2% threshold)
 	}
 
-	rate, err = monitor.CalculateDischargeRate(1 * time.Hour)
+	rate, err := monitor.CalculateDischargeRate(1 * time.Hour)
 	assert.NoError(t, err, "Should calculate rate for change above threshold")
 	assert.Greater(t, rate, float32(0.0), "Should return a positive discharge rate")
 }
