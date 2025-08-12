@@ -1,4 +1,4 @@
-package main
+package attiny
 
 import (
 	"path/filepath"
@@ -123,4 +123,3 @@ func TestImmediateDetection(t *testing.T) {
 	t.Logf("First reading %.2fV immediately detected as: %s %d cells",
 		voltage, status.Chemistry, status.CellCount)
 }
-

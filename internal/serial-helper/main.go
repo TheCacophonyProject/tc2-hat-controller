@@ -1,4 +1,4 @@
-package main
+package serialhelper
 
 import (
 	"log"
@@ -8,14 +8,7 @@ import (
 	"periph.io/x/conn/v3/gpio"
 )
 
-func main() {
-	err := runMain()
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func runMain() error {
+func Run(inputArgs []string, version string) error {
 	log.Println("Setting up serial helper for the ATtiny")
 	serialFile, err := serialhelper.GetSerial(3, gpio.Low, gpio.Low, time.Second)
 	if err != nil {

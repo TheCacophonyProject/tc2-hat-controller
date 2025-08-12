@@ -16,7 +16,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-package main
+package attiny
 
 import (
 	"errors"
@@ -71,27 +71,37 @@ type Args struct {
 	logging.LogArgs
 }
 
-func (Args) Version() string {
-	return version
+var defaultArgs = Args{
+	ConfigDir: goconfig.DefaultConfigDir,
 }
 
-func procArgs() Args {
-	args := Args{
-		ConfigDir: goconfig.DefaultConfigDir,
-	}
-	arg.MustParse(&args)
-	return args
-}
+func procArgs(input []string) (Args, error) {
+	args := defaultArgs
 
-func main() {
-	err := runMain()
+	parser, err := arg.NewParser(arg.Config{}, &args)
 	if err != nil {
-		log.Fatal(err)
+		return Args{}, err
 	}
+	err = parser.Parse(input)
+	if errors.Is(err, arg.ErrHelp) {
+		parser.WriteHelp(os.Stdout)
+		os.Exit(0)
+	}
+	if errors.Is(err, arg.ErrVersion) {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+	return args, err
 }
 
-func runMain() error {
-	args := procArgs()
+func Run(inputArgs []string, ver, major, minor, patch, hash string) error {
+	version = ver
+	attinyMajorStr, attinyMinorStr, attinyPatchStr = major, minor, patch
+	attinyHexHash = hash
+	args, err := procArgs(inputArgs)
+	if err != nil {
+		return fmt.Errorf("failed to parse args: %v", err)
+	}
 
 	log = logging.NewLogger(args.LogLevel)
 
