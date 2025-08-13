@@ -9,59 +9,14 @@ release:
   name_template: '{{.Tag}}'
 
 builds:
-- id: tc2-hat-attiny
-  binary: tc2-hat-attiny
-  main: ./cmd/tc2-hat-attiny
+- id: tc2-hat-controller
+  binary: tc2-hat-controller
+  main: ./cmd/tc2-hat-controller
   goos:
     - linux
   goarch:
     - arm64
   ldflags: -s -w -X main.version={{.Version}} -X main.attinyMajorStr={{ .Env.ATTINY_MAJOR }} -X main.attinyMinorStr={{.Env.ATTINY_MINOR}} -X main.attinyPatchStr={{.Env.ATTINY_PATCH}} -X main.attinyHexHash={{.Env.ATTINY_HASH}}
-
-- id: tc2-hat-rp2040
-  binary: tc2-hat-rp2040
-  main: ./cmd/tc2-hat-rp2040
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
-
-- id: tc2-hat-comms
-  binary: tc2-hat-comms
-  main: ./cmd/tc2-hat-comms
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
-
-- id: tc2-hat-temp
-  binary: tc2-hat-temp
-  main: ./cmd/tc2-hat-temp
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
-
-- id: tc2-hat-rtc
-  binary: tc2-hat-rtc
-  main: ./cmd/tc2-hat-rtc
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
-
-- id: tc2-hat-i2c
-  binary: tc2-hat-i2c
-  main: ./cmd/tc2-hat-i2c
-  goos:
-    - linux
-  goarch:
-    - arm64
-  ldflags: -s -w -X main.version={{.Version}}
 
 nfpms:
 - vendor: The Cacophony Project
@@ -108,7 +63,21 @@ nfpms:
       dst: /etc/systemd/system/tc2-hat-rtc.service
     - src: _release/tc2-hat-i2c.service
       dst: /etc/systemd/system/tc2-hat-i2c.service
-  
+    - src: _release/serial-helper
+      dst: /usr/bin/serial-helper
+    - src: _release/tc2-hat-attiny
+      dst: /usr/bin/tc2-hat-attiny
+    - src: _release/tc2-hat-comms
+      dst: /usr/bin/tc2-hat-comms
+    - src: _release/tc2-hat-i2c
+      dst: /usr/bin/tc2-hat-i2c
+    - src: _release/tc2-hat-rp2040
+      dst: /usr/bin/tc2-hat-rp2040
+    - src: _release/tc2-hat-rtc
+      dst: /usr/bin/tc2-hat-rtc
+    - src: _release/tc2-hat-temp
+      dst: /usr/bin/tc2-hat-temp
+
   dependencies:
     #- python3-pip
     - openocd

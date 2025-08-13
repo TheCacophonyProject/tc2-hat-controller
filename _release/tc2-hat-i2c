@@ -1,0 +1,2 @@
+#!/bin/bash
+exec /usr/bin/tc2-hat-controller i2c "$@"
