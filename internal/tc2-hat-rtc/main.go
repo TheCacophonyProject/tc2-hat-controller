@@ -16,9 +16,12 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-package main
+package rtc
 
 import (
+	"errors"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
@@ -41,24 +44,33 @@ var (
 	version = "<not set>"
 )
 
-func (Args) Version() string {
-	return version
-}
+var defaultArgs = Args{}
 
-func procArgs() Args {
-	args := Args{}
-	arg.MustParse(&args)
-	return args
-}
-func main() {
-	err := runMain()
+func procArgs(input []string) (Args, error) {
+	args := defaultArgs
+
+	parser, err := arg.NewParser(arg.Config{}, &args)
 	if err != nil {
-		log.Fatal(err)
+		return Args{}, err
 	}
+	err = parser.Parse(input)
+	if errors.Is(err, arg.ErrHelp) {
+		parser.WriteHelp(os.Stdout)
+		os.Exit(0)
+	}
+	if errors.Is(err, arg.ErrVersion) {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+	return args, err
 }
 
-func runMain() error {
-	args := procArgs()
+func Run(inputArgs []string, ver string) error {
+	version = ver
+	args, err := procArgs(inputArgs)
+	if err != nil {
+		return fmt.Errorf("failed to parse args: %v", err)
+	}
 
 	log = logging.NewLogger(args.LogLevel)
 

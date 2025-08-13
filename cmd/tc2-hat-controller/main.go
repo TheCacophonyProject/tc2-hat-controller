@@ -7,6 +7,11 @@ import (
 	"github.com/TheCacophonyProject/go-utils/logging"
 	serialhelper "github.com/TheCacophonyProject/tc2-hat-controller/internal/serial-helper"
 	attiny "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-attiny"
+	comms "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-comms"
+	i2c "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-i2c"
+	rp2040 "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-rp2040"
+	rtc "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-rtc"
+	temp "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-temp"
 )
 
 var (
@@ -45,6 +50,16 @@ func runMain() error {
 		err = serialhelper.Run(args, version)
 	case "attiny":
 		err = attiny.Run(args, version, attinyMajorStr, attinyMinorStr, attinyPatchStr, attinyHexHash)
+	case "comms":
+		err = comms.Run(args, version)
+	case "i2c":
+		err = i2c.Run(args, version)
+	case "rp2040":
+		err = rp2040.Run(args, version)
+	case "rtc":
+		err = rtc.Run(args, version)
+	case "temp":
+		err = temp.Run(args, version)
 	default:
 		err = fmt.Errorf("unknown subcommand: %s", subcommand)
 	}

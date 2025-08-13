@@ -63,10 +63,20 @@ nfpms:
       dst: /etc/systemd/system/tc2-hat-rtc.service
     - src: _release/tc2-hat-i2c.service
       dst: /etc/systemd/system/tc2-hat-i2c.service
-    - src: _release/tc2-hat-attiny
-      dst: /usr/bin/tc2-hat-attiny
     - src: _release/serial-helper
       dst: /usr/bin/serial-helper
+    - src: _release/tc2-hat-attiny
+      dst: /usr/bin/tc2-hat-attiny
+    - src: _release/tc2-hat-comms
+      dst: /usr/bin/tc2-hat-comms
+    - src: _release/tc2-hat-i2c
+      dst: /usr/bin/tc2-hat-i2c
+    - src: _release/tc2-hat-rp2040
+      dst: /usr/bin/tc2-hat-rp2040
+    - src: _release/tc2-hat-rtc
+      dst: /usr/bin/tc2-hat-rtc
+    - src: _release/tc2-hat-temp
+      dst: /usr/bin/tc2-hat-temp
 
   dependencies:
     #- python3-pip

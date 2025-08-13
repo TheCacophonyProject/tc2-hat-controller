@@ -1,4 +1,4 @@
-package main
+package comms
 
 import (
 	"github.com/TheCacophonyProject/go-config"

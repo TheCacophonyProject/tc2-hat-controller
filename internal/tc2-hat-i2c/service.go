@@ -1,4 +1,4 @@
-package main
+package i2c
 
 import (
 	"errors"

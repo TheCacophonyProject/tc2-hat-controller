@@ -1,6 +1,7 @@
-package main
+package comms
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,23 +30,6 @@ type Args struct {
 type TestClassification struct {
 	Animal     string `arg:"--animal" help:"The animal to send a test classification for."`
 	Confidence int32  `arg:"--confidence" help:"The confidence level to send a test classification for."`
-}
-
-func (Args) Version() string {
-	return version
-}
-
-func procArgs() Args {
-	args := Args{}
-	arg.MustParse(&args)
-	return args
-}
-
-func main() {
-	err := runMain()
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
 // checkConfigChanges will compare the config from when first loaded to a new config each time
@@ -80,9 +64,33 @@ func checkConfigChanges(conf *CommsConfig, configDir string) error {
 	}
 }
 
-func runMain() error {
-	args := procArgs()
+var defaultArgs = Args{}
 
+func procArgs(input []string) (Args, error) {
+	args := defaultArgs
+
+	parser, err := arg.NewParser(arg.Config{}, &args)
+	if err != nil {
+		return Args{}, err
+	}
+	err = parser.Parse(input)
+	if errors.Is(err, arg.ErrHelp) {
+		parser.WriteHelp(os.Stdout)
+		os.Exit(0)
+	}
+	if errors.Is(err, arg.ErrVersion) {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+	return args, err
+}
+
+func Run(inputArgs []string, ver string) error {
+	version = ver
+	args, err := procArgs(inputArgs)
+	if err != nil {
+		return fmt.Errorf("failed to parse args: %v", err)
+	}
 	log = logging.NewLogger(args.LogLevel)
 
 	log.Printf("Running version: %s", version)

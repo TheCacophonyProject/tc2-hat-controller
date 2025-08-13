@@ -1,6 +1,6 @@
 // This section is for listening to broadcasts events over DBus.
 
-package main
+package comms
 
 import (
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"

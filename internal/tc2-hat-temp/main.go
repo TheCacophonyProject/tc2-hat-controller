@@ -16,7 +16,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package main
+package temp
 
 import (
 	"errors"
@@ -47,7 +47,7 @@ var version = "No version provided"
 
 var log = logging.NewLogger("info")
 
-type argSpec struct {
+type Args struct {
 	LowTemp               int `arg:"--low-temp" help:"Temperatures below this will be reported as low"`
 	MinTemp               int `arg:"--min-temp" help:"Temperatures below this will result in powering off the system //TODO"` //TODO
 	HighTemp              int `arg:"--high-temp" help:"Temperatures above this will be reported as high"`
@@ -60,35 +60,43 @@ type argSpec struct {
 	logging.LogArgs
 }
 
-func (argSpec) Version() string {
-	return version
+var defaultArgs = Args{
+	LowTemp:               -10,
+	MinTemp:               5,
+	HighTemp:              50,
+	MaxTemp:               80,
+	HighHumidity:          70,
+	MaxHumidity:           90,
+	SampleRateSeconds:     60,
+	LogRateMinutes:        5,
+	ReportIntervalMinutes: 120,
 }
 
-func procArgs() argSpec {
-	args := argSpec{
-		LowTemp:               -10,
-		MinTemp:               5,
-		HighTemp:              50,
-		MaxTemp:               80,
-		HighHumidity:          70,
-		MaxHumidity:           90,
-		SampleRateSeconds:     60,
-		LogRateMinutes:        5,
-		ReportIntervalMinutes: 120,
-	}
-	arg.MustParse(&args)
-	return args
-}
+func procArgs(input []string) (Args, error) {
+	args := defaultArgs
 
-func main() {
-	err := runMain()
+	parser, err := arg.NewParser(arg.Config{}, &args)
 	if err != nil {
-		log.Fatal(err.Error())
+		return Args{}, err
 	}
+	err = parser.Parse(input)
+	if errors.Is(err, arg.ErrHelp) {
+		parser.WriteHelp(os.Stdout)
+		os.Exit(0)
+	}
+	if errors.Is(err, arg.ErrVersion) {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+	return args, err
 }
 
-func runMain() error {
-	args := procArgs()
+func Run(inputArgs []string, ver string) error {
+	version = ver
+	args, err := procArgs(inputArgs)
+	if err != nil {
+		return fmt.Errorf("failed to parse args: %v", err)
+	}
 
 	log = logging.NewLogger(args.LogLevel)
 

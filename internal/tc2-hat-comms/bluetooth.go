@@ -1,6 +1,6 @@
 // This section deals with communication with peripherals over bluetooth.
 
-package main
+package comms
 
 /*
 func processBluetooth() error {

@@ -1,6 +1,6 @@
 // This section deals with communication with peripherals over uart.
 
-package main
+package comms
 
 import (
 	"bytes"
