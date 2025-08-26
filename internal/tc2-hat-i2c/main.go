@@ -168,7 +168,7 @@ func write(args *Write) error {
 		return err
 	}
 
-	log.Printf("Writing 0x%X to register 0x%X", write, write)
+	log.Printf("Writing 0x%X to register 0x%X", reg, val)
 	if address == 0x25 { // Add CRC for attiny at address 0x25
 		_, err = i2crequest.TxWithCRC(address, write, 0, 1000)
 	} else {
