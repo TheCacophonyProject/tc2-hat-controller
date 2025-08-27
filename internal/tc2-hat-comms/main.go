@@ -22,7 +22,7 @@ var (
 
 type Args struct {
 	SendTestClassification *TestClassification `arg:"subcommand:send-test-classification" help:"Send a test classification."`
-	Baud                   int                 `arg:"--baud" help:"The serial baud rate (this will be removed and put in the config in the future)." default:"115200"`
+	Baud                   int                 `arg:"--baud" help:"The serial baud rate (this will be removed and put in the config in the future). If using at-esl baud rate of 4800 will be forced." default:"115200"`
 	goconfig.ConfigArgs
 	logging.LogArgs
 }
@@ -143,6 +143,7 @@ func Run(inputArgs []string, ver string) error {
 		}
 	case "at-esl":
 		log.Info("Running AT-ESL output.")
+		config.BaudRate = 4800 // Force AT-ESL baud rate to be 4800
 		if err := processATESL(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
