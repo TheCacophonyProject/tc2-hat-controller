@@ -363,7 +363,7 @@ func (a *attiny) writeAuxState() error {
 	if serialhelper.SerialInUseFromTerminal() {
 		regVal = 0x01
 	}
-	return a.writeRegister(auxTerminalReg, regVal, 3, true)
+	return a.writeRegister(auxTerminalReg, regVal, 3)
 }
 
 // connectToATtiny initializes the required drivers and connects to the ATtiny device
@@ -449,7 +449,7 @@ type attiny struct {
 func (a *attiny) writeCameraState(newState CameraState) error {
 	mu.Lock()
 	defer mu.Unlock()
-	if err := a.writeRegister(cameraStateReg, uint8(newState), 3, true); err != nil {
+	if err := a.writeRegister(cameraStateReg, uint8(newState), 3); err != nil {
 		return err
 	}
 	currentState := a.CameraState
@@ -475,13 +475,13 @@ func (a *attiny) readPiCommands(clear bool) (uint8, error) {
 		a.writeCameraState(a.CameraState)
 	}
 	if clear {
-		return val, a.writeRegister(piCommandsReg, 0x00, 2, true)
+		return val, a.writeRegister(piCommandsReg, 0x00, 2)
 	}
 	return val, nil
 }
 
 func (a *attiny) writeConnectionState(newState ConnectionState) error {
-	if err := a.writeRegister(cameraConnectionReg, uint8(newState), 3, true); err != nil {
+	if err := a.writeRegister(cameraConnectionReg, uint8(newState), 3); err != nil {
 		return err
 	}
 	if a.ConnectionState != newState {
@@ -610,7 +610,7 @@ func (a *attiny) readBattery(reg1, reg2 Register) (uint16, uint16, error) {
 
 func (a *attiny) makeIndividualAnalogReading(reg1, reg2 Register) (uint16, error) {
 	// Write to the 7th bit to trigger an analog reading.
-	if err := a.writeRegister(reg1, 1<<7, -1, true); err != nil {
+	if err := a.writeRegister(reg1, 1<<7, -1); err != nil {
 		return 0, err
 	}
 
@@ -722,7 +722,7 @@ var rtcResistorVals = []rVals{
 func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 	errorIdCounter := 0
 	errorCodes := []ErrorCode{}
-	for i := 0; i < errorRegisters; i++ {
+	for i := range errorRegisters {
 		errorReg := Register(int(regErrors1) + i)
 		errors, err := a.readRegister(errorReg)
 		if err != nil {
@@ -734,10 +734,11 @@ func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 			}
 			errorIdCounter++
 		}
-	}
-	if clearErrors {
-		if err := a.writeRegister(clearErrorReg, 0x01, 3, false); err != nil {
-			return nil, err
+		if clearErrors {
+			err := a.writeRegister(errorReg, 0x00, 3)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	return errorCodes, nil
@@ -746,20 +747,17 @@ func (a *attiny) checkForErrorCodes(clearErrors bool) ([]ErrorCode, error) {
 // writeRegister writes the specified data to the given register on the attiny device.
 // If retries is 0 or above it will try to verify by reading the register back off the ATtiny.
 // Set retries to -1 if you are not wanting to verify the write operation.
-func (a *attiny) writeRegister(register Register, data uint8, retries int, verify bool) error {
+func (a *attiny) writeRegister(register Register, data uint8, retries int) error {
 	write := []byte{byte(register), data}
 	if err := crcTxWithRetry(write, nil); err != nil {
 		if retries <= 0 {
 			return err
 		}
 		time.Sleep(100 * time.Millisecond)
-		return a.writeRegister(register, data, retries-1, true)
+		return a.writeRegister(register, data, retries-1)
 	}
 
 	if retries <= -1 {
-		return nil
-	}
-	if !verify {
 		return nil
 	}
 	// Verify the write operation by reading back the data
@@ -769,14 +767,14 @@ func (a *attiny) writeRegister(register Register, data uint8, retries int, verif
 			return err
 		}
 		time.Sleep(100 * time.Millisecond)
-		return a.writeRegister(register, data, retries-1, true)
+		return a.writeRegister(register, data, retries-1)
 	}
 	if registerVal != data {
 		if retries == 0 {
 			return fmt.Errorf("error writing 0x%x to register %d. Register value is 0x%x", data, register, registerVal)
 		}
 		time.Sleep(100 * time.Millisecond)
-		return a.writeRegister(register, data, retries-1, true)
+		return a.writeRegister(register, data, retries-1)
 	}
 	return nil
 }
