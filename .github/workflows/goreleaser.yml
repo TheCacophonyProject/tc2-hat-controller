@@ -3,7 +3,7 @@ name: CI and Release
 env:
   ATTINY_MAJOR: 1
   ATTINY_MINOR: 0
-  ATTINY_PATCH: 7
+  ATTINY_PATCH: 8
   RELEASE_DOWNLOAD: https://github.com/TheCacophonyProject/attiny1616/releases/download/v${ATTINY_MAJOR}.${ATTINY_MINOR}.${ATTINY_PATCH}
 
 on:
