@@ -94,7 +94,7 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 		return nil
 	}
 
-	// AT command, sending a battery reading as hundreths of a volt
+	// AT command, sending a battery reading as hundredths of a volt
 	atCmd := fmt.Sprintf("AT+CAMBAT=%d", int32(b.Voltage*100))
 
 	_, err := sendATCommand(atCmd, a.baudRate)
