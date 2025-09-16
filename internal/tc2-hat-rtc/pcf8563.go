@@ -254,7 +254,53 @@ func (rtc *pcf8563) SetSystemTime() error {
 	return nil
 }
 
+// GetTime will get the time from the PCF8563
+// It will attempt 3 times to get the time.
 func (rtc *pcf8563) GetTime() (time.Time, bool, error) {
+	attempts := 3
+	var t time.Time
+	var integrity bool
+	var err error
+	for range attempts {
+		t, integrity, err = rtc.getTimeFromMultipleReads()
+		if err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return t, integrity, err
+}
+
+// getTimeFromMultipleReads will read the time multiple times to check that the date is consistent across multiple reads.
+func (rtc *pcf8563) getTimeFromMultipleReads() (time.Time, bool, error) {
+	attempts := 3
+	previousTime, previousIntegrity, err := rtc.getTime()
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	for range attempts - 1 {
+		currentTime, currentIntegrity, err := rtc.getTime()
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		if previousIntegrity != currentIntegrity {
+			return time.Time{}, false, fmt.Errorf("integrity mismatch")
+		}
+
+		if currentTime.Sub(previousTime).Abs() > 2*time.Second {
+			return time.Time{}, false, fmt.Errorf("time mismatch")
+		}
+		previousIntegrity = currentIntegrity
+		previousTime = currentTime
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return previousTime, previousIntegrity, nil
+}
+
+// getTime will get the time from the PCF8563.
+// We think it will sometimes get the wrong time so it is recommended to use GetTime()
+func (rtc *pcf8563) getTime() (time.Time, bool, error) {
 	// Read the time from the RTC.
 	data, err := readBytes(0x02, 7)
 	if err != nil {
@@ -269,7 +315,6 @@ func (rtc *pcf8563) GetTime() (time.Time, bool, error) {
 	months := fromBCD(data[5] & 0x1F)
 	years := 2000 + fromBCD(data[6])
 	integrity := data[0]&(1<<7) == 0
-
 	return time.Date(years, time.Month(months), days, hours, minutes, seconds, 0, time.UTC), integrity, nil
 }
 
