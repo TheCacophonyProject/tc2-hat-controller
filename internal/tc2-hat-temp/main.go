@@ -37,6 +37,9 @@ import (
 
 const (
 	AHT20Address       = 0x38
+	AHT20_BUSY         = 1 << 7
+	AHT20_CALIBRATED   = 1 << 3
+	AHT20_STATUS_REG   = 0x71
 	maxTxAttempts      = 3
 	txRetryInterval    = time.Second
 	maxTempReadings    = 2000
@@ -109,6 +112,11 @@ func Run(inputArgs []string, ver string) error {
 	lastLogTime := time.Time{}
 	logRate := time.Duration(args.LogRateMinutes) * time.Minute
 	log.Debug("Setting log rate to ", logRate)
+
+	log.Info("Checking AHT20 calibration")
+	if err := checkCalibration(); err != nil {
+		return err
+	}
 
 	sampleRateDuration := time.Duration(args.SampleRateSeconds) * time.Second
 
@@ -209,39 +217,97 @@ func Run(inputArgs []string, ver string) error {
 }
 
 func makeReading() (float32, float32, uint8, error) {
-	// Get status
-	statusResult, err := i2crequest.Tx(AHT20Address, []byte{0x71}, 1, 1000)
-	if err != nil {
-		return 0, 0, 0, err
+	var temp, humidity float32
+	var crc uint8
+	var err error
+	for range 5 {
+		temp, humidity, crc, err = makeReadingAttempt()
+		if err == nil {
+			break
+		}
+		log.Debug("Error in attempt for getting a reading: ", err)
+		time.Sleep(5 * time.Second)
 	}
-	if (statusResult[0] & 0x18) != 0x18 {
-		return 0, 0, 0, fmt.Errorf("status check failed: 0x%x", statusResult[0])
+	return temp, humidity, crc, err
+}
+
+func checkCalibration() error {
+	var err error
+	for range 5 {
+		err = checkCalibrationAttempt()
+		if err == nil {
+			break
+		}
+		log.Debug("Error in attempt for checking calibration: ", err)
+		time.Sleep(5 * time.Second)
+	}
+	return nil
+}
+
+// Check calibration just needs to be done once at startup.
+func checkCalibrationAttempt() error {
+	// Get status register.
+	rawData, err := i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
+	if err != nil {
+		return err
 	}
 
-	// Trigger reading
-	_, err = i2crequest.Tx(AHT20Address, []byte{0xAC, 0x33, 0x00}, 0, 1000)
-	if err != nil {
-		return 0, 0, 0, err
+	// Check if it is calibrated from the status register.
+	if (rawData[0] & AHT20_CALIBRATED) == AHT20_CALIBRATED {
+		return nil
 	}
 
-	// Wait for measurement to be made.
+	// Device is not calibrated. Trigger a reset/calibration by sending BE 08 00
+	log.Debug("Deice is not calibrated. Triggering a manual calibration.")
+	_, err = i2crequest.Tx(AHT20Address, []byte{0xBE, 0x08, 0x00}, 0, 3000)
+	if err != nil {
+		return err
+	}
+
+	// Wait 100ms until checking if it is calibrated again.
 	time.Sleep(100 * time.Millisecond)
+
+	// Get status register.
+	rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
+	if err != nil {
+		return err
+	}
+
+	// Check if it is calibrated from the status register.
+	if (rawData[0] & AHT20_CALIBRATED) == AHT20_CALIBRATED {
+		return nil
+	}
+
+	return fmt.Errorf("calibration failed")
+}
+
+func makeReadingAttempt() (float32, float32, uint8, error) {
+	// Trigger reading by sending AC 33 00
+	_, err := i2crequest.Tx(AHT20Address, []byte{0xAC, 0x33, 0x00}, 0, 3000)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	// Wait for measurement to be made (datasheet says at least 75ms). Retry 3 times if not ready.
 	ready := false
 	var rawData []byte
-	for i := 0; i < maxTxAttempts; i++ {
-		// Check reading is ready by checking bit[7] is 0 of the status register (0x71).
-		rawData, err = i2crequest.Tx(AHT20Address, []byte{0x71}, 7, 1000)
+	for range 3 {
+		// Wait 100ms then check if the temperature reading is ready.
+		time.Sleep(100 * time.Millisecond)
+		rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
 		if err != nil {
 			return 0, 0, 0, err
 		}
-		if rawData[0]&0x80 == 0x00 {
+
+		// Check if the device is not busy
+		if rawData[0]&AHT20_BUSY == 0x00 {
 			ready = true
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		log.Debug("Temperature reading is not yet ready")
 	}
 	if !ready {
-		return 0, 0, 0, errors.New("reading not ready")
+		return 0, 0, 0, errors.New("temperature reading was not ready after 3 tries")
 	}
 
 	if len(rawData) != 7 {
