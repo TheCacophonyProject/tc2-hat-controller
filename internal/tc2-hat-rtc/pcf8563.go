@@ -481,22 +481,21 @@ func (rtc *pcf8563) checkTickingLoop() {
 		var event *eventclient.Event
 		var err error
 		// We want to check that it is not ticking properly at least 3 times.
-		// With the potential for other processes to be reading/writing to the I2C clock.
-		// We could get some false positives so we will only report and error if we get it 3 times in a row.
-		i := 2
+		// With the potential for other processes to be reading/writing to the I2C clock we could
+		// get some false positives so we will only report an error if we get it 3 times in a row.
+		retries := 2
 		for {
 			event, err = rtc.checkTicking()
 			if err == nil && event == nil {
 				// No error or ticking event, break out of the loop.
 				break
 			}
-			if i == 0 {
-				// We have run out of times to check.
+			if retries == 0 {
 				break
 			}
-			log.Warnf("Ticking error, will check %d more times before making an event.", i)
+			log.Warnf("Ticking error, will check %d more times before making an event.", retries)
 			time.Sleep(5 * time.Second)
-			i--
+			retries--
 		}
 		if event != nil {
 			log.Errorf("Issue with the RTC ticking, event: %+v", event)
@@ -506,8 +505,7 @@ func (rtc *pcf8563) checkTickingLoop() {
 			}
 		}
 		if err != nil {
-
-			log.Errorf("Error checking RTC: %v", err)
+			log.Errorf("Error checking RTC ticking: %v", err)
 		}
 
 		// Wait 10 minutes until running the next check.
@@ -526,7 +524,6 @@ func (rtc *pcf8563) checkTicking() (*eventclient.Event, error) {
 	}
 
 	// Get the first time from the RTC
-	startTime := time.Now()
 	rtcStartTime, integrity, err := rtc.GetTime()
 	if err != nil {
 		return nil, fmt.Errorf("error getting RTC time/integrity: %v", err)
@@ -534,6 +531,9 @@ func (rtc *pcf8563) checkTicking() (*eventclient.Event, error) {
 	if !integrity {
 		return nil, fmt.Errorf("RTC clock does't have integrity")
 	}
+	// Take start time at the end of getting the RTC time as if you take it from the start you are adding in potential
+	// time of queuing the I2C requests. Once it has the time it will return very quickly so this should be fine.
+	startTime := time.Now()
 
 	time.Sleep(time.Second * 10)
 
@@ -553,7 +553,7 @@ func (rtc *pcf8563) checkTicking() (*eventclient.Event, error) {
 	rtcTimeDifference := rtcEndTime.Sub(rtcStartTime)
 	diffFromExpected := (rtcTimeDifference - timeBetweenChecks).Abs()
 	if diffFromExpected <= 2*time.Second {
-		log.Debug("RTC is ticking")
+		log.Debugf("RTC is ticking within expected range. RTC time difference: %s, Time between checks: %s", rtcTimeDifference, timeBetweenChecks)
 		return nil, nil
 	}
 	log.Warnf("RTC is not ticking as expected. Time between checks: %s, RTC time difference: %s", timeBetweenChecks, rtcTimeDifference)
