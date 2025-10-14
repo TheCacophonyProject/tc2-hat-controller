@@ -24,7 +24,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/go-utils/logging"
 	"github.com/alexflint/go-arg"
 )
@@ -74,7 +73,7 @@ func Run(inputArgs []string, ver string) error {
 
 	log = logging.NewLogger(args.LogLevel)
 
-	log.Printf("running version: %s", version)
+	log.Infof("Running version: %s", version)
 
 	if args.Service != nil {
 		if err := startService(); err != nil {
@@ -84,6 +83,7 @@ func Run(inputArgs []string, ver string) error {
 			time.Sleep(time.Second)
 		}
 	} else if args.SetTime != "" {
+		// TODO: Make this use the dbus service to set the time.
 		rtc := &pcf8563{}
 		newTime, err := time.Parse("2006-01-02 15:04:05", args.SetTime)
 		if err != nil {
@@ -91,6 +91,7 @@ func Run(inputArgs []string, ver string) error {
 		}
 		return rtc.SetTime(newTime)
 	} else if args.Status != nil {
+		// TODO: Make this use the dbus service to get the status.
 		rtc := &pcf8563{}
 
 		log.Println("Getting RTC status")
@@ -127,76 +128,30 @@ func Run(inputArgs []string, ver string) error {
 }
 
 func startService() error {
-	log.Println("Connecting to RTC")
+	log.Debug("Connecting to RTC")
 	rtc, err := InitPCF9564()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to connect to RTC: %v", err)
 	}
-	log.Println("Starting RTC service.")
+
+	log.Debug("Starting RTC DBus service.")
 	if err := startRTCService(rtc); err != nil {
 		return err
 	}
+
+	log.Debug("Setting RPi time from RTC.")
 	if err := rtc.SetSystemTime(); err != nil {
 		log.Println(err)
 	}
 
-	// Read the time from the RTC then read it again after a few seconds to check that it is "ticking".
-	checks := 0
-	timeBetweenChecks := 10 * time.Second
-	for {
-		// Wait 10 seconds before doing another check.
-		time.Sleep(10 * time.Second)
+	// Starting NTP sync loop. This is so when the NTP sync is done the RTC is set to the correct time.
+	log.Debug("Starting NTP sync loop")
+	go rtc.checkNtpSyncLoop()
 
-		// Get the time from the RTC 10 seconds apart.
-		startTime, integrity, err := rtc.GetTime()
-		if err != nil {
-			log.Error("Error getting RTC time/integrity:", err)
-			continue
-		}
-		if !integrity {
-			log.Debug("RTC clock does't have integrity")
-			continue
-		}
-		time.Sleep(timeBetweenChecks)
-		endTime, integrity, err := rtc.GetTime()
-		if err != nil {
-			log.Error("Error getting RTC time/integrity:", err)
-			continue
-		}
-		if !integrity {
-			log.Debug("RTC clock does't have integrity")
-			continue
-		}
-
-		// Compare the times, check if the RTC is ticking correctly.
-		checks++
-		diffFromExpected := (endTime.Sub(startTime) - timeBetweenChecks).Abs()
-		if diffFromExpected > 2*time.Second {
-			log.Debug("RTC clock is not ticking, or ticking incorrectly")
-
-			if checks < 5 {
-				// Let it try a few times as the RTC time might be getting updated, causing a false positive.
-				continue
-			}
-
-			log.Errorf("RTC clock is not ticking, or ticking incorrectly times should be different by %s. Times: %s, %s", timeBetweenChecks, startTime, endTime)
-			err := eventclient.AddEvent(eventclient.Event{
-				Timestamp: time.Now(),
-				Type:      "rtcNotTicking",
-				Details: map[string]interface{}{
-					"startTime":                  startTime.Format(time.DateTime),
-					"endTime":                    endTime.Format(time.DateTime),
-					"timeBetweenChecks":          timeBetweenChecks.String(),
-					"timeDifferenceFromExpected": diffFromExpected.String(),
-					eventclient.SeverityKey:      eventclient.SeverityError,
-				},
-			})
-			if err != nil {
-				log.Errorf("Error adding 'rtcNotTicking' event: %v", err)
-			}
-			break
-		}
-	}
+	// Starting check ticking loop, this checks that the RTC is "ticking" properly.
+	// We had a device where you could read/write times to the RTC, but the clock on the RTC was just staying the same after a write.
+	log.Debug("Starting check ticking loop")
+	go rtc.checkTickingLoop()
 
 	return nil
 }

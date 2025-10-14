@@ -29,6 +29,7 @@ type pcf8563 struct{}
 
 func InitPCF9564() (*pcf8563, error) {
 	// Check that a device is present on I2C bus at the PCF8563 address.
+	// TODO: will error the first time as the I2C dbus interface is not yet up.
 	device, err := i2crequest.CheckAddress(pcf8563Address, 1000)
 	if err != nil {
 		log.Errorf("Error checking for PCF8563 device: %v", err)
@@ -43,19 +44,17 @@ func InitPCF9564() (*pcf8563, error) {
 	}
 
 	rtc := &pcf8563{}
-	go rtc.checkNtpSyncLoop()
 	return rtc, nil
 }
 
 func (rtc *pcf8563) checkNtpSyncLoop() {
 	hasSynced := false
-	log.Println("Starting ntp sync loop")
 	for {
 		cmd := exec.Command("timedatectl", "status")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Printf("Error executing '%s' command: %v\n", strings.Join(cmd.Args, " "), err)
-			log.Printf("Combined Output: %s\n", string(out))
+			log.Errorf("Error executing '%s' command: %v\n", strings.Join(cmd.Args, " "), err)
+			log.Errorf("Combined Output: %s\n", string(out))
 			return
 		}
 
@@ -79,18 +78,21 @@ func (rtc *pcf8563) checkNtpSyncLoop() {
 	}
 }
 
-func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) error {
-	// Get last time RTC was updated
+func getLastWriteTime() (time.Time, error) {
 	timeRaw, err := os.ReadFile(lastRtcWriteTimeFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Println("No previous RTC write time")
-			return nil
+			return time.Time{}, nil
 		}
 		log.Errorf("Error reading file: %v", err)
-		return err
+		return time.Time{}, err
 	}
-	previousRtcWriteTime, err := time.Parse(time.DateTime, string(timeRaw))
+	return time.Parse(time.DateTime, string(timeRaw))
+}
+
+func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) error {
+	previousRtcWriteTime, err := getLastWriteTime()
 	if err != nil {
 		log.Error("Error parsing previous RTC write time:", err)
 	}
@@ -171,7 +173,7 @@ func (rtc *pcf8563) SetTime(newTime time.Time) error {
 		return err
 	}
 	if err := checkRtcDrift(newTime, rtcTime, integrity); err != nil {
-		log.Println("Error checking RTC drift:", err)
+		log.Error("Error checking RTC drift:", err)
 	}
 
 	newTime = newTime.UTC().Truncate(time.Second)
@@ -236,9 +238,9 @@ func (rtc *pcf8563) SetSystemTime() error {
 		return fmt.Errorf("error parsing system time before setting: %v", err)
 	}
 
-	log.Printf("Writing time to system clock (in UTC): %s", timeStr)
+	log.Debugf("Writing time to system clock (in UTC): %s", timeStr)
 	cmd := exec.Command("date", "--utc", "--set", timeStr, "+%Y-%m-%d %H:%M:%S")
-	log.Println(strings.Join(cmd.Args, " "))
+	log.Debugf("Running command: %s", strings.Join(cmd.Args, " "))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error running: %s, err: %v, out: %s", cmd.Args, err, string(out))
@@ -249,8 +251,8 @@ func (rtc *pcf8563) SetSystemTime() error {
 		return fmt.Errorf("error parsing system time before setting: %v", err)
 	}
 
-	log.Printf("System clock before writing: %s. System clock after writing: %s", before.Format(time.DateTime), after.Format(time.DateTime))
-	log.Printf("System clock moved by: %s", after.Sub(before))
+	log.Infof("System clock before writing: %s. System clock after writing: %s", before.Format(time.DateTime), after.Format(time.DateTime))
+	log.Infof("System clock moved by: %s", after.Sub(before))
 	return nil
 }
 
@@ -469,4 +471,114 @@ func writeByte(register byte, data byte) error {
 // readBytes reads bytes from the I2C device starting from a given register.
 func readBytes(register byte, length int) ([]byte, error) {
 	return i2crequest.Tx(pcf8563Address, []byte{register}, length, 1000)
+}
+
+// checkTickingLoop will every 10 minutes, check that the time on the RTC is progressing (ticking) and is not frozen.
+// This has been added as a check as we had a device where the RTC could be written and read from but the time
+// was not progressing (after writing to it, if you read the time back after 10 seconds it was still the same time)
+func (rtc *pcf8563) checkTickingLoop() {
+	for {
+		var event *eventclient.Event
+		var err error
+		// We want to check that it is not ticking properly at least 3 times.
+		// With the potential for other processes to be reading/writing to the I2C clock.
+		// We could get some false positives so we will only report and error if we get it 3 times in a row.
+		i := 2
+		for {
+			event, err = rtc.checkTicking()
+			if err == nil && event == nil {
+				// No error or ticking event, break out of the loop.
+				break
+			}
+			if i == 0 {
+				// We have run out of times to check.
+				break
+			}
+			log.Warnf("Ticking error, will check %d more times before making an event.", i)
+			time.Sleep(5 * time.Second)
+			i--
+		}
+		if event != nil {
+			log.Errorf("Issue with the RTC ticking, event: %+v", event)
+			err := eventclient.AddEvent(*event)
+			if err != nil {
+				log.Errorf("Error adding event: %v", err)
+			}
+		}
+		if err != nil {
+
+			log.Errorf("Error checking RTC: %v", err)
+		}
+
+		// Wait 10 minutes until running the next check.
+		time.Sleep(10 * time.Minute)
+	}
+}
+
+func (rtc *pcf8563) checkTicking() (*eventclient.Event, error) {
+	log.Debug("Checking RTC is ticking")
+
+	// Get the last time that the RTC was written to.
+	// This is to be used so it can check that the RTC wasn't written to during this "ticking" check.
+	lastWriteTimeAtStart, err := getLastWriteTime()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the first time from the RTC
+	startTime := time.Now()
+	rtcStartTime, integrity, err := rtc.GetTime()
+	if err != nil {
+		return nil, fmt.Errorf("error getting RTC time/integrity: %v", err)
+	}
+	if !integrity {
+		return nil, fmt.Errorf("RTC clock does't have integrity")
+	}
+
+	time.Sleep(time.Second * 10)
+
+	// Get the second time from the RTC
+	rtcEndTime, integrity, err := rtc.GetTime()
+	if err != nil {
+		return nil, fmt.Errorf("error getting RTC time/integrity: %v", err)
+	}
+	if !integrity {
+		return nil, fmt.Errorf("RTC clock does't have integrity")
+	}
+	// Even though we waited 10 seconds, it might have been a bit longer depending on how long the I2C requests take.
+	// Using time.Since will use monotonic time so we don't need to worry about the system time being changed.
+	timeBetweenChecks := time.Since(startTime)
+
+	// Check if the time has changed as expected. Giving a possible error of 2 seconds (+- 1 second for reading each time).
+	rtcTimeDifference := rtcEndTime.Sub(rtcStartTime)
+	diffFromExpected := (rtcTimeDifference - timeBetweenChecks).Abs()
+	if diffFromExpected <= 2*time.Second {
+		log.Debug("RTC is ticking")
+		return nil, nil
+	}
+	log.Warnf("RTC is not ticking as expected. Time between checks: %s, RTC time difference: %s", timeBetweenChecks, rtcTimeDifference)
+
+	// Check that the RTC hasn't been written to during this check.
+	lastWriteTimeAtEnd, err := getLastWriteTime()
+	if err != nil {
+		return nil, err
+	}
+	if lastWriteTimeAtStart != lastWriteTimeAtEnd {
+		log.Info("RTC was written to during a ticking check. Will check again.")
+		return rtc.checkTicking()
+	}
+
+	// Time difference is larger than expected. Return an event of the issue..
+	event := &eventclient.Event{
+		Timestamp: time.Now(),
+		Type:      "rtcNotTicking",
+		Details: map[string]interface{}{
+			"startTime":                  rtcStartTime.Format(time.DateTime),
+			"endTime":                    rtcEndTime.Format(time.DateTime),
+			"timeBetweenChecks":          timeBetweenChecks.String(),
+			"timeDifferenceFromExpected": diffFromExpected.String(),
+			eventclient.SeverityKey:      eventclient.SeverityError,
+		},
+	}
+	return event, nil
 }
