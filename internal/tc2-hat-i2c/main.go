@@ -23,6 +23,7 @@ type Args struct {
 	Service  *subcommand `arg:"subcommand:service" help:"Start the dbus service."`
 	Find     *Find       `arg:"subcommand:find"    help:"Find i2c devices."`
 	EEPROM   *subcommand `arg:"subcommand:eeprom"  help:"Run EEPROM check."`
+	Test     *subcommand `arg:"subcommand:test"    help:"Run tests."`
 	LogLevel string      `arg:"-l, --log-level" default:"info" help:"Set the logging level (debug, info, warn, error)"`
 }
 
@@ -84,6 +85,9 @@ func Run(inputArgs []string, ver string) error {
 	if args.Find != nil {
 		return find(args.Find)
 	}
+	if args.Test != nil {
+		return test()
+	}
 
 	if args.Service != nil {
 		if err := startService(); err != nil {
@@ -104,6 +108,19 @@ func Run(inputArgs []string, ver string) error {
 		}
 	}
 
+	return nil
+}
+
+func test() error {
+	for range 5 {
+		go func() {
+			err, _ := i2crequest.TxWithCRC(0x25, []byte{0x00}, 1, 1000)
+			if err != nil {
+				log.Error(err)
+			}
+		}()
+	}
+	time.Sleep(time.Second)
 	return nil
 }
 
