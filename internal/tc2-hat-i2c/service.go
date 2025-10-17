@@ -72,12 +72,23 @@ func startService() error {
 		requests: make(chan Request, 20),
 	}
 
+	// Make sure the lock pin is in the correct state
+	if err := releaseLock(s.busyPin); err != nil {
+		return fmt.Errorf("error releasing I2C lock: %v", err)
+	}
+
 	// Start a goroutine to process requests sequentially
 	go func() {
 		for req := range s.requests {
 			res := s.processTransaction(req)
 			req.Response <- res
 
+			// Make sure that we release the I2C lock after processing the request
+			// Even if the request failed to get an I2C lock, releasing it again will
+			// not cause an error.
+			if err := releaseLock(s.busyPin); err != nil {
+				log.Errorf("Error releasing I2C lock: %v", err)
+			}
 		}
 	}()
 
@@ -94,7 +105,7 @@ func timeBusyPinBusyDuration(busyPin gpio.PinIO, startTime time.Time) {
 			waitingForBinToBeAvailable = false
 			mu.Unlock()
 			waitTime := time.Since(startTime)
-			log.Infof("Waited %s for I2C busy pin to go low.", waitTime)
+			log.Infof("Waited %s for I2C busy pin to go low.", waitTime.Truncate(time.Microsecond*100))
 			err := eventclient.AddEvent(eventclient.Event{
 				Timestamp: time.Now(),
 				Type:      "i2cBusyPinTimeout",
@@ -174,14 +185,49 @@ type Response struct {
 	Err  *dbus.Error
 }
 
+// getI2CLock has changed from getting a lock when the pin is high to getting a lock when the pin is low.
+// Because of this it needs to be working with a version of tc2-agent v0.6.0 or newer.
+// The reason for changing this is that the switch time is a lot faster when driving the pin low
+// compared to driving the pin high with the RP2040 internal pull-up resistor (~20ns compared to 2us).
+// Driving the pin high instead of using the RP2040 internal pull-up resistor is not an option as the RP2040 and RPi pins are at slightly
+// different voltages, so if they accidentally both pull the pin high it could cause an unwanted current draw. Or if one of them pulls is
+// high while the other is powered off it would go above the recommended voltage.
+// Reducing this time makes a race condition of both the RP2040 and the RPi getting a lock at the same time much less likely.
+func getI2CLock(lockPin gpio.PinIO) (bool, error) {
+	if lockPin.Read() == gpio.High {
+		// I2C bus is free, get a lock by writing LOW to the pin.
+		err := lockPin.Out(gpio.Low)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	} else {
+		// I2C bus is busy, don't get a lock.
+		return false, nil
+	}
+}
+
+func releaseLock(lockPin gpio.PinIO) error {
+	// We only want to use pull up on the I2C lock so the there won't be a short to ground
+	// when the RP2040 drives it low to get a lock.
+	return lockPin.In(gpio.PullUp, gpio.NoEdge)
+}
+
 func (s *service) processTransaction(req Request) Response {
 	startTime := time.Now()
-	log.Debugf("Waited %s for request to be processed.", startTime.Sub(req.RequestTime))
+	log.Debugf("Waited %s for request to be processed.", startTime.Sub(req.RequestTime).Truncate(time.Microsecond*100))
 	log.Debugf("Processing request '%d'", req.RequestID)
 	log.Debug("Waiting for I2C busy pin to go low.")
 	for {
-		if s.busyPin.Read() == gpio.Low {
-			log.Debugf("Waited %s for I2C busy pin to go low.", time.Since(startTime))
+		locked, err := getI2CLock(s.busyPin)
+		if err != nil {
+			log.Errorf("Error getting I2C lock: %v", err)
+			return Response{
+				Err: dbus.NewError("org.cacophony.i2c.ErrorGettingI2CLock", nil),
+			}
+		}
+		if locked {
+			log.Debugf("Waited %s for I2C busy pin to go low.", time.Since(startTime).Truncate(time.Microsecond*100))
 			log.Debug("I2C busy pin went low.")
 			if err := s.busyPin.Out(gpio.High); err != nil {
 				return Response{
