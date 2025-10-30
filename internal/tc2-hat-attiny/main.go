@@ -189,6 +189,7 @@ func Run(inputArgs []string, ver, major, minor, patch, hash string) error {
 			if err != nil {
 				return err
 			}
+			log.Printf("rp2040PiPowerCtrlReg reg is %s\n", val)
 			if (val & 0x01) == 0x01 {
 				onReason = "Staying on because RP2040 wants me to stay on"
 				waitDuration = 10 * time.Second
