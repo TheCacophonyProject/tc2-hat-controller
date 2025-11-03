@@ -243,12 +243,21 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 }
 
 func getRegisteryData(baudRate int, reg int) int64 {
+	regCmd := "m00"
 
 	// Currently limited to the first 'page' of registery data (m00)
-	cmd := append([]byte("AT+XCMD=m00"), calcCRC16([]byte("m00"))...)
+	cmd := append([]byte("AT+XCMD=" + regCmd), calcCRC16([]byte(regCmd))...)
 	log.Infof("get reg data via command %v", cmd)
 
 	response, _ := sendATCommand(string(cmd), baudRate)
+
+	// Let's clean-up the output - trim any unwanted charaters
+	if idx := bytes.Index(response, []byte(regCmd)); idx != -1 {
+		response = response[idx:]
+	} else {
+		// fallback: not found, just log and continue
+		log.Warnf("Registry command marker [%v] not found; keeping full response", regCmd)
+	}
 
 	col := reg % 10
 	row := reg / (reg - reg % 10)
