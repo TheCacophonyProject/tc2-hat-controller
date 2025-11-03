@@ -252,7 +252,7 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	response, _ := sendATCommand(string(cmd), baudRate)
 
 	// Let's clean-up the output - trim any unwanted charaters
-	if idx := bytes.Index(response, []byte(regCmd)); idx != -1 {
+	if idx := bytes.Index(response, []byte(regCmd + "\r\n\r\n")); idx != -1 {
 		response = response[idx:]
 	} else {
 		// fallback: not found, just log and continue
@@ -268,6 +268,7 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	seq := [3]byte{byte(row), '0', ':'}
 	pos := 0
 
+	log.Debugf("Searching for %v in response", seq)
 	for i := 0; i <= len(response)-3; i++ {
 		if response[i] == seq[0] && response[i+1] == seq[1] && response[i+2] == seq[2] {
 			log.Debugf("Found %v - position: %d", seq, i)
