@@ -31,7 +31,7 @@ type batteryEvent struct {
 	Percent float64
 }
 
-var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby", "land-bird"}
+var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby"}
 var fpModelLabels = []string{"false-positive", "animal"}
 
 func addTrackingEvents(eventsChan chan event) error {
@@ -88,10 +88,10 @@ func addTrackingEvents(eventsChan chan event) error {
 					}
 				} else {
 					for i, v := range animalsList {
-						if i < len(signal.Body[2].([]int32)) {
+						if i <= len(signal.Body[2].([]int32)) {
 							species[v] = signal.Body[2].([]int32)[i]
 						} else {
-							log.Warnf("Warning possible overrun accessing element %d of Scores: %d", i, len(signal.Body[2].([]int32)))
+							log.Warnf("Animal list out of date? Possible overrun accessing element %d of Scores: %d (%v)", i, len(signal.Body[2].([]int32)), signal.Body[2])
 						}
 					}
 				}
@@ -111,6 +111,8 @@ func addTrackingEvents(eventsChan chan event) error {
 				log.Debugf("Sending tracking event: %+v", t)
 
 				eventsChan <- t
+			} else if signal.Name == "org.cacophony.thermalrecorder.TrackingReprocessed" {
+				log.Infof("Received tracking reprocessed event: %v", signal.Body)
 			}
 		}
 	}()
