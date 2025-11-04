@@ -247,7 +247,7 @@ func getRegisteryData(baudRate int, reg int) int64 {
 
 	// Currently limited to the first 'page' of registery data (m00)
 	cmd := append([]byte("AT+XCMD=" + regCmd), calcCRC16([]byte(regCmd))...)
-	log.Infof("get reg data via command %v", cmd)
+	log.Infof("get reg %d, data via command %v", reg, cmd)
 
 	response, _ := sendATCommand(string(cmd), baudRate)
 
@@ -260,7 +260,7 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	}
 
 	col := reg % 10
-	row := reg / (reg - reg % 10)
+	row := reg / (reg - (reg % 10))
 
 	// w05..
 	// response.. \xa5\xfc\r\nm00\r\n\r\n00: ff ff ff ff ff 02
