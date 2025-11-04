@@ -260,12 +260,15 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	}
 
 	col := reg % 10
-	row := reg / (reg - (reg % 10))
+	row := 0
+	if reg > 10 {
+		row = reg / (reg - (reg % 10))
+	}
 
 	// w05..
 	// response.. \xa5\xfc\r\nm00\r\n\r\n00: ff ff ff ff ff 02
 	// First, second, third or fourth row of node register block - 00:
-	seq := [3]byte{byte(row), '0', ':'}
+	seq := fmt.Sprintf("%02x:", row*16)
 	pos := 0
 
 	log.Debugf("Searching for %v in response", seq)
