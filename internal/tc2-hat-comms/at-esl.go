@@ -37,6 +37,9 @@ type ATESLLastBattery struct {
 	Lockout int64
 }
 
+var atesLastPrediction = ATESLLastPrediction{ Lockout: prediction_lockout_minutes_default }
+var atesLastBattery = ATESLLastBattery{ Lockout: battery_lockout_minutes_default }
+
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
 	messenger := ATESLMessenger{
 		config.BaudRate,
@@ -52,8 +55,7 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 			What:       testClassification.Animal,
 			Confidence: testClassification.Confidence,
 		}
-		lastPrediction := ATESLLastPrediction{}
-		err := messenger.processTrackingEvent(testTrackingEvent, &lastPrediction)
+		err := messenger.processTrackingEvent(testTrackingEvent, &atesLastPrediction)
 		if err != nil {
 			log.Error("Error processing test tracking event:", err)
 		}
@@ -67,17 +69,17 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 		// Process the event, depending on the type
 		switch v := e.(type) {
 		case trackingEvent:
-			lastPrediction := ATESLLastPrediction{}
-			err := messenger.processTrackingEvent(v, &lastPrediction)
+			err := messenger.processTrackingEvent(v, &atesLastPrediction)
 			if err != nil {
 				log.Error("Error sending classification:", err)
 			}
 		case batteryEvent:
-			lastBattery := ATESLLastBattery{}
-			err := messenger.processBatteryEvent(v, &lastBattery)
+			err := messenger.processBatteryEvent(v, &atesLastBattery)
 			if err != nil {
 				log.Error("Error sending battery reading:", err)
 			}
+		default:
+			log.Infof("No at-esl handler for event: %v", v)
 		}
 		/* TODO:
 		case thumbnailEvent:
@@ -90,10 +92,11 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 	log.Infof("Processing battery event: %+v", b)
 
 	lastBattery := time.Since(l.When).Minutes()
+	log.Infof("Last battery reading %v minutes ago (lockout %v at %v)", lastBattery, l.Lockout, l.When)
 
 	// It's a battery reading, but within the event lockout - skip notifying
 	if lastBattery < float64(l.Lockout) {
-		log.Infof("Skipping battery of %v - within event lockout %vs (%d)", b.Voltage, lastBattery, l.Lockout)
+		log.Infof("Skipping battery of %v - within event lockout %v minutes (%d)", b.Voltage, lastBattery, l.Lockout)
 		return nil
 	}
 
@@ -124,10 +127,11 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 	}
 
 	lastPrediction := time.Since(l.When).Minutes()
+	log.Infof("Last prediction %v minutes ago (lockout %v at %v)", lastPrediction, l.Lockout, l.When)
 
 	// It's a prediction frame, but within the event lockout - skip notifying
 	if lastPrediction < float64(l.Lockout) {
-		log.Infof("Skipping prediction of %v - within event lockout %vs (%d)", t.What, lastPrediction, l.Lockout)
+		log.Infof("Skipping prediction of %v - within event lockout %v minutes (%d)", t.What, lastPrediction, l.Lockout)
 		return nil
 	}
 
@@ -287,6 +291,9 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	if err != nil {
 		log.Errorf("parseInt error: %v", err)
 		reg_value = 0
+	} else if reg_value == 255 {
+		reg_value = 0
+		log.Debugf("Reg value is 255 (FF) re-setting int value: %d", reg_value)
 	}
 	log.Infof("Reg value = %d", reg_value)
 
