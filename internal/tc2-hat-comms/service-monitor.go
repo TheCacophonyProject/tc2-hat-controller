@@ -87,7 +87,11 @@ func addTrackingEvents(eventsChan chan event) error {
 					}
 				} else {
 					for i, v := range animalsList {
-						species[v] = signal.Body[2].([]int32)[i]
+						if len(signal.Body[2].([]int32)) < i {
+							species[v] = signal.Body[2].([]int32)[i]
+						} else {
+							log.Warnf("Warning possible overrun accessing element %d of Scores: %v", i, signal.Body[2])
+						}
 					}
 				}
 
