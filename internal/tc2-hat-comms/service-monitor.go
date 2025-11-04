@@ -111,8 +111,8 @@ func addTrackingEvents(eventsChan chan event) error {
 				log.Debugf("Sending tracking event: %+v", t)
 
 				eventsChan <- t
-			} else if signal.Name == "org.cacophony.thermalrecorder.TrackingReprocessed" {
-				log.Infof("Received tracking reprocessed event: %v", signal.Body)
+			} else {
+				log.Infof("Received signal %v", signal.Name)
 			}
 		}
 	}()
