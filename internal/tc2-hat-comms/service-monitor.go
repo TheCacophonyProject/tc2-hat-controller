@@ -81,16 +81,17 @@ func addTrackingEvents(eventsChan chan event) error {
 				copy(region[:], signal.Body[5].([]int32))
 
 				species := tracks.Species{}
+				log.Debugf("Scores length: %d", len(signal.Body[2].([]int32)))
 				if len(signal.Body[2].([]int32)) == 2 {
 					for i, v := range fpModelLabels {
 						species[v] = signal.Body[2].([]int32)[i]
 					}
 				} else {
 					for i, v := range animalsList {
-						if len(signal.Body[2]) < i {
+						if i < len(signal.Body[2].([]int32)) {
 							species[v] = signal.Body[2].([]int32)[i]
 						} else {
-							log.Warnf("Warning possible overrun accessing element %d of Scores: %v", i, signal.Body[2])
+							log.Warnf("Warning possible overrun accessing element %d of Scores: %d", i, len(signal.Body[2].([]int32)))
 						}
 					}
 				}
