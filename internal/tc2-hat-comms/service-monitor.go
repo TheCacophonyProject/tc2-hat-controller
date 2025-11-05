@@ -7,6 +7,11 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+var (
+    reprocessed_tracking_event string = "org.cacophony.thermalrecorder.TrackingReprocessed"
+    tracking_event string 			  = "org.cacophony.thermalrecorder.Tracking"
+)
+
 type event interface {
 	isEvent()
 }
@@ -21,6 +26,7 @@ type trackingEvent struct {
 	BlankRegion         bool
 	Tracking            bool
 	LastPredictionFrame int32
+	PostProcess			bool
 }
 
 func (t trackingEvent) isEvent() {}
@@ -34,7 +40,15 @@ type batteryEvent struct {
 var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby"}
 var fpModelLabels = []string{"false-positive", "animal"}
 
+func addPostProcessTrackingEvents(eventsChan chan event) error {
+	return addSignalHandlerForTrackingEvents(eventsChan, reprocessed_tracking_event)
+}
+
 func addTrackingEvents(eventsChan chan event) error {
+	return addSignalHandlerForTrackingEvents(eventsChan, tracking_event)
+}
+
+func addSignalHandlerForTrackingEvents(eventsChan chan event, signalName string) error {
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -53,14 +67,12 @@ func addTrackingEvents(eventsChan chan event) error {
 	conn.Signal(c)
 
 	// Listen for signals
-	log.Println("Listening for D-Bus signals from org.cacophony.thermalrecorder...")
+	log.Infof("Listening for D-Bus signals: %s", signalName)
 
 	// Listen for signals, process and send tracking events to the channel.
 	go func() {
 		for signal := range c {
-			if signal.Name == "org.cacophony.thermalrecorder.Tracking" {
-				// TODO check the ThermalMotion config for PostProcess true so that we can switch via sidekick
-				// signal.Name == "org.cacophony.thermalrecorder.TrackingReprocessed" {
+			if signal.Name == signalName {
 				log.Debugf("Received tracking event [%v]:", signal.Name)
 
 				// Reprocessed signals have an additional parameter 'clip_end_time'
@@ -119,6 +131,7 @@ func addTrackingEvents(eventsChan chan event) error {
 					BlankRegion:         signal.Body[8].(bool),
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
+					PostProcess:		 (signal.Name == reprocessed_tracking_event),
 					// Add thumbnail
 				}
 
@@ -135,6 +148,9 @@ func addTrackingEvents(eventsChan chan event) error {
 }
 
 func addBatteryEvents(eventsChan chan event) error {
+	// Listen for signals
+	signalName := "org.cacophony.attiny.Battery"
+
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -152,13 +168,11 @@ func addBatteryEvents(eventsChan chan event) error {
 	c := make(chan *dbus.Signal, 10)
 	conn.Signal(c)
 
-	// Listen for signals
-	log.Println("Listening for D-Bus signals from org.cacophony.attiny...")
-
+	log.Infof("Listening for D-Bus signals: %s", signalName)
 	// Listen for signals, process and send tracking events to the channel.
 	go func() {
 		for signal := range c {
-			if signal.Name == "org.cacophony.attiny.Battery" {
+			if signal.Name == signalName {
 				log.Debug("Received battery event.")
 				if len(signal.Body) != 2 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)

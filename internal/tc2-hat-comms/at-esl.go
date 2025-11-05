@@ -23,6 +23,7 @@ var (
 type ATESLMessenger struct {
 	baudRate    int
 	trapSpecies map[string]int32
+	postProcess bool
 }
 
 type ATESLLastPrediction struct {
@@ -44,6 +45,7 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 	messenger := ATESLMessenger{
 		config.BaudRate,
 		config.TrapSpecies,
+		config.PostProcess,
 	}
 
 	if testClassification != nil {
@@ -81,10 +83,6 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 		default:
 			log.Infof("No at-esl handler for event: %v", v)
 		}
-		/* TODO:
-		case thumbnailEvent:
-		case ...
-		*/
 	}
 }
 
@@ -119,9 +117,13 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
-	log.Debugf("Received new tracking event What: %v, Confidence : %v, Region: %v, LastPredictionFrame: %v, Frame: %v",
-		t.What, t.Confidence, t.Region, t.LastPredictionFrame, t.Frame)
+	// If post processing is enabled don't process non-post process track events (and vice-versa)
+	if ( a.postProcess && ! t.PostProcess ) || ( ! a.postProcess && t.PostProcess ) {
+		return nil
+	}
 
+	// Focus only on the Last prediction frame 
+	// TODO - note this still means we grab the first prediction in the track - bit simplistic perhaps?
 	if t.Frame != t.LastPredictionFrame {
 		return nil
 	}
@@ -131,12 +133,12 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 
 	// It's a prediction frame, but within the event lockout - skip notifying
 	if lastPrediction < float64(l.Lockout) {
-		log.Infof("Skipping prediction of %v - within event lockout %v minutes (%d)", t.What, lastPrediction, l.Lockout)
+		log.Infof("Skipping prediction of %v (%v) - within event lockout %v minutes (%d)", t.What, t.Confidence, lastPrediction, l.Lockout)
 		return nil
 	}
 
-	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence : %v, Region: %v, Frame: %v",
-		t.What, t.Confidence, t.Region, t.Frame)
+	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence: %v, PostProcess: %v, Region: %v, Frame: %v",
+		t.What, t.Confidence, t.PostProcess, t.Region, t.Frame)
 
 	var targetConfidence int32 = 0
 	target := false
