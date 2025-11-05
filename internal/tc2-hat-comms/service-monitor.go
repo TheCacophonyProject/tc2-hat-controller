@@ -59,8 +59,12 @@ func addTrackingEvents(eventsChan chan event) error {
 	go func() {
 		for signal := range c {
 			if signal.Name == "org.cacophony.thermalrecorder.Tracking" {
-				log.Debug("Received tracking event:")
-				if len(signal.Body) != 12 {
+				// TODO check the ThermalMotion config for PostProcess true so that we can switch via sidekick
+				// signal.Name == "org.cacophony.thermalrecorder.TrackingReprocessed" {
+				log.Debugf("Received tracking event [%v]:", signal.Name)
+
+				// Reprocessed signals have an additional parameter 'clip_end_time'
+				if len(signal.Body) < 12 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)
 					continue
 				}
@@ -96,6 +100,15 @@ func addTrackingEvents(eventsChan chan event) error {
 					}
 				}
 
+				// Try and get the associated thumbnail - getThumbnail perhaps
+				thumbnailer := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
+				t_call := thumbnailer.Call("org.cacophony.thermalrecorder.GetThumbnail", 0, signal.Body[0].(int32), signal.Body[1].(int32))
+				if t_call.Err != nil {
+					log.Warnf("Failed to get thumbnail: %v", t_call.Err)
+				} else {
+					log.Debugf("Thumbnail data available: track %v, region %v", t_call.Body[1], t_call.Body[2])
+				}
+
 				t := trackingEvent{
 					Species:             species,
 					What:                signal.Body[3].(string),
@@ -106,13 +119,14 @@ func addTrackingEvents(eventsChan chan event) error {
 					BlankRegion:         signal.Body[8].(bool),
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
+					// Add thumbnail
 				}
 
 				log.Debugf("Sending tracking event: %+v", t)
 
 				eventsChan <- t
 			} else {
-				log.Infof("Received signal %v", signal.Name)
+				log.Debugf("Received signal name: %v, body: %v", signal.Name, signal.Body)
 			}
 		}
 	}()
