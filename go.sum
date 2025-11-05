@@ -9,6 +9,8 @@ github.com/TheCacophonyProject/event-reporter/v3 v3.9.0/go.mod h1:DE4feSd2eALapC
 github.com/TheCacophonyProject/go-config v1.4.0/go.mod h1:oARW/N3eJbcewCqB+Jc7TBwuODawwYgpo56UO6yBdKU=
 github.com/TheCacophonyProject/go-config v1.27.2 h1:S4ozHFtRwSwwvlQGqAzRyPn1deF6bDVhJT6fh4g5UOY=
 github.com/TheCacophonyProject/go-config v1.27.2/go.mod h1:/oXes+9CcY7mRvy3U9xTTLmr5S8trIhzTOtx3JOd5QA=
+github.com/TheCacophonyProject/go-config v1.29.0 h1:fO+v9jgVQBR9MHee0CLpaSFwQRFVyushjO4CNmKOcag=
+github.com/TheCacophonyProject/go-config v1.29.0/go.mod h1:+9Z/iu1atKlfwfbbyfpUHaDz9quCgo/BvCianA+zSAs=
 github.com/TheCacophonyProject/go-utils v0.1.3 h1:DSuDeJz7ZM00yQRLsoukWH0fnC+8X8+ziYxOl6l3wEY=
 github.com/TheCacophonyProject/go-utils v0.1.3/go.mod h1:jZPUZ4GtYVxnlTtqiYKMFWDT//kmxdbwjLW3HCyCmCE=
 github.com/TheCacophonyProject/rpi-net-manager v0.5.6 h1:/80dbwvwhWz4Yh1eBA64/Yzfzw6W0yWSxuDrdUzz9uE=
