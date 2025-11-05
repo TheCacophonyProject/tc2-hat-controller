@@ -48,8 +48,8 @@ func ParseConfig(configDir string) (*AttinyConfig, error) {
 	}
 
 	w, err := window.New(
-		windows.PowerOn,
-		windows.PowerOff,
+		windows.StartRecording,
+		windows.StopRecording,
 		float64(location.Latitude),
 		float64(location.Longitude))
 	if err != nil {

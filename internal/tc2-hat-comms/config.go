@@ -13,6 +13,7 @@ type CommsConfig struct {
 
 	UartTxPin string
 	BaudRate  int
+	PostProcess bool
 }
 
 func ParseCommsConfig(configDir string) (*CommsConfig, error) {
@@ -31,10 +32,16 @@ func ParseCommsConfig(configDir string) (*CommsConfig, error) {
 		return nil, err
 	}
 
+	tm := config.DefaultThermalMotion("")
+	if err := conf.Unmarshal(config.ThermalMotionKey, &tm); err != nil {
+		return nil, err
+	}
+
 	return &CommsConfig{
 		Comms:          c,
 		TrapSpecies:    tracks.Species(c.TrapSpecies),
 		ProtectSpecies: tracks.Species(c.ProtectSpecies),
 		UartTxPin:      gpio.UartTx,
+		PostProcess:	tm.PostProcess,
 	}, nil
 }
