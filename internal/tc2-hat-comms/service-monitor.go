@@ -10,6 +10,8 @@ import (
 var (
     reprocessed_tracking_event string = "org.cacophony.thermalrecorder.TrackingReprocessed"
     tracking_event string 			  = "org.cacophony.thermalrecorder.Tracking"
+	animalsList 					  = []string{}
+	fpModelLabels 					  = []string{}
 )
 
 type event interface {
@@ -36,9 +38,6 @@ type batteryEvent struct {
 	Voltage float64
 	Percent float64
 }
-
-var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby"}
-var fpModelLabels = []string{"false-positive", "animal"}
 
 func addPostProcessTrackingEvents(eventsChan chan event) error {
 	return addSignalHandlerForTrackingEvents(eventsChan, reprocessed_tracking_event)
@@ -69,11 +68,19 @@ func addSignalHandlerForTrackingEvents(eventsChan chan event, signalName string)
 	// Listen for signals
 	log.Infof("Listening for D-Bus signals: %s", signalName)
 
+	// Get the latest classification labels if we need them
+	if len(animalsList) == 0 {
+		log.Info("Getting latest classification labels")
+		getLabels()
+	}
+
 	// Listen for signals, process and send tracking events to the channel.
 	go func() {
 		for signal := range c {
 			if signal.Name == signalName {
 				log.Debugf("Received tracking event [%v]:", signal.Name)
+				// Is this a postprocessing event
+				postprocess := (signal.Name == reprocessed_tracking_event)
 
 				// Reprocessed signals have an additional parameter 'clip_end_time'
 				if len(signal.Body) < 12 {
@@ -98,27 +105,22 @@ func addSignalHandlerForTrackingEvents(eventsChan chan event, signalName string)
 
 				species := tracks.Species{}
 				log.Debugf("Scores length: %d", len(signal.Body[2].([]int32)))
-				if len(signal.Body[2].([]int32)) == 2 {
+				if len(signal.Body[2].([]int32)) == len(fpModelLabels) {
 					for i, v := range fpModelLabels {
 						species[v] = signal.Body[2].([]int32)[i]
 					}
-				} else {
+				} else if len(signal.Body[2].([]int32)) == len(animalsList) {
 					for i, v := range animalsList {
-						if i <= len(signal.Body[2].([]int32)) {
-							species[v] = signal.Body[2].([]int32)[i]
-						} else {
-							log.Warnf("Animal list out of date? Possible overrun accessing element %d of Scores: %d (%v)", i, len(signal.Body[2].([]int32)), signal.Body[2])
-						}
+						species[v] = signal.Body[2].([]int32)[i]
 					}
+				} else {
+					log.Warnf("Prediction scores array (%v) doesn't match false-positives or positive labels list, skipping ...", signal.Body[2])
+					continue
 				}
 
-				// Try and get the associated thumbnail - getThumbnail perhaps
-				thumbnailer := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
-				t_call := thumbnailer.Call("org.cacophony.thermalrecorder.GetThumbnail", 0, signal.Body[0].(int32), signal.Body[1].(int32))
-				if t_call.Err != nil {
-					log.Warnf("Failed to get thumbnail: %v", t_call.Err)
-				} else {
-					log.Debugf("Thumbnail data available: track %v, region %v", t_call.Body[1], t_call.Body[2])
+				if ! postprocess {
+					// TODO Currently not available when postprocessing
+					getThumbnail(signal.Body[0].(int32), signal.Body[1].(int32))
 				}
 
 				t := trackingEvent{
@@ -131,7 +133,7 @@ func addSignalHandlerForTrackingEvents(eventsChan chan event, signalName string)
 					BlankRegion:         signal.Body[8].(bool),
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
-					PostProcess:		 (signal.Name == reprocessed_tracking_event),
+					PostProcess:		 postprocess,
 					// Add thumbnail
 				}
 
@@ -195,4 +197,59 @@ func addBatteryEvents(eventsChan chan event) error {
 	}()
 
 	return nil
+}
+
+func getLabels() {
+	// Connect to the system bus
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		log.Fatalf("Failed to connect to system bus: %v", err)
+	}
+
+	// Try and get the classification labels
+	thumbnailer := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
+	t_call := thumbnailer.Call("org.cacophony.thermalrecorder.ClassificationLabels", 0)
+	if t_call.Err != nil {
+		panic("Failed to get classification lables")
+		return
+	}
+	// [map[1:[bird cat deer dog false-positive hedgehog human kiwi leporidae mustelid penguin possum rodent sheep vehicle wallaby] 1004:[animal false-positive]]]
+	bodyMap := t_call.Body[0].(map[int32][]string)
+
+	// We can't be sure which array element is which (as example above one had id 1 but who know's)?
+	// Let's assume the smallest one is false-positives?
+
+	for _, v := range bodyMap {
+		if len(animalsList) == 0 {
+			animalsList = v
+		}
+		if len(fpModelLabels) == 0 {
+			fpModelLabels = v
+		}
+
+		if len(v) > len(animalsList) { // heuristic: longer one = species labels
+			animalsList = v
+		}
+		if len(v) < len(fpModelLabels) { // heuristic: shorter one = false-positives labels
+			fpModelLabels = v
+		}
+	}
+	log.Infof("Classification labels updated: animalsList: %v, fpModelLabels: %v", animalsList, fpModelLabels)
+}
+
+func getThumbnail(clip_id int32, track_id int32) {
+	// Connect to the system bus
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		log.Fatalf("Failed to connect to system bus: %v", err)
+	}
+
+	// Try and get the associated thumbnail
+	thumbnailer := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
+	t_call := thumbnailer.Call("org.cacophony.thermalrecorder.GetThumbnail", 0, clip_id, track_id)
+	if t_call.Err != nil {
+		log.Warnf("Failed to get thumbnail: %v", t_call.Err)
+	} else {
+		log.Debugf("Thumbnail data available: data %+v", t_call.Body)
+	}
 }
