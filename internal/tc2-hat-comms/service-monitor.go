@@ -211,7 +211,6 @@ func getLabels() {
 	t_call := thumbnailer.Call("org.cacophony.thermalrecorder.ClassificationLabels", 0)
 	if t_call.Err != nil {
 		panic("Failed to get classification lables")
-		return
 	}
 	// [map[1:[bird cat deer dog false-positive hedgehog human kiwi leporidae mustelid penguin possum rodent sheep vehicle wallaby] 1004:[animal false-positive]]]
 	bodyMap := t_call.Body[0].(map[int32][]string)
