@@ -39,12 +39,9 @@ type batteryEvent struct {
 
 func addTrackingEvents(eventsChan chan event) error {
 	// Only process reprocessed events
-    //trackingEventName := "org.cacophony.thermalrecorder.Tracking"
-    trackingEventName := "org.cacophony.thermalrecorder.TrackingReprocessed"
-	return addSignalHandlerForTrackingEvents(eventsChan, trackingEventName)
-}
+    //targetSignalName := "org.cacophony.thermalrecorder.Tracking"
+    targetSignalName := "org.cacophony.thermalrecorder.TrackingReprocessed"
 
-func addSignalHandlerForTrackingEvents(eventsChan chan event, targetSignalName string) error {
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
 	if err != nil {
