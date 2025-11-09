@@ -21,9 +21,8 @@ var (
 )
 
 type ATESLMessenger struct {
-	baudRate    int
-	trapSpecies map[string]int32
-	postProcess bool
+	baudRate    	 int
+	trapSpecies 	 map[string]int32
 }
 
 type ATESLLastPrediction struct {
@@ -45,7 +44,6 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 	messenger := ATESLMessenger{
 		config.BaudRate,
 		config.TrapSpecies,
-		config.PostProcess,
 	}
 
 	if testClassification != nil {
@@ -117,11 +115,6 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
-	// If post processing is enabled don't process non-post process track events (and vice-versa)
-	if ( a.postProcess && ! t.PostProcess ) || ( ! a.postProcess && t.PostProcess ) {
-		return nil
-	}
-
 	// Focus only on the Last prediction frame 
 	// TODO - note this still means we grab the first prediction in the track - bit simplistic perhaps?
 	if t.Frame != t.LastPredictionFrame {
@@ -137,8 +130,8 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		return nil
 	}
 
-	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence: %v, PostProcess: %v, Region: %v, Frame: %v",
-		t.What, t.Confidence, t.PostProcess, t.Region, t.Frame)
+	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence: %v, Region: %v, Frame: %v",
+		t.What, t.Confidence, t.Region, t.Frame)
 
 	var targetConfidence int32 = 0
 	target := false
@@ -170,6 +163,9 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 			log.Error("Error sending classification:", err)
 			return err
 		}
+
+		// TODO - send the thumbnail 
+		log.Infof("Thumbnail is: %d×%d", len(t.Thumbnail), len(t.Thumbnail[0]))
 
 		// Now let's check the event lockout
 		l.Lockout = getPredictionEventLockout(a.baudRate)

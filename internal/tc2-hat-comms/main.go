@@ -125,11 +125,6 @@ func Run(inputArgs []string, ver string) error {
 		return err
 	}
 
-	err = addPostProcessTrackingEvents(eventsChan)
-	if err != nil {
-		return err
-	}
-
 	err = addBatteryEvents(eventsChan)
 	if err != nil {
 		return err
