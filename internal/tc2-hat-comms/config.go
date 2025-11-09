@@ -32,9 +32,9 @@ func ParseCommsConfig(configDir string) (*CommsConfig, error) {
 	}
 
 	return &CommsConfig{
-		Comms:          	c,
-		TrapSpecies:    	tracks.Species(c.TrapSpecies),
-		ProtectSpecies: 	tracks.Species(c.ProtectSpecies),
-		UartTxPin:      	gpio.UartTx,
+		Comms:          c,
+		TrapSpecies:    tracks.Species(c.TrapSpecies),
+		ProtectSpecies: tracks.Species(c.ProtectSpecies),
+		UartTxPin:      gpio.UartTx,
 	}, nil
 }
