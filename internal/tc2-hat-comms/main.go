@@ -144,7 +144,6 @@ func Run(inputArgs []string, ver string) error {
 	case "at-esl":
 		log.Info("Running AT-ESL output.")
 		config.BaudRate = 4800 // Force AT-ESL baud rate to be 4800
-
 		if err := processATESL(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
