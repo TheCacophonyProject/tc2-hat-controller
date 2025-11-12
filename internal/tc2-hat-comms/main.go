@@ -120,11 +120,7 @@ func Run(inputArgs []string, ver string) error {
 
 	eventsChan := make(chan event, 10)
 
-	err = addTrackingEvents(eventsChan)
-	if err != nil {
-		return err
-	}
-
+	// Every comms channel wants battery events
 	err = addBatteryEvents(eventsChan)
 	if err != nil {
 		return err
@@ -133,16 +129,34 @@ func Run(inputArgs []string, ver string) error {
 	switch config.CommsOut {
 	case "uart":
 		log.Info("Running UART output.")
+
+		err = addTrackingEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
 		if err := processUart(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
 	case "simple":
 		log.Info("Running simple output.")
+
+		err = addTrackingEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
 		if err := processSimpleOutput(config, eventsChan); err != nil {
 			return err
 		}
 	case "at-esl":
 		log.Info("Running AT-ESL output.")
+
+		err = addTrackingReprocessedEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
 		config.BaudRate = 4800 // Force AT-ESL baud rate to be 4800
 		if err := processATESL(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
