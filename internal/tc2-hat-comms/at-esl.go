@@ -21,8 +21,8 @@ var (
 )
 
 type ATESLMessenger struct {
-	baudRate    	 int
-	trapSpecies 	 map[string]int32
+	baudRate    int
+	trapSpecies map[string]int32
 }
 
 type ATESLLastPrediction struct {
@@ -115,23 +115,18 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
-	// Focus only on the Last prediction frame 
-	// TODO - note this still means we grab the first prediction in the track - bit simplistic perhaps?
-	if t.Frame != t.LastPredictionFrame {
-		return nil
-	}
-
 	lastPrediction := time.Since(l.When).Minutes()
 	log.Infof("Last prediction %v minutes ago (lockout %v at %v)", lastPrediction, l.Lockout, l.When)
 
 	// It's a prediction frame, but within the event lockout - skip notifying
 	if lastPrediction < float64(l.Lockout) {
-		log.Infof("Skipping prediction of %v (%v) - within event lockout %v minutes (%d)", t.What, t.Confidence, lastPrediction, l.Lockout)
+		log.Infof("Skipping prediction of %v (%v), ClipId %d, TrackId %d - within event lockout %v minutes (%d)",
+			t.What, t.Confidence, t.ClipId, t.TrackId, lastPrediction, l.Lockout)
 		return nil
 	}
 
-	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence: %v, Region: %v, Frame: %v",
-		t.What, t.Confidence, t.Region, t.Frame)
+	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence: %v, ClipId %d, TrackId %d, Region: %v, Frame: %v",
+		t.What, t.Confidence, t.ClipId, t.TrackId, t.Region, t.Frame)
 
 	var targetConfidence int32 = 0
 	target := false
@@ -165,7 +160,8 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		}
 
 		// TODO - send the thumbnail 
-		log.Infof("Thumbnail is: %d×%d", len(t.Thumbnail), len(t.Thumbnail[0]))
+		tn := getThumbnail(t.ClipId, t.TrackId)
+		log.Infof("Thumbnail is: %d×%d", len(tn), len(tn[0]))
 
 		// Now let's check the event lockout
 		l.Lockout = getPredictionEventLockout(a.baudRate)
