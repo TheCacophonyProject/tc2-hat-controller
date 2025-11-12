@@ -3,6 +3,9 @@
 package comms
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/godbus/dbus/v5"
 )
@@ -13,7 +16,7 @@ type models struct {
 }
 
 var (
-	animalsList   = models{id: 1}
+	animalsList	  = models{id: 1}
 	fpModelLabels = models{id: 1004}
 )
 
@@ -105,28 +108,49 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				log.Debugf("Last prediction frame: %v", signal.Body[10])
 				log.Debugf("Model Id: %v", signal.Body[11])
 
-				modelId := signal.Body[11]
-				modelLabels := []string{}
+				var modelId int32
+				var modelLabels []string
 
-				var region [4]int32
-				copy(region[:], signal.Body[5].([]int32))
+				// Match the track model output to our now models
+				switch modelIdType := signal.Body[11].(type) {
+					case int32:
+						modelId = signal.Body[11].(int32)
+					// Reprocessed events have a "post-" id prefix
+					case string:
+						modelIdStr := strings.TrimPrefix(signal.Body[11].(string), "post-")
+						val64, err := strconv.ParseInt(modelIdStr, 10, 32)
+						if err != nil {
+							log.Warnf("Failed to parse the model id[%v]: %v", modelIdStr, err)
+							continue
+						}
+						modelId = int32(val64)
+					default:
+						log.Warnf("Model id unexpected type %v .. skipping", modelIdType)
+						continue
+				}
 
-				species := tracks.Species{}
-				log.Debugf("Scores length: %d", len(signal.Body[2].([]int32)))
+				// Get the labels for the model used in the prediction
 				switch modelId {
 					case fpModelLabels.id: 
 						modelLabels = fpModelLabels.labels
 					case animalsList.id:
 						modelLabels = animalsList.labels
 					default:
-						log.Warnf("Prediction scores array (%v) doesn't match known model labels, skipping ...", signal.Body[2])
+						log.Warnf("Model id key not known %v [%v, %v]", modelId, fpModelLabels.id, animalsList.id)
 						continue
 				}			
 
+				// Loop through our track species and get the model scores 
+				species := tracks.Species{}
 				for i, v := range modelLabels {
 					species[v] = signal.Body[2].([]int32)[i]
 				}
 
+				// Get the region details
+				var region [4]int32
+				copy(region[:], signal.Body[5].([]int32))
+
+				// Finally let's build our tracking event
 				t := trackingEvent{
 					Species:             species,
 					ClipId:              signal.Body[0].(int32),
@@ -140,12 +164,11 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
 				}
-
 				log.Debugf("Sending tracking event: %+v", t)
 
 				eventsChan <- t
 			} else {
-				log.Debugf("Received signal name: %v, body: %v", signal.Name, signal.Body)
+				log.Infof("Received unexpected signal name: %v, body: %v", signal.Name, signal.Body)
 			}
 		}
 	}()
@@ -226,7 +249,7 @@ func getLabels() {
 		} else if k == fpModelLabels.id {
 			fpModelLabels.labels = v
 		} else {
-			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, v)
+			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, bodyMap)
 		}
 	}
 	log.Infof("Classification labels updated: animalsList: %+v, fpModelLabels: %+v", animalsList, fpModelLabels)
