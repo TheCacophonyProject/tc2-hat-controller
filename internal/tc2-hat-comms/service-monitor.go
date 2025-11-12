@@ -7,9 +7,14 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+type models struct {
+	id	   int32
+	labels []string
+}
+
 var (
-	animalsList 					    = []string{}
-	fpModelLabels 					    = []string{}
+	animalsList   = models{id: 1}
+	fpModelLabels = models{id: 1004}
 )
 
 type event interface {
@@ -38,10 +43,17 @@ type batteryEvent struct {
 	Percent float64
 }
 
-func addTrackingEvents(eventsChan chan event) error {
-	// Only process reprocessed events
-    //targetSignalName := "org.cacophony.thermalrecorder.Tracking"
+func addTrackingReprocessedEvents(eventsChan chan event) error {
     targetSignalName := "org.cacophony.thermalrecorder.TrackingReprocessed"
+    return addTrackingEventsForSignal(eventsChan, targetSignalName)
+}
+
+func addTrackingEvents(eventsChan chan event) error {
+	targetSignalName := "org.cacophony.thermalrecorder.Tracking"
+	return addTrackingEventsForSignal(eventsChan, targetSignalName)
+}
+
+func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) error {
 
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
@@ -64,7 +76,7 @@ func addTrackingEvents(eventsChan chan event) error {
 	log.Infof("Listening for D-Bus signals: %s", targetSignalName)
 
 	// Get the latest classification labels if we need them
-	if len(animalsList) == 0 {
+	if len(animalsList.labels) == 0 {
 		log.Info("Getting latest classification labels")
 		getLabels()
 	}
@@ -93,22 +105,26 @@ func addTrackingEvents(eventsChan chan event) error {
 				log.Debugf("Last prediction frame: %v", signal.Body[10])
 				log.Debugf("Model Id: %v", signal.Body[11])
 
+				modelId := signal.Body[11]
+				modelLabels := []string{}
+
 				var region [4]int32
 				copy(region[:], signal.Body[5].([]int32))
 
 				species := tracks.Species{}
 				log.Debugf("Scores length: %d", len(signal.Body[2].([]int32)))
-				if len(signal.Body[2].([]int32)) == len(fpModelLabels) {
-					for i, v := range fpModelLabels {
-						species[v] = signal.Body[2].([]int32)[i]
-					}
-				} else if len(signal.Body[2].([]int32)) == len(animalsList) {
-					for i, v := range animalsList {
-						species[v] = signal.Body[2].([]int32)[i]
-					}
-				} else {
-					log.Warnf("Prediction scores array (%v) doesn't match false-positives or positive labels list, skipping ...", signal.Body[2])
-					continue
+				switch modelId {
+					case fpModelLabels.id: 
+						modelLabels = fpModelLabels.labels
+					case animalsList.id:
+						modelLabels = animalsList.labels
+					default:
+						log.Warnf("Prediction scores array (%v) doesn't match known model labels, skipping ...", signal.Body[2])
+						continue
+				}			
+
+				for i, v := range modelLabels {
+					species[v] = signal.Body[2].([]int32)[i]
 				}
 
 				t := trackingEvent{
@@ -202,16 +218,18 @@ func getLabels() {
 	}
 	bodyMap := t_call.Body[0].(map[int32][]string)
 
-	// Out model labels have key '1' .. false-postitives are the other element.
+	// Out model labels have id '1' .. false-postitives are the other element.
 	// e.g. [map[1:[bird cat deer ... vehicle wallaby] 1004:[animal false-positive]]]
 	for k, v := range bodyMap {
-		if k == 1 {
-			animalsList = v
+		if k == animalsList.id {
+			animalsList.labels = v
+		} else if k == fpModelLabels.id {
+			fpModelLabels.labels = v
 		} else {
-			fpModelLabels = v
+			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, v)
 		}
 	}
-	log.Infof("Classification labels updated: animalsList: %v, fpModelLabels: %v", animalsList, fpModelLabels)
+	log.Infof("Classification labels updated: animalsList: %+v, fpModelLabels: %+v", animalsList, fpModelLabels)
 }
 
 func getThumbnail(clip_id int32, track_id int32) [][]uint16 {
