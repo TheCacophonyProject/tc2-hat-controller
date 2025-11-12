@@ -21,12 +21,13 @@ type trackingEvent struct {
 	What                string
 	Confidence          int32
 	Region              [4]int32
+	ClipId              int32
+	TrackId             int32
 	Frame               int32
 	Mass                int32
 	BlankRegion         bool
 	Tracking            bool
 	LastPredictionFrame int32
-	Thumbnail			[][]uint16
 }
 
 func (t trackingEvent) isEvent() {}
@@ -112,6 +113,8 @@ func addTrackingEvents(eventsChan chan event) error {
 
 				t := trackingEvent{
 					Species:             species,
+					ClipId:              signal.Body[0].(int32),
+					TrackId:             signal.Body[1].(int32),
 					What:                signal.Body[3].(string),
 					Confidence:          signal.Body[4].(int32),
 					Region:              region,
@@ -120,7 +123,6 @@ func addTrackingEvents(eventsChan chan event) error {
 					BlankRegion:         signal.Body[8].(bool),
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
-					Thumbnail:			 getThumbnail(signal.Body[0].(int32), signal.Body[1].(int32)),
 				}
 
 				log.Debugf("Sending tracking event: %+v", t)
@@ -193,8 +195,8 @@ func getLabels() {
 	}
 
 	// Try and get the classification labels
-	thumbnailer := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
-	t_call := thumbnailer.Call("org.cacophony.thermalrecorder.ClassificationLabels", 0)
+	connObj := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
+	t_call := connObj.Call("org.cacophony.thermalrecorder.ClassificationLabels", 0)
 	if t_call.Err != nil {
 		panic("Failed to get classification lables")
 	}
@@ -230,8 +232,8 @@ func getThumbnail(clip_id int32, track_id int32) [][]uint16 {
 	}
 
 	// Try and get the associated thumbnail
-	thumbnailer := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
-	t_call := thumbnailer.Call("org.cacophony.thermalrecorder.GetThumbnail", 0, clip_id, track_id)
+	connObj := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
+	t_call := connObj.Call("org.cacophony.thermalrecorder.GetThumbnail", 0, clip_id, track_id)
 	if t_call.Err != nil {
 		log.Warnf("Failed to get thumbnail (clip id: %d, track_id: %d): %v", clip_id, track_id, t_call.Err)
 		return nil
