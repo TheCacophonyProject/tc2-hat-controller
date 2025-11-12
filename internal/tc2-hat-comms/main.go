@@ -126,26 +126,41 @@ func Run(inputArgs []string, ver string) error {
 		return err
 	}
 
-	// Every comms channel tracking reprocessed events
-	err = addTrackingReprocessedEvents(eventsChan)
-	if err != nil {
-		return err
-	}
-
 	switch config.CommsOut {
 	case "uart":
 		log.Info("Running UART output.")
+
+		// simple comms channel tracking events
+		err = addTrackingEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
 		if err := processUart(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
 	case "simple":
 		log.Info("Running simple output.")
+
+		// simple comms channel tracking events
+		err = addTrackingEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
 		if err := processSimpleOutput(config, eventsChan); err != nil {
 			return err
 		}
 	case "at-esl":
 		log.Info("Running AT-ESL output.")
 		config.BaudRate = 4800 // Force AT-ESL baud rate to be 4800
+
+		// at-esl comms channel tracking reprocessed events
+		err = addTrackingReprocessedEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
 		if err := processATESL(config, args.SendTestClassification, eventsChan); err != nil {
 			return err
 		}
