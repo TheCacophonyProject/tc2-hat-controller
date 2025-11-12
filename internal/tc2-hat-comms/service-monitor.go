@@ -200,24 +200,14 @@ func getLabels() {
 	if t_call.Err != nil {
 		panic("Failed to get classification lables")
 	}
-	// [map[1:[bird cat deer dog false-positive hedgehog human kiwi leporidae mustelid penguin possum rodent sheep vehicle wallaby] 1004:[animal false-positive]]]
 	bodyMap := t_call.Body[0].(map[int32][]string)
 
-	// We can't be sure which array element is which (as example above one had id 1 but who know's)?
-	// Let's assume the smallest one is false-positives?
-
-	for _, v := range bodyMap {
-		if len(animalsList) == 0 {
+	// Out model labels have key '1' .. false-postitives are the other element.
+	// e.g. [map[1:[bird cat deer ... vehicle wallaby] 1004:[animal false-positive]]]
+	for k, v := range bodyMap {
+		if k == 1 {
 			animalsList = v
-		}
-		if len(fpModelLabels) == 0 {
-			fpModelLabels = v
-		}
-
-		if len(v) > len(animalsList) { // heuristic: longer one = species labels
-			animalsList = v
-		}
-		if len(v) < len(fpModelLabels) { // heuristic: shorter one = false-positives labels
+		} else {
 			fpModelLabels = v
 		}
 	}
