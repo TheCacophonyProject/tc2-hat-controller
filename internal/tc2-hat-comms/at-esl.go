@@ -116,7 +116,7 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
 	lastPrediction := time.Since(l.When).Minutes()
-	log.Infof("Last prediction %v minutes ago (lockout %v at %v)", lastPrediction, l.Lockout, l.When)
+	log.Debugf("Last prediction %v minutes ago (lockout %v at %v)", lastPrediction, l.Lockout, l.When)
 
 	// It's a prediction frame, but within the event lockout - skip notifying
 	if lastPrediction < float64(l.Lockout) {
