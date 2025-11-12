@@ -13,16 +13,16 @@ import (
 )
 
 var (
-	prediction_lockout_node_register int = 5
-	prediction_lockout_minutes_default int64 = 30 // default 30mins.
-	battery_lockout_hours_node_register int = 12
-	battery_lockout_mins_node_register int = 13
-	battery_lockout_minutes_default int64 = 180   // default 180mins (3 hours).
+	predictionLockoutNodeRegister 	  int = 5
+	predictionLockoutMinutesDefault   int64 = 30 // default 30mins.
+	batteryLockoutHoursNodeRegister   int = 12
+	batteryLockoutMinutesNodeRegister int = 13
+	batteryLockoutMinutesDefault 	  int64 = 180   // default 180mins (3 hours).
 )
 
 type ATESLMessenger struct {
-	baudRate    int
-	trapSpecies map[string]int32
+	BaudRate    int
+	TrapSpecies map[string]int32
 }
 
 type ATESLLastPrediction struct {
@@ -37,8 +37,8 @@ type ATESLLastBattery struct {
 	Lockout int64
 }
 
-var atesLastPrediction = ATESLLastPrediction{ Lockout: prediction_lockout_minutes_default }
-var atesLastBattery = ATESLLastBattery{ Lockout: battery_lockout_minutes_default }
+var atesLastPrediction = ATESLLastPrediction{ Lockout: predictionLockoutMinutesDefault }
+var atesLastBattery = ATESLLastBattery{ Lockout: batteryLockoutMinutesDefault }
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
 	messenger := ATESLMessenger{
@@ -99,7 +99,7 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 	// AT command, sending a battery reading as hundredths of a volt
 	atCmd := fmt.Sprintf("AT+CAMBAT=%d", int32(b.Voltage*100))
 
-	_, err := sendATCommand(atCmd, a.baudRate)
+	_, err := sendATCommand(atCmd, a.BaudRate)
 	if err != nil {
 		log.Error("Error sending battery reading:", err)
 		return err
@@ -108,7 +108,7 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 	l.When = time.Now()    // Remember when we detected it
 
 	// Now let's check the event lockout
-	l.Lockout = getBatteryEventLockout(a.baudRate)
+	l.Lockout = getBatteryEventLockout(a.BaudRate)
 
 	return nil
 }
@@ -131,7 +131,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 	var targetConfidence int32 = 0
 	target := false
 	// We've found an object - is it a target (trapable) species?
-	if _, found := a.trapSpecies["any"]; found {
+	if _, found := a.TrapSpecies["any"]; found {
 
 		// We can do without false-positives, not quite any :)
 		if t.What == "false-positive" {
@@ -139,11 +139,11 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		}
 
 		target = true
-		targetConfidence = a.trapSpecies["any"]
+		targetConfidence = a.TrapSpecies["any"]
 
-	} else if _, found := a.trapSpecies[t.What]; found {
+	} else if _, found := a.TrapSpecies[t.What]; found {
 		target = true
-		targetConfidence = a.trapSpecies[t.What]
+		targetConfidence = a.TrapSpecies[t.What]
 	}
 
 	if target && t.Confidence >= targetConfidence {
@@ -153,7 +153,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		l.What = t.What     // Remember the object
 		l.When = time.Now() // Remember when we detected it
 
-		_, err := sendATCommand(atCmd, a.baudRate)
+		_, err := sendATCommand(atCmd, a.BaudRate)
 		if err != nil {
 			log.Error("Error sending classification:", err)
 			return err
@@ -164,7 +164,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		log.Infof("Thumbnail is: %d×%d", len(tn), len(tn[0]))
 
 		// Now let's check the event lockout
-		l.Lockout = getPredictionEventLockout(a.baudRate)
+		l.Lockout = getPredictionEventLockout(a.BaudRate)
 	}
 
 	return nil
@@ -308,11 +308,11 @@ func getRegisteryData(baudRate int, reg int) int64 {
 
 func getPredictionEventLockout(baudRate int) int64 {
 
-	lockout_minutes := getRegisteryData(baudRate, prediction_lockout_node_register)
+	lockout_minutes := getRegisteryData(baudRate, predictionLockoutNodeRegister)
 
 	if lockout_minutes == 0 {
-		lockout_minutes = prediction_lockout_minutes_default
-		log.Infof("Prediction lockout time not set - using default (%d)", prediction_lockout_minutes_default)
+		lockout_minutes = predictionLockoutMinutesDefault
+		log.Infof("Prediction lockout time not set - using default (%d)", predictionLockoutMinutesDefault)
 	}
 
 	log.Infof("Prediction lockout time = %d (mins)", lockout_minutes)
@@ -331,13 +331,13 @@ func getPredictionEventLockout(baudRate int) int64 {
 */
 func getBatteryEventLockout(baudRate int) int64 {
 
-	hours := getRegisteryData(baudRate, battery_lockout_hours_node_register)
-	mins  := getRegisteryData(baudRate, battery_lockout_mins_node_register)
+	hours := getRegisteryData(baudRate, batteryLockoutHoursNodeRegister)
+	mins  := getRegisteryData(baudRate, batteryLockoutMinutesNodeRegister)
 
 	battery_lockout_minutes := hours * 60 + mins
 	if battery_lockout_minutes <= 0 {
-		log.Infof("Battery lockout time not set - using default (%d)", battery_lockout_minutes_default)
-	    battery_lockout_minutes = battery_lockout_minutes_default
+		log.Infof("Battery lockout time not set - using default (%d)", batteryLockoutMinutesDefault)
+	    battery_lockout_minutes = batteryLockoutMinutesDefault
 	}
 
 	log.Infof("Battery lockout time = %d (mins)", battery_lockout_minutes)

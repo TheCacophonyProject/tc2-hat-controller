@@ -11,13 +11,13 @@ import (
 )
 
 type models struct {
-	id	   int32
-	labels []string
+	Id	   int32
+	Labels []string
 }
 
 var (
-	animalsList	  = models{id: 1}
-	fpModelLabels = models{id: 1004}
+	animalsList	  = models{Id: 1}
+	fpModelLabels = models{Id: 1004}
 )
 
 type event interface {
@@ -79,7 +79,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 	log.Infof("Listening for D-Bus signals: %s", targetSignalName)
 
 	// Get the latest classification labels if we need them
-	if len(animalsList.labels) == 0 {
+	if len(animalsList.Labels) == 0 {
 		log.Info("Getting latest classification labels")
 		getLabels()
 	}
@@ -131,12 +131,12 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 
 				// Get the labels for the model used in the prediction
 				switch modelId {
-					case fpModelLabels.id: 
-						modelLabels = fpModelLabels.labels
-					case animalsList.id:
-						modelLabels = animalsList.labels
+					case fpModelLabels.Id: 
+						modelLabels = fpModelLabels.Labels
+					case animalsList.Id:
+						modelLabels = animalsList.Labels
 					default:
-						log.Warnf("Model id key not known %v [%v, %v]", modelId, fpModelLabels.id, animalsList.id)
+						log.Warnf("Model id key not known %v [%v, %v]", modelId, fpModelLabels.Id, animalsList.Id)
 						continue
 				}			
 
@@ -244,10 +244,10 @@ func getLabels() {
 	// Out model labels have id '1' .. false-postitives are the other element.
 	// e.g. [map[1:[bird cat deer ... vehicle wallaby] 1004:[animal false-positive]]]
 	for k, v := range bodyMap {
-		if k == animalsList.id {
-			animalsList.labels = v
-		} else if k == fpModelLabels.id {
-			fpModelLabels.labels = v
+		if k == animalsList.Id {
+			animalsList.Labels = v
+		} else if k == fpModelLabels.Id {
+			fpModelLabels.Labels = v
 		} else {
 			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, bodyMap)
 		}
