@@ -168,7 +168,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 
 				eventsChan <- t
 			} else {
-				log.Infof("Received unexpected signal name: %v, body: %v", signal.Name, signal.Body)
+				log.Debugf("Received unhandled signal name: %v, body: %v", signal.Name, signal.Body)
 			}
 		}
 	}()
