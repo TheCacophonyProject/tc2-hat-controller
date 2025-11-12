@@ -130,7 +130,7 @@ func Run(inputArgs []string, ver string) error {
 	case "uart":
 		log.Info("Running UART output.")
 
-		// simple comms channel tracking events
+		// uart comms channel listens for tracking events
 		err = addTrackingEvents(eventsChan)
 		if err != nil {
 			return err
@@ -142,7 +142,7 @@ func Run(inputArgs []string, ver string) error {
 	case "simple":
 		log.Info("Running simple output.")
 
-		// simple comms channel tracking events
+		// simple comms channel listens for tracking events
 		err = addTrackingEvents(eventsChan)
 		if err != nil {
 			return err
@@ -155,7 +155,7 @@ func Run(inputArgs []string, ver string) error {
 		log.Info("Running AT-ESL output.")
 		config.BaudRate = 4800 // Force AT-ESL baud rate to be 4800
 
-		// at-esl comms channel tracking reprocessed events
+		// at-esl comms channel listens for tracking *reprocessed* events
 		err = addTrackingReprocessedEvents(eventsChan)
 		if err != nil {
 			return err
