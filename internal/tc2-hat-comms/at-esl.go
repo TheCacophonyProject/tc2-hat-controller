@@ -120,12 +120,12 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 
 	// It's a prediction frame, but within the event lockout - skip notifying
 	if lastPrediction < float64(l.Lockout) {
-		log.Infof("Skipping prediction of %v (%v), ClipId %d, TrackId %d - within event lockout %v minutes (%d)",
+		log.Debugf("Skipping prediction of %v (%v), ClipId %d, TrackId %d - within event lockout %v minutes (%d)",
 			t.What, t.Confidence, t.ClipId, t.TrackId, lastPrediction, l.Lockout)
 		return nil
 	}
 
-	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence: %v, ClipId %d, TrackId %d, Region: %v, Frame: %v",
+	log.Debugf("Processing tracking prediction (frame) event What: %v, Confidence: %v, ClipId %d, TrackId %d, Region: %v, Frame: %v",
 		t.What, t.Confidence, t.ClipId, t.TrackId, t.Region, t.Frame)
 
 	var targetConfidence int32 = 0
@@ -159,7 +159,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 			return err
 		}
 
-		// TODO - send the thumbnail 
+		// TODO - send the thumbnail - for now just log the dimensions
 		tn := getThumbnail(t.ClipId, t.TrackId)
 		log.Infof("Thumbnail is: %d×%d", len(tn), len(tn[0]))
 
