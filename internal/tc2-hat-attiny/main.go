@@ -192,7 +192,7 @@ func Run(inputArgs []string, ver, major, minor, patch, hash string) error {
 			}
 			if (val & 0x01) == 0x01 {
 				onReason = "Staying on because RP2040 wants me to stay on"
-				waitDuration = 1 * time.Second
+				waitDuration = 5 * time.Second
 				rp2040StayOn = true
 			} else if rp2040StayOn {
 				rp2040StayOn = false
