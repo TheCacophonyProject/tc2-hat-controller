@@ -169,6 +169,7 @@ func Run(inputArgs []string, ver, major, minor, patch, hash string) error {
 	waitDuration := time.Duration(0)
 	previousOnReason := ""
 	onReason := ""
+	rp2040StayOn := false
 	if args.SkipWait {
 		log.Println("Not waiting initial grace period.")
 	} else {
@@ -191,7 +192,12 @@ func Run(inputArgs []string, ver, major, minor, patch, hash string) error {
 			}
 			if (val & 0x01) == 0x01 {
 				onReason = "Staying on because RP2040 wants me to stay on"
-				waitDuration = 10 * time.Second
+				waitDuration = 1 * time.Second
+				rp2040StayOn = true
+			} else if rp2040StayOn {
+				rp2040StayOn = false
+				log.Println("RP2040 Power Control Register is no longer set")
+
 			}
 		}
 
