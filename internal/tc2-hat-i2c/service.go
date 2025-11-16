@@ -258,7 +258,7 @@ func (s *service) processTransaction(req Request) Response {
 
 	read := make([]byte, req.ReadLen)
 	retries := 2
-	log.Debugf("Writing %v", req.Write)
+	log.Debugf("Writing %v to %v", req.Write, req.Address)
 	log.Debugf("Reading %d bytes", len(read))
 	for i := 0; i <= retries; i++ {
 		txStartTime := time.Now()
