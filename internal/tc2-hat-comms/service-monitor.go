@@ -3,8 +3,21 @@
 package comms
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/godbus/dbus/v5"
+)
+
+type models struct {
+	Id	   int32
+	Labels []string
+}
+
+var (
+	animalsList	  = models{Id: 1}
+	fpModelLabels = models{Id: 1004}
 )
 
 type event interface {
@@ -16,6 +29,8 @@ type trackingEvent struct {
 	What                string
 	Confidence          int32
 	Region              [4]int32
+	ClipId              int32
+	TrackId             int32
 	Frame               int32
 	Mass                int32
 	BlankRegion         bool
@@ -31,10 +46,18 @@ type batteryEvent struct {
 	Percent float64
 }
 
-var animalsList = []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby", "land-bird"}
-var fpModelLabels = []string{"false-positive", "animal"}
+func addTrackingReprocessedEvents(eventsChan chan event) error {
+    targetSignalName := "org.cacophony.thermalrecorder.TrackingReprocessed"
+    return addTrackingEventsForSignal(eventsChan, targetSignalName)
+}
 
 func addTrackingEvents(eventsChan chan event) error {
+	targetSignalName := "org.cacophony.thermalrecorder.Tracking"
+	return addTrackingEventsForSignal(eventsChan, targetSignalName)
+}
+
+func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) error {
+
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -53,14 +76,22 @@ func addTrackingEvents(eventsChan chan event) error {
 	conn.Signal(c)
 
 	// Listen for signals
-	log.Println("Listening for D-Bus signals from org.cacophony.thermalrecorder...")
+	log.Infof("Listening for D-Bus signals: %s", targetSignalName)
+
+	// Get the latest classification labels if we need them
+	if len(animalsList.Labels) == 0 {
+		log.Info("Getting latest classification labels")
+		getLabels()
+	}
 
 	// Listen for signals, process and send tracking events to the channel.
 	go func() {
 		for signal := range c {
-			if signal.Name == "org.cacophony.thermalrecorder.Tracking" {
-				log.Debug("Received tracking event:")
-				if len(signal.Body) != 12 {
+			if signal.Name == targetSignalName {
+				log.Debugf("Received tracking event [%v]:", signal.Name)
+
+				// Reprocessed signals have an additional parameter 'clip_end_time'
+				if len(signal.Body) < 12 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)
 					continue
 				}
@@ -77,22 +108,53 @@ func addTrackingEvents(eventsChan chan event) error {
 				log.Debugf("Last prediction frame: %v", signal.Body[10])
 				log.Debugf("Model Id: %v", signal.Body[11])
 
+				var modelId int32
+				var modelLabels []string
+
+				// Match the track model output to our now models
+				switch modelIdType := signal.Body[11].(type) {
+					case int32:
+						modelId = signal.Body[11].(int32)
+					// Reprocessed events have a "post-" id prefix
+					case string:
+						modelIdStr := strings.TrimPrefix(signal.Body[11].(string), "post-")
+						val64, err := strconv.ParseInt(modelIdStr, 10, 32)
+						if err != nil {
+							log.Warnf("Failed to parse the model id[%v]: %v", modelIdStr, err)
+							continue
+						}
+						modelId = int32(val64)
+					default:
+						log.Warnf("Model id unexpected type %v .. skipping", modelIdType)
+						continue
+				}
+
+				// Get the labels for the model used in the prediction
+				switch modelId {
+					case fpModelLabels.Id: 
+						modelLabels = fpModelLabels.Labels
+					case animalsList.Id:
+						modelLabels = animalsList.Labels
+					default:
+						log.Warnf("Model id key not known %v [%v, %v]", modelId, fpModelLabels.Id, animalsList.Id)
+						continue
+				}			
+
+				// Loop through our track species and get the model scores 
+				species := tracks.Species{}
+				for i, v := range modelLabels {
+					species[v] = signal.Body[2].([]int32)[i]
+				}
+
+				// Get the region details
 				var region [4]int32
 				copy(region[:], signal.Body[5].([]int32))
 
-				species := tracks.Species{}
-				if len(signal.Body[2].([]int32)) == 2 {
-					for i, v := range fpModelLabels {
-						species[v] = signal.Body[2].([]int32)[i]
-					}
-				} else {
-					for i, v := range animalsList {
-						species[v] = signal.Body[2].([]int32)[i]
-					}
-				}
-
+				// Finally let's build our tracking event
 				t := trackingEvent{
 					Species:             species,
+					ClipId:              signal.Body[0].(int32),
+					TrackId:             signal.Body[1].(int32),
 					What:                signal.Body[3].(string),
 					Confidence:          signal.Body[4].(int32),
 					Region:              region,
@@ -102,10 +164,11 @@ func addTrackingEvents(eventsChan chan event) error {
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
 				}
-
 				log.Debugf("Sending tracking event: %+v", t)
 
 				eventsChan <- t
+			} else {
+				log.Debugf("Received unhandled signal name: %v, body: %v", signal.Name, signal.Body)
 			}
 		}
 	}()
@@ -114,6 +177,9 @@ func addTrackingEvents(eventsChan chan event) error {
 }
 
 func addBatteryEvents(eventsChan chan event) error {
+	// Listen for signals
+	targetSignalName := "org.cacophony.attiny.Battery"
+
 	// Connect to the system bus
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -131,13 +197,11 @@ func addBatteryEvents(eventsChan chan event) error {
 	c := make(chan *dbus.Signal, 10)
 	conn.Signal(c)
 
-	// Listen for signals
-	log.Println("Listening for D-Bus signals from org.cacophony.attiny...")
-
+	log.Infof("Listening for D-Bus signals: %s", targetSignalName)
 	// Listen for signals, process and send tracking events to the channel.
 	go func() {
 		for signal := range c {
-			if signal.Name == "org.cacophony.attiny.Battery" {
+			if signal.Name == targetSignalName {
 				log.Debug("Received battery event.")
 				if len(signal.Body) != 2 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)
@@ -159,5 +223,60 @@ func addBatteryEvents(eventsChan chan event) error {
 		}
 	}()
 
+	return nil
+}
+
+func getLabels() {
+	// Connect to the system bus
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		log.Fatalf("Failed to connect to system bus: %v", err)
+	}
+
+	// Try and get the classification labels
+	connObj := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
+	t_call := connObj.Call("org.cacophony.thermalrecorder.ClassificationLabels", 0)
+	if t_call.Err != nil {
+		panic("Failed to get classification lables")
+	}
+	bodyMap := t_call.Body[0].(map[int32][]string)
+
+	// Out model labels have id '1' .. false-postitives are the other element.
+	// e.g. [map[1:[bird cat deer ... vehicle wallaby] 1004:[animal false-positive]]]
+	for k, v := range bodyMap {
+		if k == animalsList.Id {
+			animalsList.Labels = v
+		} else if k == fpModelLabels.Id {
+			fpModelLabels.Labels = v
+		} else {
+			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, bodyMap)
+		}
+	}
+	log.Infof("Classification labels updated: animalsList: %+v, fpModelLabels: %+v", animalsList, fpModelLabels)
+}
+
+func getThumbnail(clip_id int32, track_id int32) [][]uint16 {
+	// Connect to the system bus
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		log.Fatalf("Failed to connect to system bus: %v", err)
+	}
+
+	// Try and get the associated thumbnail
+	connObj := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
+	t_call := connObj.Call("org.cacophony.thermalrecorder.GetThumbnail", 0, clip_id, track_id)
+	if t_call.Err != nil {
+		log.Warnf("Failed to get thumbnail (clip id: %d, track_id: %d): %v", clip_id, track_id, t_call.Err)
+		return nil
+	}
+
+	switch frame := t_call.Body[0].(type) {
+		case [][]uint16:
+		    // Access row/col
+		    log.Debugf("Thubnail (clip id: %d, track_id: %d) is: %d×%d", clip_id, track_id, len(frame), len(frame[0]))
+			return t_call.Body[0].([][]uint16)
+		default:
+		    log.Warnf("GetThumbnail returned an unexpected 2D type: %T", frame)
+	}
 	return nil
 }

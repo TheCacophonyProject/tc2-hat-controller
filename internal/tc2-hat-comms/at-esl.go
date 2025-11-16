@@ -13,16 +13,16 @@ import (
 )
 
 var (
-	prediction_lockout_node_register int = 5
-	prediction_lockout_minutes_default int64 = 30 // default 30mins.
-	battery_lockout_hours_node_register int = 12
-	battery_lockout_mins_node_register int = 13
-	battery_lockout_minutes_default int64 = 180   // default 180mins (3 hours).
+	predictionLockoutNodeRegister 	  int = 5
+	predictionLockoutMinutesDefault   int64 = 30 // default 30mins.
+	batteryLockoutHoursNodeRegister   int = 12
+	batteryLockoutMinutesNodeRegister int = 13
+	batteryLockoutMinutesDefault 	  int64 = 180   // default 180mins (3 hours).
 )
 
 type ATESLMessenger struct {
-	baudRate    int
-	trapSpecies map[string]int32
+	BaudRate    int
+	TrapSpecies map[string]int32
 }
 
 type ATESLLastPrediction struct {
@@ -36,6 +36,9 @@ type ATESLLastBattery struct {
 	When    time.Time
 	Lockout int64
 }
+
+var atesLastPrediction = ATESLLastPrediction{ Lockout: predictionLockoutMinutesDefault }
+var atesLastBattery = ATESLLastBattery{ Lockout: batteryLockoutMinutesDefault }
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
 	messenger := ATESLMessenger{
@@ -52,8 +55,7 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 			What:       testClassification.Animal,
 			Confidence: testClassification.Confidence,
 		}
-		lastPrediction := ATESLLastPrediction{}
-		err := messenger.processTrackingEvent(testTrackingEvent, &lastPrediction)
+		err := messenger.processTrackingEvent(testTrackingEvent, &atesLastPrediction)
 		if err != nil {
 			log.Error("Error processing test tracking event:", err)
 		}
@@ -67,22 +69,18 @@ func processATESL(config *CommsConfig, testClassification *TestClassification, e
 		// Process the event, depending on the type
 		switch v := e.(type) {
 		case trackingEvent:
-			lastPrediction := ATESLLastPrediction{}
-			err := messenger.processTrackingEvent(v, &lastPrediction)
+			err := messenger.processTrackingEvent(v, &atesLastPrediction)
 			if err != nil {
 				log.Error("Error sending classification:", err)
 			}
 		case batteryEvent:
-			lastBattery := ATESLLastBattery{}
-			err := messenger.processBatteryEvent(v, &lastBattery)
+			err := messenger.processBatteryEvent(v, &atesLastBattery)
 			if err != nil {
 				log.Error("Error sending battery reading:", err)
 			}
+		default:
+			log.Infof("No at-esl handler for event: %v", v)
 		}
-		/* TODO:
-		case thumbnailEvent:
-		case ...
-		*/
 	}
 }
 
@@ -90,17 +88,18 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 	log.Infof("Processing battery event: %+v", b)
 
 	lastBattery := time.Since(l.When).Minutes()
+	log.Infof("Last battery reading %v minutes ago (lockout %v at %v)", lastBattery, l.Lockout, l.When)
 
 	// It's a battery reading, but within the event lockout - skip notifying
 	if lastBattery < float64(l.Lockout) {
-		log.Infof("Skipping battery of %v - within event lockout %vs (%d)", b.Voltage, lastBattery, l.Lockout)
+		log.Infof("Skipping battery of %v - within event lockout %v minutes (%d)", b.Voltage, lastBattery, l.Lockout)
 		return nil
 	}
 
 	// AT command, sending a battery reading as hundredths of a volt
 	atCmd := fmt.Sprintf("AT+CAMBAT=%d", int32(b.Voltage*100))
 
-	_, err := sendATCommand(atCmd, a.baudRate)
+	_, err := sendATCommand(atCmd, a.BaudRate)
 	if err != nil {
 		log.Error("Error sending battery reading:", err)
 		return err
@@ -109,35 +108,30 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 	l.When = time.Now()    // Remember when we detected it
 
 	// Now let's check the event lockout
-	l.Lockout = getBatteryEventLockout(a.baudRate)
+	l.Lockout = getBatteryEventLockout(a.BaudRate)
 
 	return nil
 }
 
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
-	log.Debugf("Received new tracking event What: %v, Confidence : %v, Region: %v, LastPredictionFrame: %v, Frame: %v",
-		t.What, t.Confidence, t.Region, t.LastPredictionFrame, t.Frame)
-
-	if t.Frame != t.LastPredictionFrame {
-		return nil
-	}
-
 	lastPrediction := time.Since(l.When).Minutes()
+	log.Debugf("Last prediction %v minutes ago (lockout %v at %v)", lastPrediction, l.Lockout, l.When)
 
 	// It's a prediction frame, but within the event lockout - skip notifying
 	if lastPrediction < float64(l.Lockout) {
-		log.Infof("Skipping prediction of %v - within event lockout %vs (%d)", t.What, lastPrediction, l.Lockout)
+		log.Debugf("Skipping prediction of %v (%v), ClipId %d, TrackId %d - within event lockout %v minutes (%d)",
+			t.What, t.Confidence, t.ClipId, t.TrackId, lastPrediction, l.Lockout)
 		return nil
 	}
 
-	log.Infof("Processing tracking prediction (frame) event What: %v, Confidence : %v, Region: %v, Frame: %v",
-		t.What, t.Confidence, t.Region, t.Frame)
+	log.Debugf("Processing tracking prediction (frame) event What: %v, Confidence: %v, ClipId %d, TrackId %d, Region: %v, Frame: %v",
+		t.What, t.Confidence, t.ClipId, t.TrackId, t.Region, t.Frame)
 
 	var targetConfidence int32 = 0
 	target := false
 	// We've found an object - is it a target (trapable) species?
-	if _, found := a.trapSpecies["any"]; found {
+	if _, found := a.TrapSpecies["any"]; found {
 
 		// We can do without false-positives, not quite any :)
 		if t.What == "false-positive" {
@@ -145,11 +139,11 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		}
 
 		target = true
-		targetConfidence = a.trapSpecies["any"]
+		targetConfidence = a.TrapSpecies["any"]
 
-	} else if _, found := a.trapSpecies[t.What]; found {
+	} else if _, found := a.TrapSpecies[t.What]; found {
 		target = true
-		targetConfidence = a.trapSpecies[t.What]
+		targetConfidence = a.TrapSpecies[t.What]
 	}
 
 	if target && t.Confidence >= targetConfidence {
@@ -159,14 +153,18 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		l.What = t.What     // Remember the object
 		l.When = time.Now() // Remember when we detected it
 
-		_, err := sendATCommand(atCmd, a.baudRate)
+		_, err := sendATCommand(atCmd, a.BaudRate)
 		if err != nil {
 			log.Error("Error sending classification:", err)
 			return err
 		}
 
+		// TODO - send the thumbnail - for now just log the dimensions
+		tn := getThumbnail(t.ClipId, t.TrackId)
+		log.Infof("Thumbnail is: %d×%d", len(tn), len(tn[0]))
+
 		// Now let's check the event lockout
-		l.Lockout = getPredictionEventLockout(a.baudRate)
+		l.Lockout = getPredictionEventLockout(a.BaudRate)
 	}
 
 	return nil
@@ -243,22 +241,35 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 }
 
 func getRegisteryData(baudRate int, reg int) int64 {
+	regCmd := "m00"
 
 	// Currently limited to the first 'page' of registery data (m00)
-	cmd := append([]byte("AT+XCMD=m00"), calcCRC16([]byte("m00"))...)
-	log.Infof("get reg data via command %v", cmd)
+	cmd := append([]byte("AT+XCMD=" + regCmd), calcCRC16([]byte(regCmd))...)
+	log.Infof("get reg %d, data via command %v", reg, cmd)
 
 	response, _ := sendATCommand(string(cmd), baudRate)
 
+	// Let's clean-up the output - trim any unwanted charaters
+	if idx := bytes.Index(response, []byte(regCmd + "\r\n\r\n")); idx != -1 {
+		response = response[idx:]
+	} else {
+		// fallback: not found, just log and continue
+		log.Warnf("Registry command marker [%v] not found; keeping full response", regCmd)
+	}
+
 	col := reg % 10
-	row := reg / (reg - reg % 10)
+	row := 0
+	if reg > 10 {
+		row = reg / (reg - (reg % 10))
+	}
 
 	// w05..
 	// response.. \xa5\xfc\r\nm00\r\n\r\n00: ff ff ff ff ff 02
 	// First, second, third or fourth row of node register block - 00:
-	seq := [3]byte{byte(row), '0', ':'}
+	seq := fmt.Sprintf("%02x:", row*16)
 	pos := 0
 
+	log.Debugf("Searching for %v in response", seq)
 	for i := 0; i <= len(response)-3; i++ {
 		if response[i] == seq[0] && response[i+1] == seq[1] && response[i+2] == seq[2] {
 			log.Debugf("Found %v - position: %d", seq, i)
@@ -274,6 +285,9 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	if err != nil {
 		log.Errorf("parseInt error: %v", err)
 		reg_value = 0
+	} else if reg_value == 255 {
+		reg_value = 0
+		log.Debugf("Reg value is 255 (FF) re-setting int value: %d", reg_value)
 	}
 	log.Infof("Reg value = %d", reg_value)
 
@@ -294,11 +308,11 @@ func getRegisteryData(baudRate int, reg int) int64 {
 
 func getPredictionEventLockout(baudRate int) int64 {
 
-	lockout_minutes := getRegisteryData(baudRate, prediction_lockout_node_register)
+	lockout_minutes := getRegisteryData(baudRate, predictionLockoutNodeRegister)
 
 	if lockout_minutes == 0 {
-		lockout_minutes = prediction_lockout_minutes_default
-		log.Infof("Prediction lockout time not set - using default (%d)", prediction_lockout_minutes_default)
+		lockout_minutes = predictionLockoutMinutesDefault
+		log.Infof("Prediction lockout time not set - using default (%d)", predictionLockoutMinutesDefault)
 	}
 
 	log.Infof("Prediction lockout time = %d (mins)", lockout_minutes)
@@ -317,13 +331,13 @@ func getPredictionEventLockout(baudRate int) int64 {
 */
 func getBatteryEventLockout(baudRate int) int64 {
 
-	hours := getRegisteryData(baudRate, battery_lockout_hours_node_register)
-	mins  := getRegisteryData(baudRate, battery_lockout_mins_node_register)
+	hours := getRegisteryData(baudRate, batteryLockoutHoursNodeRegister)
+	mins  := getRegisteryData(baudRate, batteryLockoutMinutesNodeRegister)
 
 	battery_lockout_minutes := hours * 60 + mins
 	if battery_lockout_minutes <= 0 {
-		log.Infof("Battery lockout time not set - using default (%d)", battery_lockout_minutes_default)
-	    battery_lockout_minutes = battery_lockout_minutes_default
+		log.Infof("Battery lockout time not set - using default (%d)", batteryLockoutMinutesDefault)
+	    battery_lockout_minutes = batteryLockoutMinutesDefault
 	}
 
 	log.Infof("Battery lockout time = %d (mins)", battery_lockout_minutes)
