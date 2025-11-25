@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +46,8 @@ const (
 	maxTempReadings    = 2000
 	temperatureCSVFile = "/var/log/temperature.csv"
 )
+
+var sleepFn = time.Sleep
 
 var version = "No version provided"
 
@@ -134,26 +137,9 @@ func Run(inputArgs []string, ver string) error {
 			trimTempFileTime = time.Now()
 		}
 
-		temp, humidity, crc, err := makeReading()
-
-		// Some sensors don't have a working CRC so in that case we make multiple readings quickly and check that they are about the same.
-		if err == errBadCRC && crc == 0xFF {
-
-			previousTemp := temp
-			previousHumidity := humidity
-			temp, humidity, crc, err = makeReading()
-			if err == errBadCRC && crc == 0xFF {
-				log.Debug("No CRC, checking with multiple readings")
-				if math.Abs(float64(temp-previousTemp)) > 1 || math.Abs(float64(humidity-previousHumidity)) > 1 {
-					log.Errorf("CRC failed, got 0X%X, temp: %.2f, humidity: %.2f", crc, temp, humidity)
-					return errBadCRC
-				}
-				// Values are close enough to previous reading so likely to be correct.
-			} else if err != nil {
-				log.Errorf("CRC failed got 0X%X, temp: %.2f, humidity: %.2f", crc, temp, humidity)
-				return err
-			}
-		} else if err != nil {
+		temp, humidity, err := makeReading()
+		if err != nil {
+			log.Errorf("Error making reading: %v", err)
 			return err
 		}
 
@@ -183,15 +169,15 @@ func Run(inputArgs []string, ver string) error {
 			reportType = "tempHumidity"
 		}
 
-		if temp > float32(args.HighTemp) {
+		if temp > float64(args.HighTemp) {
 			log.Info("Temp too high!")
 			reportType = "tempTooHigh"
 		}
-		if temp < float32(args.LowTemp) {
+		if temp < float64(args.LowTemp) {
 			log.Info("Temp too low!")
 			reportType = "tempTooLow"
 		}
-		if humidity > float32(args.HighHumidity) {
+		if humidity > float64(args.HighHumidity) {
 			log.Info("Humidity too high!")
 			reportType = "humidityTooHigh"
 		}
@@ -212,23 +198,104 @@ func Run(inputArgs []string, ver string) error {
 			lastReportTime = time.Now()
 		}
 
-		time.Sleep(sampleRateDuration)
+		sleepFn(sampleRateDuration)
 	}
 }
 
-func makeReading() (float32, float32, uint8, error) {
-	var temp, humidity float32
-	var crc uint8
-	var err error
-	for range 5 {
-		temp, humidity, crc, err = makeReadingAttempt()
+// makeReading will attempt to make a reading and then depending on the error (if any) it will handle it appropriately.
+// No error: Just return the readings.
+// Bad CRC: Make 2 more readings without much delay
+
+func makeReading() (float64, float64, error) {
+	badCRCCount := 0
+	badCRCMaxAttempts := 3
+
+	otherErrorCount := 0
+	otherErrorMaxAttempts := 3
+
+	noCRCTemps := []float64{}
+	noCRCHumidities := []float64{}
+
+	for {
+		// Make an attempt to get a reading.
+		temp, humidity, err := makeReadingAttempt()
+
 		if err == nil {
-			break
+			// Success, return the reading.
+			return temp, humidity, nil
 		}
-		log.Debug("Error in attempt for getting a reading: ", err)
-		time.Sleep(5 * time.Second)
+
+		if err == errBadCRC {
+			// Bad CRC, will try a few more times before returning an error.
+			badCRCCount++
+			if badCRCCount >= badCRCMaxAttempts {
+				return 0, 0, err
+			}
+			log.Warnf("Bad CRC, will try %d more times", badCRCMaxAttempts-badCRCCount)
+			// Wait 5 seconds before trying again.
+			sleepFn(5 * time.Second)
+			continue
+		}
+
+		if err == errNoCRC {
+			// No CRC, will make a few readings and then check that they are about the same.
+			// To prevent on a single bad reading causing an error we will make 4 readings and discard the worts reading.
+			log.Debug("No CRC, checking with multiple readings")
+			noCRCTemps = append(noCRCTemps, temp)
+			noCRCHumidities = append(noCRCHumidities, humidity)
+
+			if len(noCRCTemps) == 4 {
+				slices.Sort(noCRCTemps)
+				slices.Sort(noCRCHumidities)
+				log.Println("Got 4 readings:", noCRCTemps, noCRCHumidities)
+
+				// Check what the best difference is between the 4 readings (first 3 or last 3 readings)
+				bestTempDiff := math.Min(noCRCTemps[2]-noCRCTemps[0], noCRCTemps[3]-noCRCTemps[1])
+				bestHumidityDiff := math.Min(noCRCHumidities[2]-noCRCHumidities[0], noCRCHumidities[3]-noCRCHumidities[1])
+
+				if bestTempDiff > 3 || bestHumidityDiff > 3 {
+					return 0, 0, fmt.Errorf("no CRC and got bad readings. Temps: %v, Humidities: %v", noCRCTemps, noCRCHumidities)
+				}
+
+				// We know that have 3 readings that are close to each other, so lets find the average of the good readings.
+				var avgTemp, avgHumidity float64
+				if (noCRCTemps[2] - noCRCTemps[0]) < (noCRCTemps[3] - noCRCTemps[1]) {
+					avgTemp = avg(noCRCTemps[:2])
+				} else {
+					avgTemp = avg(noCRCTemps[1:])
+				}
+
+				if (noCRCHumidities[2] - noCRCHumidities[0]) < (noCRCHumidities[3] - noCRCHumidities[1]) {
+					avgHumidity = avg(noCRCHumidities[:2])
+				} else {
+					avgHumidity = avg(noCRCHumidities[1:])
+				}
+
+				return avgTemp, avgHumidity, nil
+			}
+
+			// Wait one second before making th next reading.
+			sleepFn(time.Second)
+			continue
+		}
+
+		otherErrorCount++
+		if otherErrorCount >= otherErrorMaxAttempts {
+			// Failed too many times so return an error.
+			return 0, 0, err
+		}
+		log.Warnf("Error in attempt for getting a reading, will try %d more times: ", err)
+		// Errors here are often caused from a busy I2C bus so we will wait a few seconds before trying again.
+		sleepFn(5 * time.Second)
 	}
-	return temp, humidity, crc, err
+}
+
+func avg(nums []float64) float64 {
+	sum := 0.0
+	for _, num := range nums {
+		sum += num
+	}
+	return sum / float64(len(nums))
 }
 
 func checkCalibration() error {
@@ -239,7 +306,7 @@ func checkCalibration() error {
 			break
 		}
 		log.Debug("Error in attempt for checking calibration: ", err)
-		time.Sleep(5 * time.Second)
+		sleepFn(5 * time.Second)
 	}
 	return nil
 }
@@ -265,7 +332,7 @@ func checkCalibrationAttempt() error {
 	}
 
 	// Wait 100ms until checking if it is calibrated again.
-	time.Sleep(100 * time.Millisecond)
+	sleepFn(100 * time.Millisecond)
 
 	// Get status register.
 	rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
@@ -281,11 +348,11 @@ func checkCalibrationAttempt() error {
 	return fmt.Errorf("calibration failed")
 }
 
-func makeReadingAttempt() (float32, float32, uint8, error) {
+func makeReadingAttempt() (float64, float64, error) {
 	// Trigger reading by sending AC 33 00
 	_, err := i2crequest.Tx(AHT20Address, []byte{0xAC, 0x33, 0x00}, 0, 3000)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, err
 	}
 
 	// Wait for measurement to be made (datasheet says at least 75ms). Retry 3 times if not ready.
@@ -293,10 +360,10 @@ func makeReadingAttempt() (float32, float32, uint8, error) {
 	var rawData []byte
 	for range 3 {
 		// Wait 100ms then check if the temperature reading is ready.
-		time.Sleep(100 * time.Millisecond)
+		sleepFn(100 * time.Millisecond)
 		rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
 		if err != nil {
-			return 0, 0, 0, err
+			return 0, 0, err
 		}
 
 		// Check if the device is not busy
@@ -307,26 +374,34 @@ func makeReadingAttempt() (float32, float32, uint8, error) {
 		log.Debug("Temperature reading is not yet ready")
 	}
 	if !ready {
-		return 0, 0, 0, errors.New("temperature reading was not ready after 3 tries")
+		return 0, 0, errors.New("temperature reading was not ready after 3 tries")
 	}
 
 	if len(rawData) != 7 {
-		return 0, 0, 0, fmt.Errorf("reading length: %d", len(rawData))
+		return 0, 0, fmt.Errorf("reading length: %d", len(rawData))
 	}
 
 	humidityRaw := uint32(rawData[1])<<12 | uint32(rawData[2])<<4 | uint32(rawData[3]>>4)
-	humidity := float32(humidityRaw) / float32(1<<20) * 100
+	humidity := float64(humidityRaw) / float64(1<<20) * 100
 
 	temperatureRaw := uint32(rawData[3]&0x0F)<<16 | uint32(rawData[4])<<8 | uint32(rawData[5])
-	temp := float32(temperatureRaw)/float32(1<<20)*200 - 50
+	temp := float64(temperatureRaw)/float64(1<<20)*200 - 50
 
-	crc := calculateCRC(rawData[:6])
-	if rawData[6] != crc {
-		return temp, humidity, rawData[6], errBadCRC
+	calculatedCRC := calculateCRC(rawData[:6])
+	readCRC := rawData[6]
+
+	if readCRC == 0xFF {
+		// 0xFF means that there was no CRC provided.
+		return temp, humidity, errNoCRC
 	}
-	return temp, humidity, crc, nil
+	if readCRC != calculatedCRC {
+		// CRC did not match
+		return temp, humidity, errBadCRC
+	}
+	return temp, humidity, nil
 }
 
+var errNoCRC = errors.New("no crc")
 var errBadCRC = errors.New("bad crc")
 
 func calculateCRC(data []byte) byte {
