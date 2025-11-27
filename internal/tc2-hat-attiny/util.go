@@ -85,7 +85,7 @@ func crcTxWithRetry(write, read []byte) error {
 }
 
 func crcTX(write, read []byte) error {
-	response, err := i2crequest.TxWithCRC(0x25, write, len(read), 1000)
+	response, err := i2crequest.TxWithCRC(0x25, write, len(read), i2crequest.DefaultTimeout)
 	if err != nil {
 		return err
 	}

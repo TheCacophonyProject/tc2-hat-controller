@@ -12,6 +12,8 @@ import (
 const (
 	dbusName = "org.cacophony.i2c"
 	dbusPath = "/org/cacophony/i2c"
+
+	DefaultTimeout = 3000
 )
 
 type TxResponse struct {

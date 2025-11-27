@@ -374,7 +374,7 @@ func (a *attiny) writeAuxState() error {
 func connectToATtiny() (*attiny, error) {
 	// Check that a device is present on I2C bus at the attiny address.
 
-	found, err := i2crequest.CheckAddress(attinyI2CAddress, 1000)
+	found, err := i2crequest.CheckAddress(attinyI2CAddress, i2crequest.DefaultTimeout)
 	if err != nil {
 		//TODO, issue here with flashing a new ATtiny that doesn't have any firmware on it.
 		log.Errorf("Error checking for attiny device: %v", err)

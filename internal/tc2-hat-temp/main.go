@@ -314,7 +314,7 @@ func checkCalibration() error {
 // Check calibration just needs to be done once at startup.
 func checkCalibrationAttempt() error {
 	// Get status register.
-	rawData, err := i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
+	rawData, err := i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, i2crequest.DefaultTimeout)
 	if err != nil {
 		return err
 	}
@@ -326,7 +326,7 @@ func checkCalibrationAttempt() error {
 
 	// Device is not calibrated. Trigger a reset/calibration by sending BE 08 00
 	log.Debug("Deice is not calibrated. Triggering a manual calibration.")
-	_, err = i2crequest.Tx(AHT20Address, []byte{0xBE, 0x08, 0x00}, 0, 3000)
+	_, err = i2crequest.Tx(AHT20Address, []byte{0xBE, 0x08, 0x00}, 0, i2crequest.DefaultTimeout)
 	if err != nil {
 		return err
 	}
@@ -335,7 +335,7 @@ func checkCalibrationAttempt() error {
 	sleepFn(100 * time.Millisecond)
 
 	// Get status register.
-	rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
+	rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, i2crequest.DefaultTimeout)
 	if err != nil {
 		return err
 	}
@@ -350,7 +350,7 @@ func checkCalibrationAttempt() error {
 
 func makeReadingAttempt() (float64, float64, error) {
 	// Trigger reading by sending AC 33 00
-	_, err := i2crequest.Tx(AHT20Address, []byte{0xAC, 0x33, 0x00}, 0, 3000)
+	_, err := i2crequest.Tx(AHT20Address, []byte{0xAC, 0x33, 0x00}, 0, i2crequest.DefaultTimeout)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -361,7 +361,7 @@ func makeReadingAttempt() (float64, float64, error) {
 	for range 3 {
 		// Wait 100ms then check if the temperature reading is ready.
 		sleepFn(100 * time.Millisecond)
-		rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, 3000)
+		rawData, err = i2crequest.Tx(AHT20Address, []byte{AHT20_STATUS_REG}, 7, i2crequest.DefaultTimeout)
 		if err != nil {
 			return 0, 0, err
 		}

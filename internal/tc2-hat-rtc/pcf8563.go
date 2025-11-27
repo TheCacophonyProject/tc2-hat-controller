@@ -30,7 +30,7 @@ type pcf8563 struct{}
 func InitPCF9564() (*pcf8563, error) {
 	// Check that a device is present on I2C bus at the PCF8563 address.
 	// TODO: will error the first time as the I2C dbus interface is not yet up.
-	device, err := i2crequest.CheckAddress(pcf8563Address, 1000)
+	device, err := i2crequest.CheckAddress(pcf8563Address, i2crequest.DefaultTimeout)
 	if err != nil {
 		log.Errorf("Error checking for PCF8563 device: %v", err)
 		time.Sleep(3 * time.Second)
@@ -464,7 +464,7 @@ func toBCD(n int) byte {
 
 // writeBytes writes the given bytes to the I2C device.
 func writeBytes(data []byte) error {
-	_, err := i2crequest.Tx(pcf8563Address, data, 0, 1000)
+	_, err := i2crequest.Tx(pcf8563Address, data, 0, i2crequest.DefaultTimeout)
 	return err
 }
 
@@ -474,7 +474,7 @@ func fromBCD(b byte) int {
 
 // readByte reads a byte from the I2C device from a given register.
 func readByte(register byte) (byte, error) {
-	response, err := i2crequest.Tx(pcf8563Address, []byte{register}, 1, 1000)
+	response, err := i2crequest.Tx(pcf8563Address, []byte{register}, 1, i2crequest.DefaultTimeout)
 	if err != nil {
 		return 0, err
 	}
@@ -488,7 +488,7 @@ func writeByte(register byte, data byte) error {
 
 // readBytes reads bytes from the I2C device starting from a given register.
 func readBytes(register byte, length int) ([]byte, error) {
-	return i2crequest.Tx(pcf8563Address, []byte{register}, length, 1000)
+	return i2crequest.Tx(pcf8563Address, []byte{register}, length, i2crequest.DefaultTimeout)
 }
 
 // checkTickingLoop will every 10 minutes, check that the time on the RTC is progressing (ticking) and is not frozen.

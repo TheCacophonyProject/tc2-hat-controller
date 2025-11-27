@@ -114,7 +114,7 @@ func Run(inputArgs []string, ver string) error {
 func test() error {
 	for range 5 {
 		go func() {
-			err, _ := i2crequest.TxWithCRC(0x25, []byte{0x00}, 1, 1000)
+			err, _ := i2crequest.TxWithCRC(0x25, []byte{0x00}, 1, i2crequest.DefaultTimeout)
 			if err != nil {
 				log.Error(err)
 			}
@@ -131,7 +131,7 @@ func find(find *Find) error {
 	}
 
 	log.Printf("Finding address 0x%X", address)
-	found, err := i2crequest.CheckAddress(address, 1000)
+	found, err := i2crequest.CheckAddress(address, i2crequest.DefaultTimeout)
 	if err != nil {
 		log.Errorf("Error checking for device: %v", err)
 	}
@@ -157,9 +157,9 @@ func read(read *Read) error {
 	log.Printf("Reading register 0x%X", write)
 	var response []byte
 	if address == 0x25 { // Add CRC for attiny at address 0x25
-		response, err = i2crequest.TxWithCRC(address, []byte{write}, 1, 1000)
+		response, err = i2crequest.TxWithCRC(address, []byte{write}, 1, i2crequest.DefaultTimeout)
 	} else {
-		response, err = i2crequest.Tx(address, []byte{write}, 1, 1000)
+		response, err = i2crequest.Tx(address, []byte{write}, 1, i2crequest.DefaultTimeout)
 	}
 	if err != nil {
 		return err
@@ -187,9 +187,9 @@ func write(args *Write) error {
 
 	log.Printf("Writing 0x%X to register 0x%X", reg, val)
 	if address == 0x25 { // Add CRC for attiny at address 0x25
-		_, err = i2crequest.TxWithCRC(address, write, 0, 1000)
+		_, err = i2crequest.TxWithCRC(address, write, 0, i2crequest.DefaultTimeout)
 	} else {
-		_, err = i2crequest.Tx(address, write, 0, 1000)
+		_, err = i2crequest.Tx(address, write, 0, i2crequest.DefaultTimeout)
 	}
 	if err != nil {
 		return err
