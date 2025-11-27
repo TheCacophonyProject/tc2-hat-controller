@@ -57,15 +57,19 @@ var errEepromCRCFail = errors.New("eeprom CRC check failed")
 // EEPROM chip found, data. File exists.			    	// Success.																	// Done
 // EEPROM chip found, wrong data.							    	// Should error.
 
-func noEEPROMChip() bool {
-	found, err := i2crequest.CheckAddress(EEPROM_ADDRESS, 1000)
-	if err != nil {
-		log.Errorf("Error checking for EEPROM chip: %v", err)
-		// If there was an error checking try again
-		time.Sleep(3 * time.Second)
-		return noEEPROMChip()
+func findEEPROMChip() bool {
+	for i := range 5 {
+		err := i2crequest.CheckAddress(EEPROM_ADDRESS, i2crequest.DefaultTimeout)
+		if err != nil {
+			log.Errorf("Error finding EEPROM chip: %v", err)
+			if i == 4 {
+				return false
+			}
+			log.Printf("Trying %d more times again in 3 seconds.", 4-i)
+			time.Sleep(3 * time.Second)
+		}
 	}
-	return !found
+	return true
 }
 
 func InitEEPROM() error {
@@ -81,10 +85,10 @@ func InitEEPROM() error {
 	*/
 
 	eepromDataVersion := byte(0)
-	eepromData := interface{}(nil)
+	eepromData := any(nil)
 	var err error
 
-	if noEEPROMChip() {
+	if !findEEPROMChip() {
 		log.Info("No EEPROM chip found, using default values.")
 		// Some early versions of the camera don't have an EEPROM chip.
 		eepromDataVersion = 1
@@ -138,7 +142,7 @@ func InitEEPROM() error {
 	eventclient.AddEvent(eventclient.Event{
 		Timestamp: time.Now(),
 		Type:      "eepromDataChanged",
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"eepromDataFromFile": eepromDataFromFile,
 			"eepromDataFromChip": eepromData,
 		},
@@ -168,7 +172,7 @@ func getEEPROMDataVersion() (byte, error) {
 	return data[1], nil
 }
 
-func writeEEPROMToFile(eeprom interface{}) error {
+func writeEEPROMToFile(eeprom any) error {
 	data := []byte{}
 	var err error
 
@@ -196,7 +200,7 @@ func writeEEPROMToFile(eeprom interface{}) error {
 	return nil
 }
 
-func readEEPROMFromFile() (interface{}, error) {
+func readEEPROMFromFile() (any, error) {
 	data, err := os.ReadFile(EEPROM_FILE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read eeprom data from file: %v", err)
@@ -212,7 +216,7 @@ func readEEPROMFromFile() (interface{}, error) {
 		return nil, fmt.Errorf("failed to unmarshal eeprom data: %v", err)
 	}
 
-	target := interface{}(nil)
+	target := any(nil)
 	switch versionStruct.Version {
 	case 1:
 		target = &EepromDataV1{}

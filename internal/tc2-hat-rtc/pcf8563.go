@@ -30,18 +30,13 @@ type pcf8563 struct{}
 func InitPCF9564() (*pcf8563, error) {
 	// Check that a device is present on I2C bus at the PCF8563 address.
 	// TODO: will error the first time as the I2C dbus interface is not yet up.
-	device, err := i2crequest.CheckAddress(pcf8563Address, i2crequest.DefaultTimeout)
+	err := i2crequest.CheckAddress(pcf8563Address, i2crequest.DefaultTimeout)
 	if err != nil {
 		log.Errorf("Error checking for PCF8563 device: %v", err)
 		time.Sleep(3 * time.Second)
 		return InitPCF9564()
 	}
-
-	if device {
-		log.Println("Found PCF8563 device on i2c bus")
-	} else {
-		return nil, fmt.Errorf("failed to find pcf8563 device on i2c bus")
-	}
+	log.Println("Found PCF8563 device on i2c bus")
 
 	rtc := &pcf8563{}
 	return rtc, nil

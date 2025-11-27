@@ -131,12 +131,9 @@ func find(find *Find) error {
 	}
 
 	log.Printf("Finding address 0x%X", address)
-	found, err := i2crequest.CheckAddress(address, i2crequest.DefaultTimeout)
+	err = i2crequest.CheckAddress(address, i2crequest.DefaultTimeout)
 	if err != nil {
 		log.Errorf("Error checking for device: %v", err)
-	}
-	if found {
-		log.Printf("Found device at address 0x%X", address)
 	} else {
 		log.Printf("Did not find device at address 0x%X", address)
 	}
