@@ -304,19 +304,37 @@ func (rtc *pcf8563) getTimeFromMultipleReads() (time.Time, bool, error) {
 // We think it will sometimes get the wrong time so it is recommended to use GetTime()
 func (rtc *pcf8563) getTime() (time.Time, bool, error) {
 	// Read the time from the RTC.
-	data, err := readBytes(0x02, 7)
+	data, err := readBytes(0x00, 9)
 	if err != nil {
 		return time.Time{}, false, err
 	}
 
+	// Check that control register 1 is correct, sometimes the bits can be set incorrectly, causing the time to be incorrect.
+	regCtrl1Expected := byte(0x00)        // The value that we expect to see from control register 1
+	regCtrl1CheckBits := byte(0b10100000) // The bits that we need to check match with the expected value (some bits we don't care about)
+	if (data[0] & regCtrl1CheckBits) != regCtrl1Expected {
+		log.Errorf("Control register 1 is incorrect, expected: %b, got: %b. Time can no longer be trusted until time is set correctly again.", regCtrl1Expected, data[0])
+		log.Info("Resetting control register 1.")
+		eventclient.AddEvent(eventclient.Event{
+			Type: "rtcCtrlReg1Incorrect",
+			Details: map[string]any{
+				eventclient.SeverityKey: eventclient.SeverityWarning,
+			},
+		})
+		err := writeByte(0x00, 0x00)
+		if err != nil {
+			return time.Time{}, false, fmt.Errorf("error writing to control register 1: %v", err)
+		}
+	}
+
+	integrity := data[2]&(1<<7) == 0
 	// Convert the time from BCD to decimal, only reading the appropriate bits from the register.
-	seconds := fromBCD(data[0] & 0x7F)
-	minutes := fromBCD(data[1] & 0x7F)
-	hours := fromBCD(data[2] & 0x3F)
-	days := fromBCD(data[3] & 0x3F)
-	months := fromBCD(data[5] & 0x1F)
-	years := 2000 + fromBCD(data[6])
-	integrity := data[0]&(1<<7) == 0
+	seconds := fromBCD(data[2] & 0x7F)
+	minutes := fromBCD(data[3] & 0x7F)
+	hours := fromBCD(data[4] & 0x3F)
+	days := fromBCD(data[5] & 0x3F)
+	months := fromBCD(data[7] & 0x1F)
+	years := 2000 + fromBCD(data[8])
 	return time.Date(years, time.Month(months), days, hours, minutes, seconds, 0, time.UTC), integrity, nil
 }
 

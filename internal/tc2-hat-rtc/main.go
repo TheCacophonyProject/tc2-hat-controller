@@ -97,31 +97,32 @@ func Run(inputArgs []string, ver string) error {
 		log.Println("Getting RTC status")
 		alarmTime, err := rtc.ReadAlarmTime()
 		if err != nil {
-			log.Error("Error getting alarm time:", err)
+			log.Error("Error getting alarm time: ", err)
 		} else {
-			log.Info("Alarm time:", alarmTime)
+			log.Info("Alarm time: ", alarmTime)
 		}
 
 		alarmEnabled, err := rtc.ReadAlarmEnabled()
 		if err != nil {
-			log.Error("Error getting alarm enabled:", err)
+			log.Error("Error getting alarm enabled: ", err)
 		} else {
-			log.Info("Alarm enabled:", alarmEnabled)
+			log.Info("Alarm enabled:\t", alarmEnabled)
 		}
 
 		alarmFlag, err := rtc.ReadAlarmFlag()
 		if err != nil {
-			log.Error("Error getting alarm flag:", err)
+			log.Error("Error getting alarm flag: ", err)
 		} else {
-			log.Info("Alarm flag:", alarmFlag)
+			log.Info("Alarm flag:\t", alarmFlag)
 		}
 
 		rtcTime, integrity, err := rtc.GetTime()
 		if err != nil {
 			log.Error("Error getting RTC time/integrity:", err)
 		} else {
-			log.Info("RTC time:", rtcTime)
-			log.Info("RTC integrity:", integrity)
+			log.Info("RTC time:\t", rtcTime)
+			log.Info("RTC time local:\t", rtcTime.Local())
+			log.Info("RTC integrity:\t", integrity)
 		}
 	}
 	return nil
