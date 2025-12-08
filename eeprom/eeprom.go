@@ -60,16 +60,16 @@ var errEepromCRCFail = errors.New("eeprom CRC check failed")
 func findEEPROMChip() bool {
 	for i := range 5 {
 		err := i2crequest.CheckAddress(EEPROM_ADDRESS, i2crequest.DefaultTimeout)
-		if err != nil {
-			log.Errorf("Error finding EEPROM chip: %v", err)
-			if i == 4 {
-				return false
-			}
-			log.Printf("Trying %d more times again in 3 seconds.", 4-i)
-			time.Sleep(3 * time.Second)
+		if err == nil {
+			// Found the EEPROM chip
+			return true
 		}
+
+		log.Errorf("Error finding EEPROM chip: %v", err)
+		log.Printf("Trying %d more times again in 3 seconds.", 4-i)
+		time.Sleep(3 * time.Second)
 	}
-	return true
+	return false
 }
 
 func InitEEPROM() error {
