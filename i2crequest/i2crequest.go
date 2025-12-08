@@ -3,6 +3,7 @@ package i2crequest
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus"
@@ -11,9 +12,49 @@ import (
 const (
 	dbusName = "org.cacophony.i2c"
 	dbusPath = "/org/cacophony/i2c"
+
+	DefaultTimeout = 3000
 )
 
+type TxResponse struct {
+	Response []byte
+	Err      error
+}
+
+var mockedResponses []TxResponse
+var mockMutex sync.Mutex
+
+func MockTxResponses(responses []TxResponse) {
+	// Assign the list of mocked responses, copying the slice in cause the called function will modify it.
+	mockedResponses = append([]TxResponse(nil), responses...)
+
+	// Override the TxImpl function
+	TxImpl = func(address byte, write []byte, readLen, timeout int) ([]byte, error) {
+		mockMutex.Lock()
+		defer mockMutex.Unlock()
+		if len(mockedResponses) == 0 {
+			panic("No more mock I2C responses left")
+		}
+		response := mockedResponses[0]
+		mockedResponses = mockedResponses[1:]
+		return response.Response, response.Err
+	}
+}
+
+// TxFunc is the function signature for an I2C transaction.
+type TxFunc func(address byte, write []byte, readLen, timeout int) ([]byte, error)
+
+// TxImpl points to the current implementation used by Tx.
+// In production this is realTx; in tests you can override it.
+var TxImpl TxFunc = realTx
+
+// Tx is the public entrypoint. It just delegates to TxImpl.
 func Tx(address byte, write []byte, readLen, timeout int) ([]byte, error) {
+	return TxImpl(address, write, readLen, timeout)
+}
+
+// realTx contains your existing DBus implementation.
+func realTx(address byte, write []byte, readLen, timeout int) ([]byte, error) {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return nil, err
@@ -51,9 +92,9 @@ func Tx(address byte, write []byte, readLen, timeout int) ([]byte, error) {
 	}
 }
 
-func CheckAddress(address byte, timeout int) (bool, error) {
+func CheckAddress(address byte, timeout int) error {
 	_, err := Tx(address, []byte{0x00}, 1, timeout)
-	return err == nil, err
+	return err
 }
 
 func TxWithCRC(address byte, write []byte, readLen, timeout int) ([]byte, error) {
