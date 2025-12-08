@@ -78,7 +78,6 @@ func TestBadCRC(t *testing.T) {
 	i2crequest.MockTxResponses(responses)
 	_, _, err := makeReading()
 	require.Equal(t, errBadCRC, err)
-	require.Fail(t, "test")
 }
 
 func TestNoCRCGoodData(t *testing.T) {
