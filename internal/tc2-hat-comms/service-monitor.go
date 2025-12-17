@@ -3,6 +3,7 @@
 package comms
 
 import (
+	"time"
 	"strconv"
 	"strings"
 
@@ -16,8 +17,8 @@ type models struct {
 }
 
 var (
-	animalsList	  = models{Id: 1}
-	fpModelLabels = models{Id: 1004}
+	animalsList	  = models{Id: 1, Labels: []string{"bird","cat","deer","dog","false-positive","hedgehog","human","kiwi","leporidae","mustelid","penguin","possum","rodent","sheep","vehicle","wallaby"}}
+	fpModelLabels = models{Id: 1004, Labels: []string{"animal","false-positive"}}
 )
 
 type event interface {
@@ -36,6 +37,7 @@ type trackingEvent struct {
 	BlankRegion         bool
 	Tracking            bool
 	LastPredictionFrame int32
+	ClipAgeSeconds		int32
 }
 
 func (t trackingEvent) isEvent() {}
@@ -79,10 +81,8 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 	log.Infof("Listening for D-Bus signals: %s", targetSignalName)
 
 	// Get the latest classification labels if we need them
-	if len(animalsList.Labels) == 0 {
-		log.Info("Getting latest classification labels")
-		getLabels()
-	}
+	log.Info("Getting latest classification labels")
+	getLabels()
 
 	// Listen for signals, process and send tracking events to the channel.
 	go func() {
@@ -107,6 +107,9 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				log.Debugf("Tracking: %v", signal.Body[9])
 				log.Debugf("Last prediction frame: %v", signal.Body[10])
 				log.Debugf("Model Id: %v", signal.Body[11])
+				if len(signal.Body) >= 13 {
+					log.Debugf("Clip End Time: %v", signal.Body[12])
+				}
 
 				var modelId int32
 				var modelLabels []string
@@ -150,6 +153,17 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				var region [4]int32
 				copy(region[:], signal.Body[5].([]int32))
 
+				// See if we have a clip end time
+				clipAgeSeconds := 0
+				if len(signal.Body) >= 13 {
+					ts := signal.Body[12].(float64);
+					now := time.Now()
+					target := time.Unix(int64(ts), int64((ts-float64(int64(ts)))*1e9),)
+
+					clipAgeSeconds = int(now.Sub(target).Seconds());
+					log.Debugf("Clip is %d seconds old", clipAgeSeconds)
+				}
+
 				// Finally let's build our tracking event
 				t := trackingEvent{
 					Species:             species,
@@ -163,12 +177,11 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 					BlankRegion:         signal.Body[8].(bool),
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
+					ClipAgeSeconds:      clipAgeSeconds,
 				}
 				log.Debugf("Sending tracking event: %+v", t)
 
 				eventsChan <- t
-			} else {
-				log.Debugf("Received unhandled signal name: %v, body: %v", signal.Name, signal.Body)
 			}
 		}
 	}()
@@ -237,7 +250,8 @@ func getLabels() {
 	connObj := conn.Object("org.cacophony.thermalrecorder", "/org/cacophony/thermalrecorder")
 	t_call := connObj.Call("org.cacophony.thermalrecorder.ClassificationLabels", 0)
 	if t_call.Err != nil {
-		panic("Failed to get classification lables")
+		log.Warnf("Failed to get classification labels, will use defaults: animalsList: %+v, fpModelLabels: %+v", animalsList, fpModelLabels)
+		return
 	}
 	bodyMap := t_call.Body[0].(map[int32][]string)
 
