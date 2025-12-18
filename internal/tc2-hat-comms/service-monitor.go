@@ -154,13 +154,13 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				copy(region[:], signal.Body[5].([]int32))
 
 				// See if we have a clip end time
-				clipAgeSeconds := 0
+				clipAgeSeconds := int32(0)
 				if len(signal.Body) >= 13 {
 					ts := signal.Body[12].(float64);
 					now := time.Now()
 					target := time.Unix(int64(ts), int64((ts-float64(int64(ts)))*1e9),)
 
-					clipAgeSeconds = int(now.Sub(target).Seconds());
+					clipAgeSeconds = int32(now.Sub(target).Seconds());
 					log.Debugf("Clip is %d seconds old", clipAgeSeconds)
 				}
 
