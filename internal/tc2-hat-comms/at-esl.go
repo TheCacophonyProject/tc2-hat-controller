@@ -145,7 +145,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		}
 
 		target = true
-		targetConfidence = 0
+		targetConfidence = 50 // limit to 50% to avoid too much noise
 
 	// Special handler for any - with confidence setting
 	} else if _, found := a.TrapSpecies["any"]; found {
