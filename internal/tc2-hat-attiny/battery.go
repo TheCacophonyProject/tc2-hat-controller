@@ -161,8 +161,8 @@ func NewBatteryMonitor(config *goconfig.Config, stateDir string) (*BatteryMonito
 	monitor := &BatteryMonitor{
 		config:              &batteryConfig,
 		voltageHistory:      make([]timestampedVoltage, 0, voltageHistorySize),
-		observedMinVoltage:  999.0, // Initialize to high value
-		observedMaxVoltage:  0.0,   // Initialize to low value
+		observedMinVoltage:  -1, // Initialize to high value
+		observedMaxVoltage:  -1, // Initialize to low value
 		hvRailHistory:       make([]timestampedVoltage, 0, voltageHistorySize),
 		lvRailHistory:       make([]timestampedVoltage, 0, voltageHistorySize),
 		lastReportedPercent: -1,
@@ -490,7 +490,7 @@ func (m *BatteryMonitor) clearDischargeHistory(reason string) {
 // detectChemistry determines the most likely battery chemistry based on voltage characteristics
 func (m *BatteryMonitor) detectChemistry(voltage float32) (*goconfig.BatteryType, int, error) {
 	// Use the new AutoDetectBatteryPack function from go-config
-	pack, err := goconfig.AutoDetectBatteryPack(voltage)
+	pack, err := goconfig.AutoDetectBatteryPack(voltage, m.observedMinVoltage, m.observedMaxVoltage)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -565,7 +565,7 @@ func (m *BatteryMonitor) addToHistory(voltage float32) {
 }
 
 func (m *BatteryMonitor) updateVoltageRange(voltage float32) {
-	if m.voltageRangeReadings == 0 {
+	if m.voltageRangeReadings == 0 || m.observedMinVoltage == -1 || m.observedMaxVoltage == -1 {
 		m.observedMinVoltage = voltage
 		m.observedMaxVoltage = voltage
 	} else {
@@ -601,8 +601,8 @@ func (m *BatteryMonitor) detectBatteryChange(voltage float32) bool {
 func (m *BatteryMonitor) resetDetection() {
 	log.Printf("Resetting battery detection state - clearing current battery pack and voltage history")
 	m.currentPack = nil
-	m.observedMinVoltage = 999.0
-	m.observedMaxVoltage = 0.0
+	m.observedMinVoltage = -1
+	m.observedMaxVoltage = -1
 	m.voltageRangeReadings = 0
 	m.voltageHistory = make([]timestampedVoltage, 0, voltageHistorySize)
 	m.hvRailHistory = make([]timestampedVoltage, 0, voltageHistorySize)

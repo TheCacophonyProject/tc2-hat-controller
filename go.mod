@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/TheCacophonyProject/event-reporter/v3 v3.9.0
-	github.com/TheCacophonyProject/go-config v1.29.0
+	github.com/TheCacophonyProject/go-config v1.30.0
 	github.com/TheCacophonyProject/go-utils v0.1.3
 	github.com/TheCacophonyProject/rpi-net-manager v0.5.6
 	github.com/TheCacophonyProject/window v0.0.0-20211121225840-66e93100eba1
