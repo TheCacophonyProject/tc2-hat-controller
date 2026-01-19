@@ -284,7 +284,7 @@ func makeReading() (float64, float64, error) {
 			// Failed too many times so return an error.
 			return 0, 0, err
 		}
-		log.Warnf("Error in attempt for getting a reading, will try %d more times: ", err)
+		log.Warnf("Error in attempt for getting a reading, will try %d more times: %v", otherErrorMaxAttempts-otherErrorCount, err)
 		// Errors here are often caused from a busy I2C bus so we will wait a few seconds before trying again.
 		sleepFn(5 * time.Second)
 	}
