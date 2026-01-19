@@ -76,6 +76,10 @@ const (
 	errorRegisters = 4
 )
 
+const (
+	regResetFlags Register = iota + 0x30
+)
+
 // PiCommandFlags
 const (
 	WriteCameraStateFlag = 1 << iota
@@ -364,6 +368,33 @@ func (a *attiny) writeAuxState() error {
 		regVal = 0x01
 	}
 	return a.writeRegister(auxTerminalReg, regVal, 3)
+}
+
+func (a *attiny) readBootReason() error {
+	resetFlags, err := a.readRegister(regResetFlags)
+	if err != nil {
+		return err
+	}
+	// From section 12.5.1: Reset Flag Register in ATtiny1616 datasheet
+	if (resetFlags & 0x01) == 0x01 {
+		log.Println("Reset reason: Power-on reset")
+	}
+	if (resetFlags & 0x02) == 0x02 {
+		log.Error("Reset reason: Brown out reset")
+	}
+	if (resetFlags & 0x04) == 0x04 {
+		log.Println("Reset reason: External reset")
+	}
+	if (resetFlags & 0x08) == 0x08 {
+		log.Error("Reset reason: WDT reset")
+	}
+	if (resetFlags & 0x10) == 0x10 {
+		log.Println("Reset reason: Software reset")
+	}
+	if (resetFlags & 0x20) == 0x20 {
+		log.Println("Reset reason: UPDI reset")
+	}
+	return nil
 }
 
 // connectToATtiny initializes the required drivers and connects to the ATtiny device
