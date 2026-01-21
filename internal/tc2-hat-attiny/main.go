@@ -281,7 +281,7 @@ func checkATtinySignalLoop(a *attiny) {
 		}
 
 		//TODO Fix bug causing this instead to be triggered twice, error is probably in ATtiny code
-		log.Printf("Commands register: %x\n", piCommands)
+		log.Printf("Commands register: 0x%x\n", piCommands)
 		if piCommands == 0 {
 			log.Println("No command flags set, writing camera state and connection state.")
 			if err := a.writeCameraState(a.CameraState); err != nil {
@@ -291,7 +291,9 @@ func checkATtinySignalLoop(a *attiny) {
 				log.Printf("Error writing connection state: %s", err)
 			}
 		}
+		readFlag := false
 		if isFlagSet(piCommands, WriteCameraStateFlag) {
+			readFlag = true
 			log.Println("write camera state flag")
 			if err := a.writeCameraState(a.CameraState); err != nil {
 				log.Printf("Error writing camera state: %s", err)
@@ -299,16 +301,19 @@ func checkATtinySignalLoop(a *attiny) {
 		}
 
 		if isFlagSet(piCommands, ReadErrorsFlag) {
+			readFlag = true
 			log.Println("Read attiny errors flag set")
 			readAttinyErrors(a)
 		}
 
 		if isFlagSet(piCommands, EnableWifiFlag) {
+			readFlag = true
 			log.Println("Enable wifi flag set.")
 			enableWifi()
 		}
 
 		if isFlagSet(piCommands, PowerDownFlag) {
+			readFlag = true
 			log.Println("Power down flag set.")
 			log.Println("TODO, make sure device has finished its business before powering down.")
 			log.Println("Shutting down.")
@@ -317,6 +322,7 @@ func checkATtinySignalLoop(a *attiny) {
 		}
 
 		if isFlagSet(piCommands, ToggleAuxTerminalFlag) {
+			readFlag = true
 			log.Println("Toggle aux terminal flag set.")
 			if serialhelper.SerialInUseFromTerminal() {
 				_, err := exec.Command("disable-aux-uart").CombinedOutput()
@@ -330,6 +336,23 @@ func checkATtinySignalLoop(a *attiny) {
 				}
 			}
 			a.writeAuxState()
+		}
+
+		if isFlagSet(piCommands, NewBootFlag) {
+			readFlag = true
+			log.Println("New boot from attiny, check boot reason and firmware version.")
+			if err := a.readBootReason(); err != nil {
+				log.Println("Error reading boot reason:", err)
+			}
+			if err := a.checkFirmwareVersion(); err != nil {
+				log.Println("Error reading firmware version:", err)
+			} else {
+				log.Println("ATtiny Running correct firmware version.")
+			}
+		}
+
+		if !readFlag && piCommands != 0 {
+			log.Errorf("Unknown command flag: 0x%x", piCommands)
 		}
 
 		time.Sleep(time.Second)

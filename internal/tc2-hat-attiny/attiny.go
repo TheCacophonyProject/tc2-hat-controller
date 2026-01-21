@@ -87,6 +87,7 @@ const (
 	EnableWifiFlag
 	PowerDownFlag
 	ToggleAuxTerminalFlag
+	NewBootFlag
 )
 
 type CameraState uint8
@@ -413,7 +414,7 @@ func connectToATtiny() (*attiny, error) {
 	}
 
 	// Check that the device at ATtiny address responds with the correct type byte.
-	a := &attiny{version: 1}
+	a := &attiny{}
 	typeRead, err := a.readRegister(typeReg)
 	if err != nil {
 		return nil, fmt.Errorf("error reading type register %s", err)
@@ -424,51 +425,58 @@ func connectToATtiny() (*attiny, error) {
 	}
 
 	// Check that ATtiny is running the right version of firmware.
-	majorVersionResponse, err := a.readRegister(majorVersionReg)
+	err = a.checkFirmwareVersion()
 	if err != nil {
 		return nil, err
+	}
+
+	return &attiny{}, nil
+}
+
+func (a *attiny) checkFirmwareVersion() error {
+	majorVersionResponse, err := a.readRegister(majorVersionReg)
+	if err != nil {
+		return err
 	}
 	attinyMajor, err := strconv.ParseUint(attinyMajorStr, 10, 8)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	log.Printf("Major Version: %d", majorVersionResponse)
 	if majorVersionResponse != uint8(attinyMajor) {
-		return nil, fmt.Errorf("device major version is %d instead of %d", majorVersionResponse, attinyMajor)
+		return fmt.Errorf("device major version is %d instead of %d", majorVersionResponse, attinyMajor)
 	}
 
 	minorVersionResponse, err := a.readRegister(minorVersionReg)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	attinyMinor, err := strconv.ParseUint(attinyMinorStr, 10, 8)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	log.Printf("Minor Version: %d", minorVersionResponse)
 	if minorVersionResponse != uint8(attinyMinor) {
-		return nil, fmt.Errorf("device minor version is %d instead of %d", minorVersionResponse, attinyMinor)
+		return fmt.Errorf("device minor version is %d instead of %d", minorVersionResponse, attinyMinor)
 	}
 
 	patchVersionResponse, err := a.readRegister(patchVersionReg)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	attinyPatch, err := strconv.ParseUint(attinyPatchStr, 10, 8)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	log.Printf("Patch Version: %d", patchVersionResponse)
 	if patchVersionResponse != uint8(attinyPatch) {
-		return nil, fmt.Errorf("device patch version is %d instead of %d", patchVersionResponse, attinyPatch)
+		return fmt.Errorf("device patch version is %d instead of %d", patchVersionResponse, attinyPatch)
 	}
 
-	return &attiny{version: majorVersionResponse}, nil
+	return nil
 }
 
 type attiny struct {
-	version uint8
-
 	wifiMu          sync.Mutex
 	CameraState     CameraState
 	ConnectionState ConnectionState
