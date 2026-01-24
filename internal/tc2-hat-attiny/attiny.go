@@ -382,12 +382,32 @@ func (a *attiny) readBootReason() error {
 	}
 	if (resetFlags & 0x02) == 0x02 {
 		log.Error("Reset reason: Brown out reset")
+		err := eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "attinyBrownOutReset",
+			Details: map[string]interface{}{
+				eventclient.SeverityKey: eventclient.SeverityError,
+			},
+		})
+		if err != nil {
+			log.Println("Error adding event:", err)
+		}
 	}
 	if (resetFlags & 0x04) == 0x04 {
 		log.Println("Reset reason: External reset")
 	}
 	if (resetFlags & 0x08) == 0x08 {
 		log.Error("Reset reason: WDT reset")
+		err := eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "attinyWatchdogReset",
+			Details: map[string]interface{}{
+				eventclient.SeverityKey: eventclient.SeverityError,
+			},
+		})
+		if err != nil {
+			log.Println("Error adding event:", err)
+		}
 	}
 	if (resetFlags & 0x10) == 0x10 {
 		log.Println("Reset reason: Software reset")

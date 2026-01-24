@@ -131,10 +131,6 @@ func Run(inputArgs []string, ver, major, minor, patch, hash string) error {
 		return err
 	}
 
-	// Check the attiny boot reason.
-	// TODO: Need to check boot reason every time the attiny reset (need some way of know if the attiny has reset).
-	attiny.readBootReason()
-
 	log.Println("Checking boot duration.")
 	bootDurationSeconds, err := attiny.getBootDuration()
 	if err != nil {
