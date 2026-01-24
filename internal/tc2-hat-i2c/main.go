@@ -161,7 +161,12 @@ func read(read *Read) error {
 	if err != nil {
 		return err
 	}
-	log.Println(response)
+	responseStrs := make([]string, len(response))
+	for i, r := range response {
+		responseStrs[i] = fmt.Sprintf("0x%02X", r)
+	}
+
+	log.Println("Response:", strings.Join(responseStrs, ", "))
 	return nil
 }
 
