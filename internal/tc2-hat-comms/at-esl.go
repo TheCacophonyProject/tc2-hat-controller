@@ -115,6 +115,12 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 
 func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPrediction) error {
 
+	// TODO: tracking events can be buffered - so the clip age make be significant
+	// if a tacking event was older than our lockout - perhaps we should send it on
+	//
+	// The ESL API also assumes all events are 'now' so we also need to extend that to be able to provide 
+	// the age in seconds/minutes if the age is over some reasonable threshold - maybe 2-5mins.
+
 	lastPrediction := time.Since(l.When).Minutes()
 	log.Debugf("Last prediction %v minutes ago (lockout %v at %v)", lastPrediction, l.Lockout, l.When)
 
@@ -131,7 +137,18 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 	var targetConfidence int32 = 0
 	target := false
 	// We've found an object - is it a target (trapable) species?
-	if _, found := a.TrapSpecies["any"]; found {
+	if len(a.TrapSpecies) == 0 { // null is wild
+
+		// We can do without false-positives, not quite any :)
+		if t.What == "false-positive" {
+			return nil
+		}
+
+		target = true
+		targetConfidence = 50 // limit to 50% to avoid too much noise
+
+	// Special handler for any - with confidence setting
+	} else if _, found := a.TrapSpecies["any"]; found {
 
 		// We can do without false-positives, not quite any :)
 		if t.What == "false-positive" {
@@ -141,6 +158,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		target = true
 		targetConfidence = a.TrapSpecies["any"]
 
+	// If we have specific species let's check for specific confidence levels oer species
 	} else if _, found := a.TrapSpecies[t.What]; found {
 		target = true
 		targetConfidence = a.TrapSpecies[t.What]
@@ -159,9 +177,9 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 			return err
 		}
 
-		// TODO - send the thumbnail - for now just log the dimensions
-		tn := getThumbnail(t.ClipId, t.TrackId)
-		log.Infof("Thumbnail is: %d×%d", len(tn), len(tn[0]))
+		// TODO - disable logging the thumbnail as it may not exist (if the event is old)
+		//tn := getThumbnail(t.ClipId, t.TrackId)
+		//log.Infof("Thumbnail is: %d×%d", len(tn), len(tn[0]))
 
 		// Now let's check the event lockout
 		l.Lockout = getPredictionEventLockout(a.BaudRate)
