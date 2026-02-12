@@ -3,22 +3,22 @@
 package comms
 
 import (
-	"time"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/godbus/dbus/v5"
 )
 
 type models struct {
-	Id	   int32
+	Id     int32
 	Labels []string
 }
 
 var (
-	animalsList	  = models{Id: 1, Labels: []string{"bird","cat","deer","dog","false-positive","hedgehog","human","kiwi","leporidae","mustelid","penguin","possum","rodent","sheep","vehicle","wallaby"}}
-	fpModelLabels = models{Id: 1004, Labels: []string{"animal","false-positive"}}
+	animalsList   = models{Id: 1, Labels: []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby"}}
+	fpModelLabels = models{Id: 1004, Labels: []string{"animal", "false-positive"}}
 )
 
 type event interface {
@@ -37,7 +37,7 @@ type trackingEvent struct {
 	BlankRegion         bool
 	Tracking            bool
 	LastPredictionFrame int32
-	ClipAgeSeconds		int32
+	ClipAgeSeconds      int32
 }
 
 func (t trackingEvent) isEvent() {}
@@ -49,8 +49,8 @@ type batteryEvent struct {
 }
 
 func addTrackingReprocessedEvents(eventsChan chan event) error {
-    targetSignalName := "org.cacophony.thermalrecorder.TrackingReprocessed"
-    return addTrackingEventsForSignal(eventsChan, targetSignalName)
+	targetSignalName := "org.cacophony.thermalrecorder.TrackingReprocessed"
+	return addTrackingEventsForSignal(eventsChan, targetSignalName)
 }
 
 func addTrackingEvents(eventsChan chan event) error {
@@ -116,34 +116,34 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 
 				// Match the track model output to our now models
 				switch modelIdType := signal.Body[11].(type) {
-					case int32:
-						modelId = signal.Body[11].(int32)
-					// Reprocessed events have a "post-" id prefix
-					case string:
-						modelIdStr := strings.TrimPrefix(signal.Body[11].(string), "post-")
-						val64, err := strconv.ParseInt(modelIdStr, 10, 32)
-						if err != nil {
-							log.Warnf("Failed to parse the model id[%v]: %v", modelIdStr, err)
-							continue
-						}
-						modelId = int32(val64)
-					default:
-						log.Warnf("Model id unexpected type %v .. skipping", modelIdType)
+				case int32:
+					modelId = signal.Body[11].(int32)
+				// Reprocessed events have a "post-" id prefix
+				case string:
+					modelIdStr := strings.TrimPrefix(signal.Body[11].(string), "post-")
+					val64, err := strconv.ParseInt(modelIdStr, 10, 32)
+					if err != nil {
+						log.Warnf("Failed to parse the model id[%v]: %v", modelIdStr, err)
 						continue
+					}
+					modelId = int32(val64)
+				default:
+					log.Warnf("Model id unexpected type %v .. skipping", modelIdType)
+					continue
 				}
 
 				// Get the labels for the model used in the prediction
 				switch modelId {
-					case fpModelLabels.Id: 
-						modelLabels = fpModelLabels.Labels
-					case animalsList.Id:
-						modelLabels = animalsList.Labels
-					default:
-						log.Warnf("Model id key not known %v [%v, %v]", modelId, fpModelLabels.Id, animalsList.Id)
-						continue
-				}			
+				case fpModelLabels.Id:
+					modelLabels = fpModelLabels.Labels
+				case animalsList.Id:
+					modelLabels = animalsList.Labels
+				default:
+					log.Warnf("Model id key not known %v [%v, %v]", modelId, fpModelLabels.Id, animalsList.Id)
+					continue
+				}
 
-				// Loop through our track species and get the model scores 
+				// Loop through our track species and get the model scores
 				species := tracks.Species{}
 				for i, v := range modelLabels {
 					species[v] = signal.Body[2].([]int32)[i]
@@ -156,11 +156,11 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				// See if we have a clip end time
 				clipAgeSeconds := int32(0)
 				if len(signal.Body) >= 13 {
-					ts := signal.Body[12].(float64);
+					ts := signal.Body[12].(float64)
 					now := time.Now()
-					target := time.Unix(int64(ts), int64((ts-float64(int64(ts)))*1e9),)
+					target := time.Unix(int64(ts), int64((ts-float64(int64(ts)))*1e9))
 
-					clipAgeSeconds = int32(now.Sub(target).Seconds());
+					clipAgeSeconds = int32(now.Sub(target).Seconds())
 					log.Debugf("Clip is %d seconds old", clipAgeSeconds)
 				}
 
@@ -285,12 +285,12 @@ func getThumbnail(clip_id int32, track_id int32) [][]uint16 {
 	}
 
 	switch frame := t_call.Body[0].(type) {
-		case [][]uint16:
-		    // Access row/col
-		    log.Debugf("Thubnail (clip id: %d, track_id: %d) is: %d×%d", clip_id, track_id, len(frame), len(frame[0]))
-			return t_call.Body[0].([][]uint16)
-		default:
-		    log.Warnf("GetThumbnail returned an unexpected 2D type: %T", frame)
+	case [][]uint16:
+		// Access row/col
+		log.Debugf("Thubnail (clip id: %d, track_id: %d) is: %d×%d", clip_id, track_id, len(frame), len(frame[0]))
+		return t_call.Body[0].([][]uint16)
+	default:
+		log.Warnf("GetThumbnail returned an unexpected 2D type: %T", frame)
 	}
 	return nil
 }
