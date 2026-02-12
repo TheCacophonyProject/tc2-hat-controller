@@ -13,11 +13,11 @@ import (
 )
 
 var (
-	predictionLockoutNodeRegister 	  int = 5
+	predictionLockoutNodeRegister     int   = 5
 	predictionLockoutMinutesDefault   int64 = 30 // default 30mins.
-	batteryLockoutHoursNodeRegister   int = 12
-	batteryLockoutMinutesNodeRegister int = 13
-	batteryLockoutMinutesDefault 	  int64 = 180   // default 180mins (3 hours).
+	batteryLockoutHoursNodeRegister   int   = 12
+	batteryLockoutMinutesNodeRegister int   = 13
+	batteryLockoutMinutesDefault      int64 = 180 // default 180mins (3 hours).
 )
 
 type ATESLMessenger struct {
@@ -37,8 +37,8 @@ type ATESLLastBattery struct {
 	Lockout int64
 }
 
-var atesLastPrediction = ATESLLastPrediction{ Lockout: predictionLockoutMinutesDefault }
-var atesLastBattery = ATESLLastBattery{ Lockout: batteryLockoutMinutesDefault }
+var atesLastPrediction = ATESLLastPrediction{Lockout: predictionLockoutMinutesDefault}
+var atesLastBattery = ATESLLastBattery{Lockout: batteryLockoutMinutesDefault}
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
 	messenger := ATESLMessenger{
@@ -104,8 +104,8 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 		log.Error("Error sending battery reading:", err)
 		return err
 	}
-	l.Voltage = b.Voltage  // Remember the voltage reading
-	l.When = time.Now()    // Remember when we detected it
+	l.Voltage = b.Voltage // Remember the voltage reading
+	l.When = time.Now()   // Remember when we detected it
 
 	// Now let's check the event lockout
 	l.Lockout = getBatteryEventLockout(a.BaudRate)
@@ -118,7 +118,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 	// TODO: tracking events can be buffered - so the clip age make be significant
 	// if a tacking event was older than our lockout - perhaps we should send it on
 	//
-	// The ESL API also assumes all events are 'now' so we also need to extend that to be able to provide 
+	// The ESL API also assumes all events are 'now' so we also need to extend that to be able to provide
 	// the age in seconds/minutes if the age is over some reasonable threshold - maybe 2-5mins.
 
 	lastPrediction := time.Since(l.When).Minutes()
@@ -147,7 +147,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		target = true
 		targetConfidence = 50 // limit to 50% to avoid too much noise
 
-	// Special handler for any - with confidence setting
+		// Special handler for any - with confidence setting
 	} else if _, found := a.TrapSpecies["any"]; found {
 
 		// We can do without false-positives, not quite any :)
@@ -158,7 +158,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 		target = true
 		targetConfidence = a.TrapSpecies["any"]
 
-	// If we have specific species let's check for specific confidence levels oer species
+		// If we have specific species let's check for specific confidence levels oer species
 	} else if _, found := a.TrapSpecies[t.What]; found {
 		target = true
 		targetConfidence = a.TrapSpecies[t.What]
@@ -262,13 +262,13 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	regCmd := "m00"
 
 	// Currently limited to the first 'page' of registery data (m00)
-	cmd := append([]byte("AT+XCMD=" + regCmd), calcCRC16([]byte(regCmd))...)
+	cmd := append([]byte("AT+XCMD="+regCmd), calcCRC16([]byte(regCmd))...)
 	log.Infof("get reg %d, data via command %v", reg, cmd)
 
 	response, _ := sendATCommand(string(cmd), baudRate)
 
 	// Let's clean-up the output - trim any unwanted charaters
-	if idx := bytes.Index(response, []byte(regCmd + "\r\n\r\n")); idx != -1 {
+	if idx := bytes.Index(response, []byte(regCmd+"\r\n\r\n")); idx != -1 {
 		response = response[idx:]
 	} else {
 		// fallback: not found, just log and continue
@@ -338,24 +338,22 @@ func getPredictionEventLockout(baudRate int) int64 {
 }
 
 /*
+Battery event lockout mins
+Time in minutes to have an battery event lockout; default 180mins (3 hours).
+Read the 12 (hrs) + 13 (mins) node registery to get the value
 
-   Battery event lockout mins
-   Time in minutes to have an battery event lockout; default 180mins (3 hours).
-   Read the 12 (hrs) + 13 (mins) node registery to get the value
-
-   3hours = 'w1203’
-   30min = 'w131e’
-
+3hours = 'w1203’
+30min = 'w131e’
 */
 func getBatteryEventLockout(baudRate int) int64 {
 
 	hours := getRegisteryData(baudRate, batteryLockoutHoursNodeRegister)
-	mins  := getRegisteryData(baudRate, batteryLockoutMinutesNodeRegister)
+	mins := getRegisteryData(baudRate, batteryLockoutMinutesNodeRegister)
 
-	battery_lockout_minutes := hours * 60 + mins
+	battery_lockout_minutes := hours*60 + mins
 	if battery_lockout_minutes <= 0 {
 		log.Infof("Battery lockout time not set - using default (%d)", batteryLockoutMinutesDefault)
-	    battery_lockout_minutes = batteryLockoutMinutesDefault
+		battery_lockout_minutes = batteryLockoutMinutesDefault
 	}
 
 	log.Infof("Battery lockout time = %d (mins)", battery_lockout_minutes)
