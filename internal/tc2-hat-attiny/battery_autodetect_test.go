@@ -27,11 +27,11 @@ func TestSpecificVoltageDetection(t *testing.T) {
 			description:       "Integration test: overlapping range preference through BatteryMonitor",
 		},
 		{
-			name:              "6.6V should detect LiFePO4 2 cells",
+			name:              "6.6V should detect Li-Ion 2 cells",
 			voltage:           6.6,
-			expectedChemistry: "lifepo4",
+			expectedChemistry: "li-ion",
 			expectedCells:     2,
-			description:       "Integration test: LiFePO4 detection through BatteryMonitor",
+			description:       "Integration test: Li-Ion detection through BatteryMonitor",
 		},
 	}
 
