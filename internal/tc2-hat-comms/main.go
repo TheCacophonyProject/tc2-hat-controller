@@ -151,6 +151,28 @@ func Run(inputArgs []string, ver string) error {
 		if err := processSimpleOutput(config, eventsChan); err != nil {
 			return err
 		}
+	case "trap-control":
+		log.Info("Running trap-control output.")
+
+		// TODO, check what speed we want for this
+		config.BaudRate = 9600
+
+		// Add tracking events to the channel
+		err = addTrackingEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
+		// Add recording start/stop events to the channel
+		err = addRecordingEvents(eventsChan)
+		if err != nil {
+			return err
+		}
+
+		// Run the trap control process
+		if err := processTrapControl(config, eventsChan); err != nil {
+			return err
+		}
 	case "at-esl":
 		log.Info("Running AT-ESL output.")
 		config.BaudRate = 4800 // Force AT-ESL baud rate to be 4800
@@ -169,164 +191,4 @@ func Run(inputArgs []string, ver string) error {
 	}
 
 	return nil
-
-	/*
-
-		trapActiveUntil := time.Time{}
-		trapActive := false
-
-		// Initialize the periph host drivers
-		if _, err := host.Init(); err != nil {
-			log.Printf("Failed to initialize periph: %v\n", err)
-			return err
-		}
-
-		log.Info("Get lock on serial port")
-		if config.CommsOut == "uart" || config.CommsOut == "simple" {
-			serialFile, err := serialhelper.GetSerial(3, gpio.High, gpio.Low, time.Second)
-			if err != nil {
-				return err
-			}
-			defer serialhelper.ReleaseSerial(serialFile)
-		}
-		log.Info("Done")
-
-		protectDuration := time.Minute
-		trapDuration := time.Duration(args.TrapStayActiveDuration) * time.Second
-
-		var newTrack *trackingEvent
-		lastProtectSpeciesSighting := time.Time{}
-		lastTrapSpeciesSighting := time.Time{}
-
-		for {
-
-			now := time.Now()
-			newTrapActive :=
-				(lastProtectSpeciesSighting.Add(protectDuration).Before(now) && // Nothing to protect has been seen recently.
-					lastTrapSpeciesSighting.Add(trapDuration).After(now)) // And something to trap has been sighted recently.
-
-			if trapActive != newTrapActive {
-				trapActive = newTrapActive
-
-				if trapActive {
-					log.Println("Activating trap")
-				} else {
-					log.Println("Deactivating trap")
-				}
-
-				switch args.OutputType {
-				case "uart":
-					log.Info("Outputting trap active state via UART")
-					if err := processUart(); err != nil {
-						return err
-					}
-					// TODO
-
-				case "bluetooth":
-					log.Info("Outputting trap active state via bluetooth")
-					if err := processBluetooth(); err != nil {
-						return err
-					}
-					// TODO
-
-				case "digital":
-					log.Info("Outputting trap active state via digital signals")
-					//if err := processDigital(); err != nil {
-					//	return err
-					//}
-
-				default:
-					return fmt.Errorf("unhandled output type: %s", args.OutputType)
-				}
-			}
-
-			var delay = 10 * time.Second
-			if trapActive && time.Until(trapActiveUntil) < delay {
-				delay = time.Until(trapActiveUntil)
-			}
-
-			newTrack = nil
-			log.Debug("Waiting ")
-			select {
-			case t := <-trackingSignals:
-				newTrack = &t
-				log.Debugf("Found new track: %+v", newTrack)
-
-				if newTrack.species.MatchSpeciesWithConfidence(protectSpecies) {
-					log.Debug("Found an animal that needs to be protected, deactivating trap")
-					lastProtectSpeciesSighting = time.Now()
-					//trapActiveUntil = time.Time{}
-				} else if newTrack.species.MatchSpeciesWithConfidence(trapSpecies) {
-					log.Debug("Found an animal that needs to be trapped, activating trap")
-					lastTrapSpeciesSighting = time.Now()
-
-					//trapActiveUntil = time.Now().Add(time.Duration(args.TrapStayActiveDuration) * time.Second)
-				} else {
-					log.Debug("No animals need to be protected or trapped, not changing trap state.")
-				}
-
-			case <-time.After(delay):
-				log.Debug("Scheduled check")
-			}
-		}
-	*/
-
-	/*
-		for t := range tracks {
-			log.Infof("Found track: %+v", t)
-		}
-
-		// Start dbus to listen for classification messages.
-
-		if err := beep(); err != nil {
-			return err
-		}
-
-		log.Println("Starting UART service")
-		if err := startService(); err != nil {
-			return err
-		}
-
-		trapActive = false
-		if err := sendTrapActiveState(trapActive); err != nil {
-			return err
-		}
-
-		for {
-			waitUntil := time.Now().Add(5 * time.Second)
-			if trapActive {
-				waitUntil = activateTrapUntil
-			}
-
-			select {
-			case <-activeTrapSig:
-			case <-time.After(time.Until(waitUntil)):
-			}
-			trapActive = time.Now().Before(activateTrapUntil)
-
-			if err := sendTrapActiveState(trapActive); err != nil {
-				return err
-			}
-		}
-	*/
 }
-
-/*
-func checkClassification(data map[byte]byte) error {
-	for k, v := range data {
-		if k == 1 && v > 80 {
-			activateTrap()
-		}
-		if k == 7 && v > 80 {
-			activateTrap()
-		}
-	}
-	return nil
-}
-
-func activateTrap() {
-	log.Println("Activating trap")
-	activateTrapUntil = time.Now().Add(time.Minute)
-	activeTrapSig <- "trap"
-}
-*/

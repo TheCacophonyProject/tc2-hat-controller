@@ -26,10 +26,10 @@ type UartMessenger struct {
 // - Type: Specifies the type of message (e.g., write, read, command, ACK, NACK).
 // - Data: Contains the actual data payload, which varies depending on the type or response.
 type UartMessage struct {
-	ID       int         `json:"id,omitempty"`
-	Response bool        `json:"response,omitempty"`
-	Type     string      `json:"type,omitempty"`
-	Data     interface{} `json:"data,omitempty"`
+	ID       int    `json:"id,omitempty"`
+	Response bool   `json:"response,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Data     any    `json:"data,omitempty"`
 }
 
 type Command struct {
@@ -38,12 +38,8 @@ type Command struct {
 }
 
 type Write struct {
-	Var string      `json:"var,omitempty"`
-	Val interface{} `json:"val,omitempty"`
-}
-
-func (u UartMessenger) sendTrapActiveState(active bool) error {
-	return u.sendWriteMessage("active", active)
+	Var string `json:"var,omitempty"`
+	Val any    `json:"val,omitempty"`
 }
 
 func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event) error {
@@ -157,7 +153,7 @@ func (u UartMessenger) sendClassification(event trackingEvent) {
 	}, u.baudRate)
 }
 
-func (u UartMessenger) sendWriteMessage(varName string, val interface{}) error {
+func (u UartMessenger) sendWriteMessage(varName string, val any) error {
 	data, err := json.Marshal(&Write{
 		Var: varName,
 		Val: val,
@@ -271,9 +267,10 @@ func sendMessage(cmd UartMessage, baudRate int) (*UartMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	message := fmt.Sprintf("<%s|%d>", cmdData, computeChecksum(cmdData))
+	message := fmt.Sprintf("<%s|%d>\n", cmdData, computeChecksum(cmdData))
 
-	log.Println("Message: ", message)
+	log.Infof("Message: '%s'", message)
+	log.Infof("Baud rate: %d", baudRate)
 	responseData, err := serialhelper.SerialSendReceive(3, gpio.High, gpio.Low, time.Second, []byte(message), baudRate)
 
 	if err != nil {

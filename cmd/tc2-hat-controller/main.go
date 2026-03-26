@@ -12,6 +12,7 @@ import (
 	rp2040 "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-rp2040"
 	rtc "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-rtc"
 	temp "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-temp"
+	trapcli "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-trap-cli"
 )
 
 var (
@@ -60,6 +61,8 @@ func runMain() error {
 		err = rtc.Run(args, version)
 	case "temp":
 		err = temp.Run(args, version)
+	case "trap-cli":
+		err = trapcli.Run(args, version)
 	default:
 		err = fmt.Errorf("unknown subcommand: %s", subcommand)
 	}

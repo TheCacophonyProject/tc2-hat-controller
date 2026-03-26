@@ -158,9 +158,7 @@ func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, d
 	if err != nil {
 		return nil, err
 	}
-
 	defer ReleaseSerial(serialFile)
-
 	c := &serial.Config{Name: "/dev/serial0", Baud: baud, ReadTimeout: time.Second * 5}
 	serialPort, err := serial.OpenPort(c)
 	if err != nil {
@@ -168,23 +166,46 @@ func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, d
 	}
 	defer serialPort.Close()
 
+	start := time.Now()
+	// add a newline at and of data if it is not there already
+	if data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
 	n, err := serialPort.Write(data)
 	if err != nil {
 		return nil, err
 	}
+
 	if n != len(data) {
 		return nil, fmt.Errorf("wrote %d bytes, expected %d", n, len(data))
 	}
-	time.Sleep(time.Second)
-	buf := make([]byte, 256)
-	n, err = serialPort.Read(buf)
-	log.Infof("Received %d bytes", n)
-	log.Info("Received:", buf[:n])
-	if err != nil {
-		return nil, err
-	}
 
-	return buf[:n], nil
+	var response []byte
+	var responseTime time.Time
+	firstBits := true
+	buf := make([]byte, 1)
+	for {
+		n, err = serialPort.Read(buf)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			continue
+		}
+		if firstBits {
+			responseTime = time.Now()
+			firstBits = false
+		}
+		if buf[0] == '\n' {
+			break
+		}
+		response = append(response, buf[0])
+	}
+	log.Infof("Sent message at %s", start.Format("15:04:05.999"))
+	log.Infof("Received message at %s", responseTime.Format("15:04:05.999"))
+	log.Debugf("Received %d bytes", len(response))
+	log.Debugf("Response time: %s", responseTime)
+	return response, nil
 }
 
 func SerialSend(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int) error {
