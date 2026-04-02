@@ -9,10 +9,12 @@ import (
 
 	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/go-utils/logging"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 	"github.com/alexflint/go-arg"
 	"github.com/google/go-cmp/cmp"
 	"github.com/rjeczalik/notify"
+	"periph.io/x/conn/v3/gpio"
 )
 
 var (
@@ -136,7 +138,16 @@ func Run(inputArgs []string, ver string) error {
 			return err
 		}
 
-		if err := processUart(config, args.SendTestClassification, eventsChan); err != nil {
+		port, err := serialhelper.OpenSerial(gpio.High, gpio.Low, config.BaudRate)
+		if err != nil {
+			return fmt.Errorf("failed to open serial port: %v", err)
+		}
+		defer port.Close()
+
+		messenger := NewUartMessenger(port)
+		messenger.Start()
+
+		if err := processUart(config, args.SendTestClassification, eventsChan, messenger); err != nil {
 			return err
 		}
 	case "simple":
@@ -169,8 +180,17 @@ func Run(inputArgs []string, ver string) error {
 			return err
 		}
 
+		port, err := serialhelper.OpenSerial(gpio.High, gpio.Low, config.BaudRate)
+		if err != nil {
+			return fmt.Errorf("failed to open serial port: %v", err)
+		}
+		defer port.Close()
+
+		messenger := NewUartMessenger(port)
+		messenger.Start()
+
 		// Run the trap control process
-		if err := processTrapControl(config, eventsChan); err != nil {
+		if err := processTrapControl(config, eventsChan, messenger); err != nil {
 			return err
 		}
 	case "at-esl":

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -242,4 +243,94 @@ func SerialSend(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []b
 	log.Print("Serial send took ", elapsed)
 
 	return nil
+}
+
+// SerialPort represents a persistent, open serial connection with a background line reader.
+type SerialPort struct {
+	writeMu sync.Mutex
+	port    *serial.Port
+	file    *os.File
+	Lines   chan []byte
+	done    chan struct{}
+}
+
+// OpenSerial opens the serial port persistently and starts a background line reader goroutine.
+func OpenSerial(mul0, mul1 gpio.Level, baud int) (*SerialPort, error) {
+	file, err := GetSerial(3, mul0, mul1, time.Second)
+	if err != nil {
+		return nil, err
+	}
+	c := &serial.Config{Name: "/dev/serial0", Baud: baud, ReadTimeout: 100 * time.Millisecond}
+	port, err := serial.OpenPort(c)
+	if err != nil {
+		if rerr := ReleaseSerial(file); rerr != nil {
+			log.Printf("Failed to release serial: %v", rerr)
+		}
+		return nil, err
+	}
+	sp := &SerialPort{
+		port:  port,
+		file:  file,
+		Lines: make(chan []byte, 16),
+		done:  make(chan struct{}),
+	}
+	go sp.readLoop()
+	return sp, nil
+}
+
+// readLoop continuously reads lines from the serial port and sends them to Lines.
+// It exits when Close is called.
+func (s *SerialPort) readLoop() {
+	defer close(s.Lines)
+	buf := make([]byte, 1)
+	var line []byte
+	for {
+		select {
+		case <-s.done:
+			return
+		default:
+		}
+		n, err := s.port.Read(buf)
+		if err != nil || n == 0 {
+			continue
+		}
+		if buf[0] == '\n' {
+			if len(line) > 0 {
+				msg := make([]byte, len(line))
+				copy(msg, line)
+				select {
+				case s.Lines <- msg:
+				case <-s.done:
+					return
+				}
+				line = line[:0]
+			}
+		} else {
+			line = append(line, buf[0])
+		}
+	}
+}
+
+// Write sends data over the serial port. Appends a newline if not already present.
+func (s *SerialPort) Write(data []byte) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	n, err := s.port.Write(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return fmt.Errorf("wrote %d bytes, expected %d", n, len(data))
+	}
+	return nil
+}
+
+// Close stops the background reader and releases the serial port.
+func (s *SerialPort) Close() error {
+	close(s.done)
+	s.port.Close()
+	return ReleaseSerial(s.file)
 }

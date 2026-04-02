@@ -7,18 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
+	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
-	"periph.io/x/conn/v3/gpio"
 )
-
-type UartMessenger struct {
-	baudRate int
-}
-
-// TODO
 
 // UartMessage represents the data structure for communication with a device connected on UART.
 // - ID: Identifier of the message being sent or the message being responded to.
@@ -42,7 +37,115 @@ type Write struct {
 	Val any    `json:"val,omitempty"`
 }
 
-func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event) error {
+// TODO: Change how the message is formatted so it is more concise. Something like: <ID,Type,Payload,CRC>
+//	- ID is a uint16
+//	- Type is a string (ACK, NACK, Read, Write, Command, Response...)
+//	- Payload is as many bytes as needed
+//	- CRC is 2 byte checksum
+
+// UartMessenger manages bidirectional communication with the RP2040 over UART.
+// It holds a persistent serial port and routes incoming messages to either
+// pending response waiters (matched by ID) or an unsolicited message channel.
+type UartMessenger struct {
+	port      *serialhelper.SerialPort
+	pendingMu sync.Mutex
+	pending   map[int]chan *UartMessage
+	nextID    int
+}
+
+// NewUartMessenger creates a UartMessenger using an already-open SerialPort.
+func NewUartMessenger(port *serialhelper.SerialPort) *UartMessenger {
+	return &UartMessenger{
+		port:    port,
+		pending: make(map[int]chan *UartMessage),
+	}
+}
+
+// Start begins the background routing goroutine. Unsolicited messages from the RP2040
+// (i.e. not responses to a request we sent) are delivered to the unsolicited channel.
+// Pass nil to discard unsolicited messages.
+func (u *UartMessenger) Start() {
+	go u.routeMessages()
+}
+
+// routeMessages reads lines from the serial port, parses them, and routes them:
+// - Response messages are matched to a pending sendMessage call by ID.
+// - If not a response then it is a notification from the trap.
+func (u *UartMessenger) routeMessages() {
+	for line := range u.port.Lines {
+		// Parse the line
+		msg, err := parseLine(line)
+		if err != nil {
+			log.Warnf("Failed to parse incoming message %q: %v", line, err)
+			continue
+		}
+
+		// Check if the message was a response
+		if msg.Response {
+			u.pendingMu.Lock()
+			ch, ok := u.pending[msg.ID]
+			if !ok && len(u.pending) == 1 {
+				// Fallback for RP2040 firmware that doesn't echo message IDs yet.
+				for _, c := range u.pending {
+					ch = c
+					ok = true
+					break
+				}
+			}
+			u.pendingMu.Unlock()
+			if ok {
+				ch <- msg
+				continue
+			}
+		}
+
+		// If not a response then it is a notification from the trap.
+		err = parseNotification(msg)
+		if err != nil {
+			log.Warnf("Failed to parse notification %q: %v", line, err)
+			continue
+		}
+	}
+}
+
+func parseNotification(msg *UartMessage) error {
+	// Decide on what to do with the notification
+	log.Printf("notification: %+v", msg)
+	if msg.Type == "spoolStatus" && msg.Data == "releasing" {
+		log.Println("Spool released. Making event")
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "spoolReleased",
+			Details: map[string]any{
+				eventclient.SeverityKey: eventclient.SeverityInfo,
+			},
+		})
+	}
+	return nil
+}
+
+// parseLine parses a framed line of the form <json|checksum>.
+func parseLine(line []byte) (*UartMessage, error) {
+	if len(line) < 2 || line[0] != '<' || line[len(line)-1] != '>' {
+		return nil, fmt.Errorf("invalid frame: %q", line)
+	}
+	inner := line[1 : len(line)-1]
+	parts := bytes.Split(inner, []byte("|"))
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid format: %q", line)
+	}
+	receivedChecksum, err := strconv.Atoi(string(parts[1]))
+	if err != nil {
+		return nil, fmt.Errorf("invalid checksum in %q: %v", line, err)
+	}
+	if computeChecksum(parts[0]) != receivedChecksum {
+		return nil, fmt.Errorf("checksum mismatch in %q", line)
+	}
+	msg := &UartMessage{}
+	return msg, json.Unmarshal(parts[0], msg)
+}
+
+func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event, messenger *UartMessenger) error {
 	if testClassification != nil {
 		log.Println("Sending a test classification over UART")
 
@@ -65,14 +168,7 @@ func processUart(config *CommsConfig, testClassification *TestClassification, tr
 		}
 
 		log.Printf("Sending payload: '%s'", payload)
-
-		serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')), config.BaudRate)
-
-		return nil
-	}
-
-	messenger := UartMessenger{
-		baudRate: config.BaudRate,
+		return messenger.port.Write(append(payload, '\r', '\n'))
 	}
 
 	for {
@@ -93,7 +189,7 @@ func processUart(config *CommsConfig, testClassification *TestClassification, tr
 	}
 }
 
-func (u UartMessenger) processTrackingEvent(t trackingEvent) error {
+func (u *UartMessenger) processTrackingEvent(t trackingEvent) error {
 	log.Debugf("Found new track: %+v", t)
 
 	species := tracks.Species{}
@@ -119,11 +215,10 @@ func (u UartMessenger) processTrackingEvent(t trackingEvent) error {
 	log.Printf("Sending payload: '%s'", payload)
 	start := time.Now()
 
-	serialhelper.SerialSend(3, gpio.High, gpio.Low, time.Second, append(payload, byte('\r'), byte('\n')), u.baudRate)
+	err = u.port.Write(append(payload, '\r', '\n'))
 
 	log.Printf("Sent payload in %s", time.Since(start))
-
-	return nil
+	return err
 }
 
 type ClassificationData struct {
@@ -131,29 +226,7 @@ type ClassificationData struct {
 	Confidence int32
 }
 
-func (u UartMessenger) sendClassification(event trackingEvent) {
-
-	data := map[string]interface{}{
-		"species":    event.Species,
-		"confidence": event.Confidence,
-	}
-
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
-		fmt.Println("Error converting to JSON:", err)
-		return
-	}
-
-	println(string(jsonBytes))
-	//data["data"] = trackingEvent.Data
-
-	sendMessage(UartMessage{
-		Type: "classification",
-		Data: string(jsonBytes),
-	}, u.baudRate)
-}
-
-func (u UartMessenger) sendWriteMessage(varName string, val any) error {
+func (u *UartMessenger) sendWriteMessage(varName string, val any) error {
 	data, err := json.Marshal(&Write{
 		Var: varName,
 		Val: val,
@@ -165,7 +238,7 @@ func (u UartMessenger) sendWriteMessage(varName string, val any) error {
 		Type: "write",
 		Data: string(data),
 	}
-	response, err := sendMessage(message, u.baudRate)
+	response, err := u.sendMessage(message)
 	if err != nil {
 		return err
 	}
@@ -175,12 +248,12 @@ func (u UartMessenger) sendWriteMessage(varName string, val any) error {
 	return nil
 }
 
-func beep(baudRate int) error {
+func (u *UartMessenger) beep() error {
 	log.Println("beep")
-	return sendCommandMessage("beep", baudRate)
+	return u.sendCommandMessage("beep")
 }
 
-func sendCommandMessage(cmd string, baudRate int) error {
+func (u *UartMessenger) sendCommandMessage(cmd string) error {
 	data, err := json.Marshal(&Command{
 		Command: cmd,
 	})
@@ -191,7 +264,7 @@ func sendCommandMessage(cmd string, baudRate int) error {
 		Type: "command",
 		Data: string(data),
 	}
-	response, err := sendMessage(message, baudRate)
+	response, err := u.sendMessage(message)
 	if err != nil {
 		return err
 	}
@@ -199,59 +272,6 @@ func sendCommandMessage(cmd string, baudRate int) error {
 		return fmt.Errorf("NACK response")
 	}
 	return nil
-}
-
-type Read struct {
-	Var string `json:"var,omitempty"`
-}
-
-type ReadResponse struct {
-	Val string `json:"var,omitempty"`
-}
-
-func sendReadMessage(varName string) (string, error) {
-	return "", nil
-	/*
-		data, err := json.Marshal(&Read{
-			Var: varName,
-		})
-		if err != nil {
-			return "", err
-		}
-		message := UartMessage{
-			Type: "read",
-			Data: string(data),
-		}
-		response, err := sendMessage(message)
-		if err != nil {
-			return "", err
-		}
-		if response.Type == "NACK" {
-			return "", fmt.Errorf("NACK response")
-		}
-		readResponse := &ReadResponse{}
-		if err := json.Unmarshal([]byte(response.Data), readResponse); err != nil {
-			return "", err
-		}
-		return readResponse.Val, nil
-	*/
-
-}
-
-func checkPIR(oldPirVal int) (int, error) {
-	valStr, err := sendReadMessage("pir")
-	if err != nil {
-		return 0, err
-	}
-	newPirVal, err := strconv.Atoi(valStr)
-	if err != nil {
-		return 0, err
-	}
-	if oldPirVal != newPirVal {
-		//TODO Make event
-		log.Println("New pir value:", newPirVal)
-	}
-	return newPirVal, nil
 }
 
 func computeChecksum(message []byte) int {
@@ -262,46 +282,39 @@ func computeChecksum(message []byte) int {
 	return checksum % 256
 }
 
-func sendMessage(cmd UartMessage, baudRate int) (*UartMessage, error) {
+// sendMessage sends a request and waits for a matching response.
+// It assigns a unique ID to the message for correlation.
+func (u *UartMessenger) sendMessage(cmd UartMessage) (*UartMessage, error) {
+	u.pendingMu.Lock()
+	u.nextID++
+	id := u.nextID
+	cmd.ID = id
+	ch := make(chan *UartMessage, 1)
+	u.pending[id] = ch
+	u.pendingMu.Unlock()
+
+	defer func() {
+		u.pendingMu.Lock()
+		delete(u.pending, id)
+		u.pendingMu.Unlock()
+	}()
+
 	cmdData, err := json.Marshal(cmd)
 	if err != nil {
 		return nil, err
 	}
 	message := fmt.Sprintf("<%s|%d>\n", cmdData, computeChecksum(cmdData))
-
 	log.Infof("Message: '%s'", message)
-	log.Infof("Baud rate: %d", baudRate)
-	responseData, err := serialhelper.SerialSendReceive(3, gpio.High, gpio.Low, time.Second, []byte(message), baudRate)
 
-	if err != nil {
+	if err := u.port.Write([]byte(message)); err != nil {
 		return nil, err
 	}
-	log.Println("Response: ", string(responseData))
 
-	if responseData[0] != '<' {
-		return nil, fmt.Errorf("response doesn't start with '<'")
+	select {
+	case response := <-ch:
+		log.Println("Response:", response)
+		return response, nil
+	case <-time.After(5 * time.Second):
+		return nil, fmt.Errorf("timeout waiting for response to message ID %d", id)
 	}
-	if responseData[len(responseData)-1] != '>' {
-		return nil, fmt.Errorf("response doesn't end with '>'")
-	}
-
-	// Extract and verify message and checksum
-	responseData = responseData[1 : len(responseData)-1]
-	parts := bytes.Split(responseData, []byte("|"))
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid response format")
-	}
-	log.Println("Response:", string(parts[0]))
-	receivedChecksum, err := strconv.Atoi(string(parts[1]))
-	if err != nil {
-		return nil, err
-	}
-	if computeChecksum(parts[0]) != receivedChecksum {
-		return nil, fmt.Errorf("checksum mismatch")
-	}
-
-	// Unmarshal response to a Message
-	responseMessage := &UartMessage{}
-	log.Println(string(parts[0]))
-	return responseMessage, json.Unmarshal(parts[0], responseMessage)
 }

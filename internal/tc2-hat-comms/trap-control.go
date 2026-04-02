@@ -9,11 +9,7 @@ import (
 
 // processTrapControl communicates the trap enabled/disabled state by writing
 // the "enable" variable over UART instead of setting a digital pin.
-func processTrapControl(config *CommsConfig, eventSignals chan event) error {
-	messenger := UartMessenger{
-		baudRate: config.BaudRate,
-	}
-
+func processTrapControl(config *CommsConfig, eventSignals chan event, messenger *UartMessenger) error {
 	trapEnabled := false
 	previousTrapEnabled := false
 	lastProtectSpeciesSighting := time.Time{}
@@ -48,6 +44,7 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 				log.Infof("TrapEnableTime: %s", trapEnableTime.Format("15:04:05.999")) // TODO, we can get better accuracy on when this actually
 				timeToEnableTrap := trapEnableTime.Sub(recordingStartTime).String()
 				log.Infof("Time to enable trap: %s", timeToEnableTrap)
+
 				eventclient.AddEvent(eventclient.Event{
 					Timestamp: time.Now(),
 					Type:      "enablingTrap",
