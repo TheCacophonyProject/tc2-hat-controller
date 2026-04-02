@@ -1,4 +1,4 @@
-// This section deals with communication with peripherals over uart.
+// Low-level serial messaging utilities for UART communication.
 
 package comms
 
@@ -12,7 +12,6 @@ import (
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
 	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
-	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 )
 
 // UartMessage represents the data structure for communication with a device connected on UART.
@@ -38,10 +37,10 @@ type Write struct {
 }
 
 // TODO: Change how the message is formatted so it is more concise. Something like: <ID,Type,Payload,CRC>
-//	- ID is a uint16
-//	- Type is a string (ACK, NACK, Read, Write, Command, Response...)
-//	- Payload is as many bytes as needed
-//	- CRC is 2 byte checksum
+//   - ID is a uint16
+//   - Type is a string (ACK, NACK, Read, Write, Command, Response...)
+//   - Payload is as many bytes as needed
+//   - CRC is 2 byte checksum
 
 // UartMessenger manages bidirectional communication with the RP2040 over UART.
 // It holds a persistent serial port and routes incoming messages to either
@@ -109,7 +108,6 @@ func (u *UartMessenger) routeMessages() {
 }
 
 func parseNotification(msg *UartMessage) error {
-	// Decide on what to do with the notification
 	log.Printf("notification: %+v", msg)
 	if msg.Type == "spoolStatus" && msg.Data == "releasing" {
 		log.Println("Spool released. Making event")
@@ -117,7 +115,7 @@ func parseNotification(msg *UartMessage) error {
 			Timestamp: time.Now(),
 			Type:      "spoolReleased",
 			Details: map[string]any{
-				eventclient.SeverityKey: eventclient.SeverityInfo,
+				"timestamp": time.Now(),
 			},
 		})
 	}
@@ -143,135 +141,6 @@ func parseLine(line []byte) (*UartMessage, error) {
 	}
 	msg := &UartMessage{}
 	return msg, json.Unmarshal(parts[0], msg)
-}
-
-func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event, messenger *UartMessenger) error {
-	if testClassification != nil {
-		log.Println("Sending a test classification over UART")
-
-		species := tracks.Species{
-			testClassification.Animal: int32(testClassification.Confidence),
-		}
-
-		classificationData := ClassificationData{
-			Species:    species,
-			Confidence: int32(testClassification.Confidence),
-		}
-
-		message := UartMessage{
-			Type: "classification",
-			Data: classificationData,
-		}
-		payload, err := json.Marshal(message)
-		if err != nil {
-			return err
-		}
-
-		log.Printf("Sending payload: '%s'", payload)
-		return messenger.port.Write(append(payload, '\r', '\n'))
-	}
-
-	for {
-		log.Debug("Waiting")
-		for e := range trackingSignals {
-			switch v := e.(type) {
-			case trackingEvent:
-				fmt.Println("Tracking event:", v.Species)
-				err := messenger.processTrackingEvent(v)
-				if err != nil {
-					log.Error("Error processing tracking event:", err)
-				}
-			default:
-				log.Debug("Not processing event:", v)
-				continue
-			}
-		}
-	}
-}
-
-func (u *UartMessenger) processTrackingEvent(t trackingEvent) error {
-	log.Debugf("Found new track: %+v", t)
-
-	species := tracks.Species{}
-	for k, v := range t.Species {
-		if v > 0 {
-			species[k] = v
-		}
-	}
-
-	message := UartMessage{
-		Type: "classification",
-		Data: ClassificationData{
-			Species:    species,
-			Confidence: t.Confidence,
-		},
-	}
-
-	payload, err := json.Marshal(message)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Sending payload: '%s'", payload)
-	start := time.Now()
-
-	err = u.port.Write(append(payload, '\r', '\n'))
-
-	log.Printf("Sent payload in %s", time.Since(start))
-	return err
-}
-
-type ClassificationData struct {
-	Species    tracks.Species
-	Confidence int32
-}
-
-func (u *UartMessenger) sendWriteMessage(varName string, val any) error {
-	data, err := json.Marshal(&Write{
-		Var: varName,
-		Val: val,
-	})
-	if err != nil {
-		return err
-	}
-	message := UartMessage{
-		Type: "write",
-		Data: string(data),
-	}
-	response, err := u.sendMessage(message)
-	if err != nil {
-		return err
-	}
-	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response")
-	}
-	return nil
-}
-
-func (u *UartMessenger) beep() error {
-	log.Println("beep")
-	return u.sendCommandMessage("beep")
-}
-
-func (u *UartMessenger) sendCommandMessage(cmd string) error {
-	data, err := json.Marshal(&Command{
-		Command: cmd,
-	})
-	if err != nil {
-		return err
-	}
-	message := UartMessage{
-		Type: "command",
-		Data: string(data),
-	}
-	response, err := u.sendMessage(message)
-	if err != nil {
-		return err
-	}
-	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response")
-	}
-	return nil
 }
 
 func computeChecksum(message []byte) int {
@@ -317,4 +186,52 @@ func (u *UartMessenger) sendMessage(cmd UartMessage) (*UartMessage, error) {
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout waiting for response to message ID %d", id)
 	}
+}
+
+func (u *UartMessenger) sendWriteMessage(varName string, val any) error {
+	data, err := json.Marshal(&Write{
+		Var: varName,
+		Val: val,
+	})
+	if err != nil {
+		return err
+	}
+	message := UartMessage{
+		Type: "write",
+		Data: string(data),
+	}
+	response, err := u.sendMessage(message)
+	if err != nil {
+		return err
+	}
+	if response.Type == "NACK" {
+		return fmt.Errorf("NACK response")
+	}
+	return nil
+}
+
+func (u *UartMessenger) sendCommandMessage(cmd string) error {
+	data, err := json.Marshal(&Command{
+		Command: cmd,
+	})
+	if err != nil {
+		return err
+	}
+	message := UartMessage{
+		Type: "command",
+		Data: string(data),
+	}
+	response, err := u.sendMessage(message)
+	if err != nil {
+		return err
+	}
+	if response.Type == "NACK" {
+		return fmt.Errorf("NACK response")
+	}
+	return nil
+}
+
+func (u *UartMessenger) beep() error {
+	log.Println("beep")
+	return u.sendCommandMessage("beep")
 }

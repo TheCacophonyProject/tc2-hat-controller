@@ -49,11 +49,17 @@ type batteryEvent struct {
 	Percent float64
 }
 
+// Add tracking reprocessed events to the channel
+// Tracking reprocessed events are sent once the track has finished and it gets reprocessed.
+// This is useful if you are just using the events for reporting purposes and don't need to control
+// something in real time.
 func addTrackingReprocessedEvents(eventsChan chan event) error {
 	targetSignalName := "org.cacophony.thermalrecorder.TrackingReprocessed"
 	return addTrackingEventsForSignal(eventsChan, targetSignalName)
 }
 
+// Add tracking events to the channel
+// Tracking events are sent while the track is in progress.
 func addTrackingEvents(eventsChan chan event) error {
 	targetSignalName := "org.cacophony.thermalrecorder.Tracking"
 	return addTrackingEventsForSignal(eventsChan, targetSignalName)
@@ -187,6 +193,8 @@ type recordingEvent struct {
 	Recording bool
 }
 
+// Add recording events to the channel
+// These are events that are made at the start and end of a recording
 func addRecordingEvents(eventsChan chan event) error {
 	// Listen for signals
 	targetSignalName := "org.cacophony.thermalrecorder.Recording"
@@ -235,6 +243,7 @@ func addRecordingEvents(eventsChan chan event) error {
 	return nil
 }
 
+// Add battery events to the channel.
 func addBatteryEvents(eventsChan chan event) error {
 	// Listen for signals
 	targetSignalName := "org.cacophony.attiny.Battery"
@@ -301,14 +310,15 @@ func getLabels() {
 	}
 	bodyMap := t_call.Body[0].(map[int32][]string)
 
-	// Out model labels have id '1' .. false-postitives are the other element.
+	// Out model labels have id '1' .. false-positive are the other element.
 	// e.g. [map[1:[bird cat deer ... vehicle wallaby] 1004:[animal false-positive]]]
 	for k, v := range bodyMap {
-		if k == animalsList.Id {
+		switch k {
+		case animalsList.Id:
 			animalsList.Labels = v
-		} else if k == fpModelLabels.Id {
+		case fpModelLabels.Id:
 			fpModelLabels.Labels = v
-		} else {
+		default:
 			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, bodyMap)
 		}
 	}
@@ -333,7 +343,7 @@ func getThumbnail(clip_id int32, track_id int32) [][]uint16 {
 	switch frame := t_call.Body[0].(type) {
 	case [][]uint16:
 		// Access row/col
-		log.Debugf("Thubnail (clip id: %d, track_id: %d) is: %d×%d", clip_id, track_id, len(frame), len(frame[0]))
+		log.Debugf("Thumbnail (clip id: %d, track_id: %d) is: %d×%d", clip_id, track_id, len(frame), len(frame[0]))
 		return t_call.Body[0].([][]uint16)
 	default:
 		log.Warnf("GetThumbnail returned an unexpected 2D type: %T", frame)

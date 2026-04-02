@@ -1,3 +1,5 @@
+// Output mode: connects to and controls a trap over serial.
+
 package comms
 
 import (
@@ -5,6 +7,10 @@ import (
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
+)
+
+const (
+	enableString = "enable" // We set this to true/false to enable/disable the trap
 )
 
 // processTrapControl communicates the trap enabled/disabled state by writing
@@ -34,8 +40,8 @@ func processTrapControl(config *CommsConfig, eventSignals chan event, messenger 
 
 		if trapEnabled != previousTrapEnabled {
 			if trapEnabled {
-				log.Infof("Enabling trap: %s", enablingReason)
-				if err := messenger.sendWriteMessage("enable", true); err != nil {
+				log.Infof("Enabling trap, reason: %s", enablingReason)
+				if err := messenger.sendWriteMessage(enableString, true); err != nil {
 					return fmt.Errorf("failed to write enable=true: %v", err)
 				}
 				trapEnableTime := time.Now()
@@ -59,8 +65,8 @@ func processTrapControl(config *CommsConfig, eventSignals chan event, messenger 
 					},
 				})
 			} else {
-				log.Info("Disabling trap: ", disablingReason)
-				if err := messenger.sendWriteMessage("active", false); err != nil {
+				log.Info("Disabling trap, reason: ", disablingReason)
+				if err := messenger.sendWriteMessage(enableString, false); err != nil {
 					return fmt.Errorf("failed to write enable=false: %v", err)
 				}
 				eventclient.AddEvent(eventclient.Event{

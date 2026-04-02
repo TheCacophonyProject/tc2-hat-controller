@@ -112,11 +112,6 @@ func Run(inputArgs []string, ver string) error {
 		}
 	}
 
-	if config.CommsOut == "uart" && config.Bluetooth {
-		log.Error("Can't have output set to UART and Bluetooth enabled at the same time.")
-		return fmt.Errorf("can't have output set to UART and Bluetooth enabled at the same time")
-	}
-
 	log.Info("Species to trap:\n", tracks.Species(config.TrapSpecies))
 	log.Info("Species to protect:\n", tracks.Species(config.ProtectSpecies))
 
@@ -129,8 +124,8 @@ func Run(inputArgs []string, ver string) error {
 	}
 
 	switch config.CommsOut {
-	case "uart":
-		log.Info("Running UART output.")
+	case "uart", "json-out":
+		log.Info("Running UART/json-out.")
 
 		// uart comms channel listens for tracking events
 		err = addTrackingEvents(eventsChan)

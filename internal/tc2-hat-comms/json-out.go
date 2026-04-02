@@ -1,0 +1,92 @@
+// Output mode: sends events out over serial in JSON format.
+
+package comms
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
+)
+
+type ClassificationData struct {
+	Species    tracks.Species
+	Confidence int32
+}
+
+func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event, messenger *UartMessenger) error {
+	if testClassification != nil {
+		log.Println("Sending a test classification over UART")
+
+		species := tracks.Species{
+			testClassification.Animal: int32(testClassification.Confidence),
+		}
+
+		classificationData := ClassificationData{
+			Species:    species,
+			Confidence: int32(testClassification.Confidence),
+		}
+
+		message := UartMessage{
+			Type: "classification",
+			Data: classificationData,
+		}
+		payload, err := json.Marshal(message)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("Sending payload: '%s'", payload)
+		return messenger.port.Write(append(payload, '\r', '\n'))
+	}
+
+	for {
+		log.Debug("Waiting")
+		for e := range trackingSignals {
+			switch v := e.(type) {
+			case trackingEvent:
+				fmt.Println("Tracking event:", v.Species)
+				err := messenger.processTrackingEvent(v)
+				if err != nil {
+					log.Error("Error processing tracking event:", err)
+				}
+			default:
+				log.Debug("Not processing event:", v)
+				continue
+			}
+		}
+	}
+}
+
+func (u *UartMessenger) processTrackingEvent(t trackingEvent) error {
+	log.Debugf("Found new track: %+v", t)
+
+	species := tracks.Species{}
+	for k, v := range t.Species {
+		if v > 0 {
+			species[k] = v
+		}
+	}
+
+	message := UartMessage{
+		Type: "classification",
+		Data: ClassificationData{
+			Species:    species,
+			Confidence: t.Confidence,
+		},
+	}
+
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Sending payload: '%s'", payload)
+	start := time.Now()
+
+	err = u.port.Write(append(payload, '\r', '\n'))
+
+	log.Printf("Sent payload in %s", time.Since(start))
+	return err
+}
