@@ -139,10 +139,7 @@ func Run(inputArgs []string, ver string) error {
 		}
 		defer port.Close()
 
-		messenger := NewUartMessenger(port)
-		messenger.Start()
-
-		if err := processUart(config, args.SendTestClassification, eventsChan, messenger); err != nil {
+		if err := processJSONOut(config, args.SendTestClassification, eventsChan, port); err != nil {
 			return err
 		}
 	case "simple":
@@ -161,26 +158,31 @@ func Run(inputArgs []string, ver string) error {
 		log.Info("Running trap-control output.")
 
 		// TODO, check what speed we want for this
+		log.Info("Forcing baud rate to 9600, this will likely change in the future.")
 		config.BaudRate = 9600
 
-		// Add tracking events to the channel
+		// Add tracking events to the channel.
+		// This is so we can activate and deactivate the trap depending on the track classification.
 		err = addTrackingEvents(eventsChan)
 		if err != nil {
 			return err
 		}
 
-		// Add recording start/stop events to the channel
+		// Add recording start/stop events to the channel.
+		// This is so we can see how long it takes from a recording started to getting a track classification.
 		err = addRecordingEvents(eventsChan)
 		if err != nil {
 			return err
 		}
 
+		// Open the serial port so we can send/receive messages from the trap.
 		port, err := serialhelper.OpenSerial(gpio.High, gpio.Low, config.BaudRate)
 		if err != nil {
 			return fmt.Errorf("failed to open serial port: %v", err)
 		}
 		defer port.Close()
 
+		// Create the messenger that tracks sending/receiving messages
 		messenger := NewUartMessenger(port)
 		messenger.Start()
 

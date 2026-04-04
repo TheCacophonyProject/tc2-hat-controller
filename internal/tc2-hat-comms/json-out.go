@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 	"github.com/TheCacophonyProject/tc2-hat-controller/tracks"
 )
 
@@ -15,7 +16,7 @@ type ClassificationData struct {
 	Confidence int32
 }
 
-func processUart(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event, messenger *UartMessenger) error {
+func processJSONOut(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event, port *serialhelper.SerialPort) error {
 	if testClassification != nil {
 		log.Println("Sending a test classification over UART")
 
@@ -38,7 +39,7 @@ func processUart(config *CommsConfig, testClassification *TestClassification, tr
 		}
 
 		log.Printf("Sending payload: '%s'", payload)
-		return messenger.port.Write(append(payload, '\r', '\n'))
+		return port.Write(append(payload, '\r', '\n'))
 	}
 
 	for {
@@ -47,7 +48,7 @@ func processUart(config *CommsConfig, testClassification *TestClassification, tr
 			switch v := e.(type) {
 			case trackingEvent:
 				fmt.Println("Tracking event:", v.Species)
-				err := messenger.processTrackingEvent(v)
+				err := processTrackingEvent(v, port)
 				if err != nil {
 					log.Error("Error processing tracking event:", err)
 				}
@@ -59,7 +60,7 @@ func processUart(config *CommsConfig, testClassification *TestClassification, tr
 	}
 }
 
-func (u *UartMessenger) processTrackingEvent(t trackingEvent) error {
+func processTrackingEvent(t trackingEvent, port *serialhelper.SerialPort) error {
 	log.Debugf("Found new track: %+v", t)
 
 	species := tracks.Species{}
@@ -85,7 +86,7 @@ func (u *UartMessenger) processTrackingEvent(t trackingEvent) error {
 	log.Printf("Sending payload: '%s'", payload)
 	start := time.Now()
 
-	err = u.port.Write(append(payload, '\r', '\n'))
+	err = port.Write(append(payload, '\r', '\n'))
 
 	log.Printf("Sent payload in %s", time.Since(start))
 	return err
