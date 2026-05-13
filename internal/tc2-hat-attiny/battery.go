@@ -1097,16 +1097,18 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config, configDir string) {
 
 	// Watch the config file for changes
 	if err := notify.Watch(configFilePath, configEvents, notify.InCloseWrite, notify.InMovedTo); err != nil {
-		log.Printf("Failed to set up config file watcher: %v", err)
+		log.Errorf("Failed to set up config file watcher: %v", err)
 		// Continue without watching - fall back to periodic reload
 	} else {
 		defer notify.Stop(configEvents)
 		log.Printf("Watching config file for changes: %s", configFilePath)
 	}
 
-	// Main battery reading ticker
-	batteryTicker := time.NewTicker(2 * time.Minute)
-	defer batteryTicker.Stop()
+	// Main battery reading ticker — fires immediately, then every 2 minutes
+	ticker2Minutes := time.NewTicker(2 * time.Minute)
+	defer ticker2Minutes.Stop()
+	batteryTicker := time.After(0)
+
 	for {
 		select {
 		case <-configEvents:
@@ -1152,7 +1154,12 @@ func monitorVoltageLoop(a *attiny, config *goconfig.Config, configDir string) {
 				}
 			}
 
-		case <-batteryTicker.C:
+		case <-batteryTicker:
+			// Assigning it to the 2 minutes ticker.
+			// It is first assigned to a different ticker so it triggers immediately
+			// but after that it is assigned to the 2 minutes ticker. Reassigning it each loop doesn't matter.
+			batteryTicker = ticker2Minutes.C
+
 			// Reload config every 30 iterations (every hour) as backup
 			if configReloadCounter >= 30 {
 				log.Printf("Periodic battery configuration reload...")
