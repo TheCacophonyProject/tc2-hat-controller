@@ -175,19 +175,8 @@ func Run(inputArgs []string, ver string) error {
 			return err
 		}
 
-		// Open the serial port so we can send/receive messages from the trap.
-		port, err := serialhelper.OpenSerial(gpio.High, gpio.Low, config.BaudRate)
-		if err != nil {
-			return fmt.Errorf("failed to open serial port: %v", err)
-		}
-		defer port.Close()
-
-		// Create the messenger that tracks sending/receiving messages
-		messenger := NewUartMessenger(port)
-		messenger.Start()
-
 		// Run the trap control process
-		if err := processTrapControl(config, eventsChan, messenger); err != nil {
+		if err := processTrapControl(config, eventsChan); err != nil {
 			return err
 		}
 	case "at-esl":
