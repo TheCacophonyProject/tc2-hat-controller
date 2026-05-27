@@ -12,8 +12,13 @@ import (
 )
 
 type ClassificationData struct {
-	Species    tracks.Species
-	Confidence int32
+	Species    tracks.Species `json:"species"`
+	Confidence int32          `json:"confidence"`
+}
+
+type jsonOut struct {
+	Type string             `json:"type,omitempty"`
+	Data ClassificationData `json:"data"`
 }
 
 func processJSONOut(config *CommsConfig, testClassification *TestClassification, trackingSignals chan event, port *serialhelper.SerialPort) error {
@@ -29,7 +34,7 @@ func processJSONOut(config *CommsConfig, testClassification *TestClassification,
 			Confidence: int32(testClassification.Confidence),
 		}
 
-		message := UartMessage{
+		message := jsonOut{
 			Type: "classification",
 			Data: classificationData,
 		}
@@ -70,7 +75,7 @@ func processTrackingEvent(t trackingEvent, port *serialhelper.SerialPort) error 
 		}
 	}
 
-	message := UartMessage{
+	message := jsonOut{
 		Type: "classification",
 		Data: ClassificationData{
 			Species:    species,

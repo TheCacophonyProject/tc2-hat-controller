@@ -153,16 +153,43 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 	}
 }
 
-// UartMessage represents the data structure for communication with a device connected on UART.
+// Message represents the data structure for communication with a device connected on UART.
 // - ID: Identifier of the message being sent or the message being responded to.
 // - Response: Indicates if the message is a response.
 // - Type: Specifies the type of message (e.g., write, read, command, ACK, NACK).
 // - Data: Contains the actual data payload, which varies depending on the type or response.
-type UartMessage struct {
-	ID       int    `json:"id,omitempty"`
-	Response bool   `json:"response,omitempty"`
-	Type     string `json:"type,omitempty"`
-	Data     any    `json:"data,omitempty"`
+type Message struct {
+	ID                 int
+	Type               string
+	Payload            string
+	PayloadUnmarshaled any
+}
+
+func (u *Message) String() string {
+	if u.PayloadUnmarshaled != nil {
+		return fmt.Sprintf("ID: %d, Type: %s, Payload: %v, PayloadUnmarshaled: %v", u.ID, u.Type, u.Payload, u.PayloadUnmarshaled)
+	}
+	return fmt.Sprintf("ID: %d, Type: %s, Payload: %v", u.ID, u.Type, u.Payload)
+}
+
+func (m *Message) ToUARTLine() string {
+	if m == nil {
+		return ""
+	}
+	if m.PayloadUnmarshaled != nil {
+		marshaledPayload, err := json.Marshal(m.PayloadUnmarshaled)
+		if err != nil {
+			return ""
+		}
+		m.PayloadUnmarshaled = nil
+		m.Payload = string(marshaledPayload)
+	}
+	messageStr := fmt.Sprintf("<%d|%s|%s>", m.ID, m.Type, m.Payload)
+	return fmt.Sprintf("%s%d\n", messageStr, computeChecksum([]byte(messageStr)))
+}
+
+func (u *Message) Response() bool {
+	return u.Type == "ACK" || u.Type == "NACK"
 }
 
 type Command struct {
@@ -187,7 +214,7 @@ type Write struct {
 type UartMessenger struct {
 	port      *serialhelper.SerialPort
 	pendingMu sync.Mutex
-	pending   map[int]chan *UartMessage
+	pending   map[int]chan *Message
 	nextID    int
 	baudRate  int
 }
@@ -196,7 +223,7 @@ type UartMessenger struct {
 func NewUartMessenger(port *serialhelper.SerialPort) *UartMessenger {
 	return &UartMessenger{
 		port:    port,
-		pending: make(map[int]chan *UartMessage),
+		pending: make(map[int]chan *Message),
 	}
 }
 
@@ -214,14 +241,14 @@ func (u *UartMessenger) Start() {
 func (u *UartMessenger) routeMessages() {
 	for line := range u.port.Lines {
 		// Parse the line
-		msg, err := parseLine(line)
+		msg, err := ParseLine(line)
 		if err != nil {
 			log.Warnf("Failed to parse incoming message %q: %v", line, err)
 			continue
 		}
 
 		// Check if the message was a response
-		if msg.Response {
+		if msg.Response() {
 			u.pendingMu.Lock()
 			ch, ok := u.pending[msg.ID]
 			if !ok && len(u.pending) == 1 {
@@ -240,48 +267,121 @@ func (u *UartMessenger) routeMessages() {
 		}
 
 		// If not a response then it is a notification from the trap.
-		err = parseNotification(msg)
+		parseMessageFromTrap(msg)
+	}
+}
+
+func parseMessageFromTrap(msg *Message) {
+	log.Printf("Trap message: %+v", msg)
+
+	// eventMessages maps trap message type to event type.
+	// For these events we will just make an event of the given type and add the payload in the details.
+	eventMessages := map[string]string{
+		"MOTION":      "trapMotion",
+		"ENABLED":     "trapEnabled",
+		"DISABLED":    "trapDisabled",
+		"SPOOL_RESET": "trapSpoolReset",
+		"TRIGGERED":   "trapTriggered",
+		"RUNNING":     "trapRunning",
+		"ERROR_CODE":  "trapErrorCode",
+		"EXCEPTION":   "trapException",
+	}
+
+	// Messages that we want to trigger the events to be uploaded right away.
+	uploadEventsNowMessages := []string{
+		"TRIGGERED",
+		"EXCEPTION",
+		"ERROR_CODE",
+	}
+
+	// Handle messages that we want to make events for
+	if event, ok := eventMessages[msg.Type]; ok {
+		log.Info("Making event for: ", msg.Type)
+		details := map[string]any{}
+		if msg.Payload != "" {
+			// Try to unmarshal the payload, if not just use it as a string
+			err := json.Unmarshal([]byte(msg.Payload), &details)
+			if err != nil {
+				details["Payload"] = msg.Payload
+			}
+		}
+		err := eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      event,
+			Details:   details,
+		})
 		if err != nil {
-			log.Warnf("Failed to parse notification %q: %v", line, err)
-			continue
+			log.Error("Error adding event:", err)
+		}
+		if contains(uploadEventsNowMessages, msg.Type) {
+			log.Info("Uploading events now")
+			err := eventclient.UploadEvents()
+			if err != nil {
+				log.Error("Error requesting events to be uploaded:", err)
+			}
+		}
+		return
+	}
+
+	// Messages that we just want to make a log for, no event.
+	// logMessages := []string{}
+	// if contains(logMessages, msg.Type) {
+	// 	log.Infof("Trap message: %+v", msg)
+	// 	return
+	// }
+
+	// Unknown messages
+	log.Warnf("Unknown trap message: %+v", msg)
+}
+
+func contains(arr []string, item string) bool {
+	for _, v := range arr {
+		if v == item {
+			return true
 		}
 	}
+	return false
 }
 
-func parseNotification(msg *UartMessage) error {
-	log.Printf("notification: %+v", msg)
-	if msg.Type == "spoolStatus" && msg.Data == "releasing" {
-		log.Println("Spool released. Making event")
-		eventclient.AddEvent(eventclient.Event{
-			Timestamp: time.Now(),
-			Type:      "spoolReleased",
-			Details: map[string]any{
-				"timestamp": time.Now(),
-			},
-		})
-	}
-	return nil
-}
-
-// parseLine parses a framed line of the form <json|checksum>.
-func parseLine(line []byte) (*UartMessage, error) {
-	if len(line) < 2 || line[0] != '<' || line[len(line)-1] != '>' {
+// ParseLine parses a framed line of the form <id|type|payload>checksum.
+func ParseLine(line []byte) (*Message, error) {
+	line = bytes.TrimLeft(line, "\x00")
+	lastIdx := bytes.LastIndexByte(line, '>')
+	if lastIdx < 0 || len(line) == 0 || line[0] != '<' {
 		return nil, fmt.Errorf("invalid frame: %q", line)
 	}
-	inner := line[1 : len(line)-1]
-	parts := bytes.Split(inner, []byte("|"))
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid format: %q", line)
-	}
-	receivedChecksum, err := strconv.Atoi(string(parts[1]))
+	messageStr := line[:lastIdx+1]
+	checksumStr := line[lastIdx+1:]
+
+	receivedChecksum, err := strconv.Atoi(string(checksumStr))
 	if err != nil {
 		return nil, fmt.Errorf("invalid checksum in %q: %v", line, err)
 	}
-	if computeChecksum(parts[0]) != receivedChecksum {
+	if computeChecksum(messageStr) != receivedChecksum {
 		return nil, fmt.Errorf("checksum mismatch in %q", line)
 	}
-	msg := &UartMessage{}
-	return msg, json.Unmarshal(parts[0], msg)
+
+	inner := messageStr[1 : len(messageStr)-1]
+	parts := bytes.SplitN(inner, []byte("|"), 3)
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid format: %q", line)
+	}
+
+	id, err := strconv.Atoi(string(parts[0]))
+	if err != nil {
+		return nil, fmt.Errorf("invalid id in %q: %v", line, err)
+	}
+
+	payload := ""
+	if len(parts) == 3 {
+		payload = string(parts[2])
+	}
+
+	return &Message{
+		ID:      id,
+		Type:    string(parts[1]),
+		Payload: payload,
+	}, nil
 }
 
 func computeChecksum(message []byte) int {
@@ -294,12 +394,12 @@ func computeChecksum(message []byte) int {
 
 // sendMessage sends a request and waits for a matching response.
 // It assigns a unique ID to the message for correlation.
-func (u *UartMessenger) sendMessage(cmd UartMessage) (*UartMessage, error) {
+func (u *UartMessenger) sendMessage(message Message) (*Message, error) {
 	u.pendingMu.Lock()
 	u.nextID++
 	id := u.nextID
-	cmd.ID = id
-	ch := make(chan *UartMessage, 1)
+	message.ID = id
+	ch := make(chan *Message, 1)
 	u.pending[id] = ch
 	u.pendingMu.Unlock()
 
@@ -309,14 +409,10 @@ func (u *UartMessenger) sendMessage(cmd UartMessage) (*UartMessage, error) {
 		u.pendingMu.Unlock()
 	}()
 
-	cmdData, err := json.Marshal(cmd)
-	if err != nil {
-		return nil, err
-	}
-	message := fmt.Sprintf("<%s|%d>\n", cmdData, computeChecksum(cmdData))
-	log.Infof("Message: '%s'", message)
+	line := message.ToUARTLine()
+	log.Infof("Message: '%s'", line)
 
-	if err := u.port.Write([]byte(message)); err != nil {
+	if err := u.port.Write([]byte(line)); err != nil {
 		return nil, err
 	}
 
@@ -337,9 +433,9 @@ func (u *UartMessenger) sendWriteMessage(varName string, val any) error {
 	if err != nil {
 		return err
 	}
-	message := UartMessage{
-		Type: "write",
-		Data: string(data),
+	message := Message{
+		Type:    "write",
+		Payload: string(data),
 	}
 	response, err := u.sendMessage(message)
 	if err != nil {
@@ -358,9 +454,9 @@ func (u *UartMessenger) sendCommandMessage(cmd string) error {
 	if err != nil {
 		return err
 	}
-	message := UartMessage{
-		Type: "command",
-		Data: string(data),
+	message := Message{
+		Type:    "command",
+		Payload: string(data),
 	}
 	response, err := u.sendMessage(message)
 	if err != nil {

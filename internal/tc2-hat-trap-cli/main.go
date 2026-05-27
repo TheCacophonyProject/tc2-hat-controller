@@ -1,13 +1,14 @@
 package trapcli
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
+	"strings"
 	"time"
+
+	comms "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-comms"
 
 	goconfig "github.com/TheCacophonyProject/go-config"
 	"github.com/TheCacophonyProject/go-utils/logging"
@@ -22,13 +23,20 @@ var (
 )
 
 type Args struct {
-	Command  *Command `arg:"subcommand:command" help:"Send a command."`
-	Read     *Read    `arg:"subcommand:read" help:"Read from a variable."`
-	Write    *Write   `arg:"subcommand:write" help:"Write to a variable."`
-	Listen   *Listen  `arg:"subcommand:listen" help:"Continuously listen for messages from the RP2040."`
-	BaudRate int      `arg:"--baud-rate" help:"Baud rate for UART communication."`
+	Command  *Command    `arg:"subcommand:command" help:"Send a command."`
+	Read     *Read       `arg:"subcommand:read" help:"Read from a variable."`
+	Write    *Write      `arg:"subcommand:write" help:"Write to a variable."`
+	Listen   *Listen     `arg:"subcommand:listen" help:"Continuously listen for messages from the RP2040."`
+	Message  *CMDMessage `arg:"subcommand:msg" help:"Send a message to the RP2040."`
+	BaudRate int         `arg:"--baud-rate" help:"Baud rate for UART communication."`
 	goconfig.ConfigArgs
 	logging.LogArgs
+}
+
+type CMDMessage struct {
+	ID      int    `arg:"--id,required" help:"The ID of the message to send."`
+	Type    string `arg:"--type,required" help:"The type of message to send."`
+	Payload string `arg:"--payload,required" help:"The payload of the message to send."`
 }
 
 type Command struct {
@@ -50,50 +58,11 @@ var defaultArgs = Args{
 	BaudRate: 9600,
 }
 
-type uartMessage struct {
-	ID       int    `json:"id,omitempty"`
-	Response bool   `json:"response,omitempty"`
-	Type     string `json:"type,omitempty"`
-	Data     string `json:"data,omitempty"`
-}
+func sendMessage(msg comms.Message, port *serialhelper.SerialPort) (*comms.Message, error) {
+	line := msg.ToUARTLine()
+	log.Println("Sending:", strings.TrimSpace(line))
 
-func computeChecksum(message []byte) int {
-	checksum := 0
-	for _, b := range message {
-		checksum += int(b)
-	}
-	return checksum % 256
-}
-
-func parseFrame(line []byte) (*uartMessage, error) {
-	if len(line) < 2 || line[0] != '<' || line[len(line)-1] != '>' {
-		return nil, fmt.Errorf("invalid frame: %q", line)
-	}
-	inner := line[1 : len(line)-1]
-	parts := bytes.Split(inner, []byte("|"))
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid format, got %d parts from %q", len(parts), inner)
-	}
-	receivedChecksum, err := strconv.Atoi(string(parts[1]))
-	if err != nil {
-		return nil, fmt.Errorf("invalid checksum %q: %w", parts[1], err)
-	}
-	if computeChecksum(parts[0]) != receivedChecksum {
-		return nil, fmt.Errorf("checksum mismatch in %q", line)
-	}
-	msg := &uartMessage{}
-	return msg, json.Unmarshal(parts[0], msg)
-}
-
-func sendMessage(msg uartMessage, port *serialhelper.SerialPort) (*uartMessage, error) {
-	msgData, err := json.Marshal(msg)
-	if err != nil {
-		return nil, err
-	}
-	frame := fmt.Sprintf("<%s|%d>\n", msgData, computeChecksum(msgData))
-	log.Println("Sending:", frame)
-
-	if err := port.Write([]byte(frame)); err != nil {
+	if err := port.Write([]byte(line)); err != nil {
 		return nil, err
 	}
 
@@ -102,7 +71,7 @@ func sendMessage(msg uartMessage, port *serialhelper.SerialPort) (*uartMessage, 
 		if !ok {
 			return nil, fmt.Errorf("serial port closed while waiting for response")
 		}
-		return parseFrame(line)
+		return comms.ParseLine(line)
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout waiting for response")
 	}
@@ -146,12 +115,13 @@ func Run(inputArgs []string, ver string) error {
 	case args.Listen != nil:
 		fmt.Println("Listening for messages from RP2040 (Ctrl+C to stop)...")
 		for line := range port.Lines {
-			msg, err := parseFrame(line)
+			msg, err := comms.ParseLine(line)
 			if err != nil {
 				fmt.Printf("raw: %s\n", line)
+				log.Warnf("Failed to parse incoming message %q: %v", line, err)
 				continue
 			}
-			fmt.Printf("type=%s data=%s\n", msg.Type, msg.Data)
+			log.Println("Received:", msg)
 		}
 		return nil
 
@@ -160,37 +130,38 @@ func Run(inputArgs []string, ver string) error {
 		if err != nil {
 			return err
 		}
-		err = respond(sendMessage(uartMessage{Type: "command", Data: string(data)}, port))
-		return err
+		return respond(sendMessage(comms.Message{Type: "command", Payload: string(data)}, port))
 
 	case args.Read != nil:
 		data, err := json.Marshal(map[string]string{"var": args.Read.Variable})
 		if err != nil {
 			return err
 		}
-		err = respond(sendMessage(uartMessage{Type: "read", Data: string(data)}, port))
-		return err
+		return respond(sendMessage(comms.Message{Type: "read", Payload: string(data)}, port))
 
 	case args.Write != nil:
 		data, err := json.Marshal(map[string]string{"var": args.Write.Variable, "val": args.Write.Value})
 		if err != nil {
 			return err
 		}
-		err = respond(sendMessage(uartMessage{Type: "write", Data: string(data)}, port))
-		return err
+		return respond(sendMessage(comms.Message{Type: "write", Payload: string(data)}, port))
+
+	case args.Message != nil:
+		message := comms.Message{ID: args.Message.ID, Type: args.Message.Type, Payload: args.Message.Payload}
+		return respond(sendMessage(message, port))
 
 	default:
 		return fmt.Errorf("no subcommand given")
 	}
 }
 
-func respond(response *uartMessage, err error) error {
+func respond(response *comms.Message, err error) error {
 	if err != nil {
 		return err
 	}
 	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response: %s", response.Data)
+		return fmt.Errorf("NACK response: %s", response.Payload)
 	}
-	fmt.Printf("type=%s data=%s\n", response.Type, response.Data)
+	fmt.Printf("type=%s payload=%s\n", response.Type, response.Payload)
 	return nil
 }
