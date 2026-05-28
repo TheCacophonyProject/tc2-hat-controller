@@ -77,6 +77,8 @@ nfpms:
       dst: /usr/bin/tc2-hat-rtc
     - src: _release/tc2-hat-temp
       dst: /usr/bin/tc2-hat-temp
+    - src: _release/tc2-hat-trap-cli
+      dst: /usr/bin/tc2-hat-trap-cli
 
   dependencies:
     #- python3-pip

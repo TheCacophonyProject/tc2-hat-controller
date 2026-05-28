@@ -38,6 +38,7 @@ type trackingEvent struct {
 	Tracking            bool
 	LastPredictionFrame int32
 	ClipAgeSeconds      int32
+	TrackStartTime      time.Time
 }
 
 func (t trackingEvent) isEvent() {}
@@ -48,11 +49,17 @@ type batteryEvent struct {
 	Percent float64
 }
 
+// Add tracking reprocessed events to the channel
+// Tracking reprocessed events are sent once the track has finished and it gets reprocessed.
+// This is useful if you are just using the events for reporting purposes and don't need to control
+// something in real time.
 func addTrackingReprocessedEvents(eventsChan chan event) error {
 	targetSignalName := "org.cacophony.thermalrecorder.TrackingReprocessed"
 	return addTrackingEventsForSignal(eventsChan, targetSignalName)
 }
 
+// Add tracking events to the channel
+// Tracking events are sent while the track is in progress.
 func addTrackingEvents(eventsChan chan event) error {
 	targetSignalName := "org.cacophony.thermalrecorder.Tracking"
 	return addTrackingEventsForSignal(eventsChan, targetSignalName)
@@ -91,7 +98,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				log.Debugf("Received tracking event [%v]:", signal.Name)
 
 				// Reprocessed signals have an additional parameter 'clip_end_time'
-				if len(signal.Body) < 12 {
+				if len(signal.Body) != 13 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)
 					continue
 				}
@@ -107,9 +114,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				log.Debugf("Tracking: %v", signal.Body[9])
 				log.Debugf("Last prediction frame: %v", signal.Body[10])
 				log.Debugf("Model Id: %v", signal.Body[11])
-				if len(signal.Body) >= 13 {
-					log.Debugf("Clip End Time: %v", signal.Body[12])
-				}
+				log.Debugf("Track Start Time: %v", signal.Body[12])
 
 				var modelId int32
 				var modelLabels []string
@@ -153,16 +158,8 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 				var region [4]int32
 				copy(region[:], signal.Body[5].([]int32))
 
-				// See if we have a clip end time
-				clipAgeSeconds := int32(0)
-				if len(signal.Body) >= 13 {
-					ts := signal.Body[12].(float64)
-					now := time.Now()
-					target := time.Unix(int64(ts), int64((ts-float64(int64(ts)))*1e9))
-
-					clipAgeSeconds = int32(now.Sub(target).Seconds())
-					log.Debugf("Clip is %d seconds old", clipAgeSeconds)
-				}
+				nanoSeconds := signal.Body[12].(int64) * 1e6
+				trackStartTime := time.Unix(0, nanoSeconds)
 
 				// Finally let's build our tracking event
 				t := trackingEvent{
@@ -177,7 +174,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 					BlankRegion:         signal.Body[8].(bool),
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
-					ClipAgeSeconds:      clipAgeSeconds,
+					TrackStartTime:      trackStartTime,
 				}
 				log.Debugf("Sending tracking event: %+v", t)
 
@@ -189,6 +186,64 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 	return nil
 }
 
+// recordingEvent is a event that is made at the start and end of a recording
+type recordingEvent struct {
+	event
+	Timestamp time.Time
+	Recording bool
+}
+
+// Add recording events to the channel
+// These are events that are made at the start and end of a recording
+func addRecordingEvents(eventsChan chan event) error {
+	// Listen for signals
+	targetSignalName := "org.cacophony.thermalrecorder.Recording"
+
+	// Connect to the system bus
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		log.Fatalf("Failed to connect to system bus: %v", err)
+	}
+
+	// Add a match rule to listen for our dbus signals
+	rule := "type='signal',interface='org.cacophony.thermalrecorder'"
+	call := conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, rule)
+	if call.Err != nil {
+		log.Fatalf("Failed to add match rule: %v", call.Err)
+	}
+
+	// Create a channel to receive signals
+	c := make(chan *dbus.Signal, 10)
+	conn.Signal(c)
+
+	log.Infof("Listening for D-Bus signals: %s", targetSignalName)
+	// Listen for signals, process and send tracking events to the channel.
+	go func() {
+		for signal := range c {
+			if signal.Name == targetSignalName {
+				log.Debug("Received Recording event.")
+				if len(signal.Body) != 2 {
+					log.Errorf("Unexpected signal format in body: %v", signal.Body)
+					continue
+				}
+
+				// Time is given in ms since epoch, we will convert to nanoseconds so we can use the time package.
+				nanoSeconds := signal.Body[0].(int64) * 1e6
+				recordingStartTime := time.Unix(0, nanoSeconds)
+
+				// Send the event to the channel.
+				eventsChan <- recordingEvent{
+					Timestamp: recordingStartTime,
+					Recording: signal.Body[1].(bool),
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
+// Add battery events to the channel.
 func addBatteryEvents(eventsChan chan event) error {
 	// Listen for signals
 	targetSignalName := "org.cacophony.attiny.Battery"
@@ -255,14 +310,15 @@ func getLabels() {
 	}
 	bodyMap := t_call.Body[0].(map[int32][]string)
 
-	// Out model labels have id '1' .. false-postitives are the other element.
+	// Out model labels have id '1' .. false-positive are the other element.
 	// e.g. [map[1:[bird cat deer ... vehicle wallaby] 1004:[animal false-positive]]]
 	for k, v := range bodyMap {
-		if k == animalsList.Id {
+		switch k {
+		case animalsList.Id:
 			animalsList.Labels = v
-		} else if k == fpModelLabels.Id {
+		case fpModelLabels.Id:
 			fpModelLabels.Labels = v
-		} else {
+		default:
 			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, bodyMap)
 		}
 	}
@@ -287,7 +343,7 @@ func getThumbnail(clip_id int32, track_id int32) [][]uint16 {
 	switch frame := t_call.Body[0].(type) {
 	case [][]uint16:
 		// Access row/col
-		log.Debugf("Thubnail (clip id: %d, track_id: %d) is: %d×%d", clip_id, track_id, len(frame), len(frame[0]))
+		log.Debugf("Thumbnail (clip id: %d, track_id: %d) is: %d×%d", clip_id, track_id, len(frame), len(frame[0]))
 		return t_call.Body[0].([][]uint16)
 	default:
 		log.Warnf("GetThumbnail returned an unexpected 2D type: %T", frame)

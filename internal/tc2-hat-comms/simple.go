@@ -1,3 +1,5 @@
+// Output mode: outputs a simple HIGH or LOW signal over serial based on detection events.
+
 package comms
 
 import (

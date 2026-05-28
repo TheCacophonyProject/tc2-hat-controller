@@ -1,4 +1,4 @@
 /dist
 _release/attiny-firmware.hex
 _release/attiny-firmware.hex.sha256
-
+/tc2-hat-controller
