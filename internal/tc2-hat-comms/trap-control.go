@@ -15,10 +15,6 @@ import (
 	"periph.io/x/conn/v3/gpio"
 )
 
-const (
-	enableString = "enable" // We set this to true/false to enable/disable the trap
-)
-
 // processTrapControl communicates the trap enabled/disabled state by writing
 // the "enable" variable over UART instead of setting a digital pin.
 func processTrapControl(config *CommsConfig, eventSignals chan event) error {
@@ -58,8 +54,9 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 		if trapEnabled != previousTrapEnabled {
 			if trapEnabled {
 				log.Infof("Enabling trap, reason: %s", enablingReason)
-				if err := messenger.sendWriteMessage(enableString, true); err != nil {
-					return fmt.Errorf("failed to write enable=true: %v", err)
+				success, err := messenger.setEnable(true)
+				if err != nil {
+					return fmt.Errorf("failed to enable trap: %v", err)
 				}
 				trapEnableTime := time.Now()
 				log.Infof("Recording start time: %s", recordingStartTime.Format("15:04:05.999"))
@@ -70,7 +67,7 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 
 				eventclient.AddEvent(eventclient.Event{
 					Timestamp: time.Now(),
-					Type:      "enablingTrap",
+					Type:      "trapEnableCommand",
 					Details: map[string]any{
 						"reason":             enablingReason,
 						"recordingStartTime": recordingStartTime,
@@ -79,18 +76,21 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 						"timeToEnableTrap":   timeToEnableTrap,
 						"animal":             triggerAnimal,
 						"confidence":         confidence,
+						"enableTrapSuccess":  success, // If this fails that likely means the trap is not in a state to be enabled through the UART
 					},
 				})
 			} else {
 				log.Info("Disabling trap, reason: ", disablingReason)
-				if err := messenger.sendWriteMessage(enableString, false); err != nil {
-					return fmt.Errorf("failed to write enable=false: %v", err)
+				success, err := messenger.setEnable(false)
+				if err != nil {
+					return fmt.Errorf("failed to disable trap: %v", err)
 				}
 				eventclient.AddEvent(eventclient.Event{
 					Timestamp: time.Now(),
-					Type:      "disablingTrap",
+					Type:      "trapDisableCommand",
 					Details: map[string]any{
-						"reason": disablingReason,
+						"reason":             disablingReason,
+						"disableTrapSuccess": success,
 					},
 				})
 			}
@@ -188,8 +188,8 @@ func (m *Message) ToUARTLine() string {
 	return fmt.Sprintf("%s%d\n", messageStr, computeChecksum([]byte(messageStr)))
 }
 
-func (u *Message) Response() bool {
-	return u.Type == "ACK" || u.Type == "NACK"
+func (m *Message) Response() bool {
+	return m.ID != 0
 }
 
 type Command struct {
@@ -201,12 +201,6 @@ type Write struct {
 	Var string `json:"var,omitempty"`
 	Val any    `json:"val,omitempty"`
 }
-
-// TODO: Change how the message is formatted so it is more concise. Something like: <ID,Type,Payload,CRC>
-//   - ID is a uint16
-//   - Type is a string (ACK, NACK, Read, Write, Command, Response...)
-//   - Payload is as many bytes as needed
-//   - CRC is 2 byte checksum
 
 // UartMessenger manages bidirectional communication with the RP2040 over UART.
 // It holds a persistent serial port and routes incoming messages to either
@@ -425,50 +419,23 @@ func (u *UartMessenger) sendMessage(message Message) (*Message, error) {
 	}
 }
 
-func (u *UartMessenger) sendWriteMessage(varName string, val any) error {
-	data, err := json.Marshal(&Write{
-		Var: varName,
-		Val: val,
-	})
-	if err != nil {
-		return err
-	}
-	message := Message{
-		Type:    "write",
-		Payload: string(data),
+func (u *UartMessenger) setEnable(enable bool) (bool, error) {
+	message := Message{}
+	if enable {
+		message.Type = "ENABLE"
+	} else {
+		message.Type = "DISABLE"
 	}
 	response, err := u.sendMessage(message)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response")
+		return false, fmt.Errorf("NACK response")
 	}
-	return nil
-}
-
-func (u *UartMessenger) sendCommandMessage(cmd string) error {
-	data, err := json.Marshal(&Command{
-		Command: cmd,
-	})
-	if err != nil {
-		return err
+	if response.Type == "BAD_KEY" {
+		log.Warn("Got BAD_KEY response, was trying to set a key that doesn't exist")
+		return false, nil
 	}
-	message := Message{
-		Type:    "command",
-		Payload: string(data),
-	}
-	response, err := u.sendMessage(message)
-	if err != nil {
-		return err
-	}
-	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response")
-	}
-	return nil
-}
-
-func (u *UartMessenger) beep() error {
-	log.Println("beep")
-	return u.sendCommandMessage("beep")
+	return true, nil
 }
