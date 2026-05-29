@@ -35,6 +35,7 @@ type Args struct {
 	Listen   *Listen     `arg:"subcommand:listen" help:"Continuously listen for messages from the RP2040."`
 	Message  *CMDMessage `arg:"subcommand:msg" help:"Send a message to the RP2040."`
 	CopyFile *CopyFile   `arg:"subcommand:copy-file" help:"Copy a file to the RP2040."`
+	CopyDir  *CopyDir    `arg:"subcommand:copy-dir" help:"Copy all files from a directory to the RP2040."`
 	BaudRate int         `arg:"--baud-rate" help:"Baud rate for UART communication."`
 	goconfig.ConfigArgs
 	logging.LogArgs
@@ -49,6 +50,11 @@ type CMDMessage struct {
 type CopyFile struct {
 	Source string `arg:"--source,required" help:"The source file to copy."`
 	Dest   string `arg:"--dest,required" help:"The destination file to copy to."`
+}
+
+type CopyDir struct {
+	Source string `arg:"--source,required" help:"The source directory to copy files from."`
+	Dest   string `arg:"--dest,required" help:"The destination directory on the RP2040."`
 }
 
 type Command struct {
@@ -70,23 +76,31 @@ var defaultArgs = Args{
 	BaudRate: 9600,
 }
 
+const maxRetries = 3
+
 func sendMessage(msg comms.Message, port *serialhelper.SerialPort) (*comms.Message, error) {
 	line := msg.ToUARTLine()
-	log.Println("Sending:", strings.TrimSpace(line))
-
-	if err := port.Write([]byte(line)); err != nil {
-		return nil, err
-	}
-
-	select {
-	case line, ok := <-port.Lines:
-		if !ok {
-			return nil, fmt.Errorf("serial port closed while waiting for response")
+	var lastErr error
+	for i := range maxRetries {
+		if i > 0 {
+			log.Warnf("Retrying (%d/%d): %s", i, maxRetries-1, strings.TrimSpace(line))
+		} else {
+			log.Println("Sending:", strings.TrimSpace(line))
 		}
-		return comms.ParseLine(line)
-	case <-time.After(5 * time.Second):
-		return nil, fmt.Errorf("timeout waiting for response")
+		if err := port.Write([]byte(line)); err != nil {
+			return nil, err
+		}
+		select {
+		case line, ok := <-port.Lines:
+			if !ok {
+				return nil, fmt.Errorf("serial port closed while waiting for response")
+			}
+			return comms.ParseLine(line)
+		case <-time.After(5 * time.Second):
+			lastErr = fmt.Errorf("timeout waiting for response")
+		}
 	}
+	return nil, lastErr
 }
 
 func procArgs(input []string) (Args, error) {
@@ -163,88 +177,23 @@ func Run(inputArgs []string, ver string) error {
 		return respond(sendMessage(message, port))
 
 	case args.CopyFile != nil:
-		localFile := args.CopyFile.Source
-		destFile := args.CopyFile.Dest
+		return copyFile(args.CopyFile.Source, args.CopyFile.Dest, port)
 
-		// Check that local file exists.
-		localData, err := os.ReadFile(localFile)
+	case args.CopyDir != nil:
+		entries, err := os.ReadDir(args.CopyDir.Source)
 		if err != nil {
-			return fmt.Errorf("failed to read local file %s: %v", localFile, err)
+			return fmt.Errorf("failed to read directory %s: %v", args.CopyDir.Source, err)
 		}
-
-		// Calculate the hash of the file, just he first 10 characters.
-		h := sha256.Sum256(localData)
-		localHash := hex.EncodeToString(h[:])[:10]
-		destBase := filepath.Base(destFile)
-		tmpBase := destBase + ".tmp"
-
-		// Check if the files already matches
-		lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + tmpBase}, port)
-		if err != nil {
-			return fmt.Errorf("failed to list files: %v", err)
-		}
-		var fileHashes map[string]string
-		if err := json.Unmarshal([]byte(lsResp.Payload), &fileHashes); err != nil {
-			return fmt.Errorf("failed to parse LS response: %v", err)
-		}
-		if fileHashes[destBase] == localHash {
-			log.Printf("File %s already up to date", destFile)
-			return nil
-		}
-
-		// Delete the temp file if it already exists
-		if _, ok := fileHashes[tmpBase]; ok {
-			if err := respond(sendMessage(comms.Message{Type: "DELETE", Payload: tmpBase}, port)); err != nil {
-				return fmt.Errorf("failed to delete temp file: %v", err)
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			localFile := filepath.Join(args.CopyDir.Source, entry.Name())
+			destFile := filepath.Join(args.CopyDir.Dest, entry.Name())
+			if err := copyFile(localFile, destFile, port); err != nil {
+				return fmt.Errorf("failed to copy %s: %v", entry.Name(), err)
 			}
 		}
-
-		// Compress with raw DEFLATE and base64 encode for safe UART transfer.
-		var compressed bytes.Buffer
-		fw, err := flate.NewWriter(&compressed, flate.BestCompression)
-		if err != nil {
-			return fmt.Errorf("failed to create compressor: %v", err)
-		}
-		if _, err := fw.Write(localData); err != nil {
-			return fmt.Errorf("failed to compress file: %v", err)
-		}
-		if err := fw.Close(); err != nil {
-			return fmt.Errorf("failed to finalize compression: %v", err)
-		}
-		encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
-		fmt.Printf("Original: %d bytes, Compressed: %d bytes (%.0f%%)\n", len(localData), compressed.Len(), float64(compressed.Len())/float64(len(localData))*100)
-
-		// Write base64-encoded compressed data in chunks
-		const chunkSize = 500
-		for i := 0; i < len(encoded); i += chunkSize {
-			chunk, err := json.Marshal([]string{encoded[i:min(i+chunkSize, len(encoded))]})
-			if err != nil {
-				return fmt.Errorf("failed to marshal chunk: %v", err)
-			}
-			if err := respond(sendMessage(comms.Message{Type: "WRITE", Payload: tmpBase + "," + string(chunk)}, port)); err != nil {
-				return fmt.Errorf("failed to write chunk at offset %d: %v", i, err)
-			}
-		}
-
-		// Decompress the temp file into the destination
-		if err := respond(sendMessage(comms.Message{Type: "DECOMPRESS", Payload: tmpBase + "," + destBase}, port)); err != nil {
-			return fmt.Errorf("failed to decompress file: %v", err)
-		}
-
-		// Verify the final file
-		lsResp3, err := sendMessage(comms.Message{Type: "LS", Payload: destBase}, port)
-		if err != nil {
-			return fmt.Errorf("failed to verify file: %v", err)
-		}
-		var fileHashes3 map[string]string
-		if err := json.Unmarshal([]byte(lsResp3.Payload), &fileHashes3); err != nil {
-			return fmt.Errorf("failed to parse verify LS response: %v", err)
-		}
-		if fileHashes3[destBase] != localHash {
-			return fmt.Errorf("file verification failed: hash mismatch. Got %s, expected %s", fileHashes3[tmpBase], localHash)
-		}
-
-		log.Printf("File %s copied successfully", destFile)
 		return nil
 
 	default:
@@ -260,5 +209,80 @@ func respond(response *comms.Message, err error) error {
 		return fmt.Errorf("NACK response: %s", response.Payload)
 	}
 	log.Infof("Response: type=%s, payload=%s", response.Type, response.Payload)
+	return nil
+}
+
+func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
+	localData, err := os.ReadFile(localFile)
+	if err != nil {
+		return fmt.Errorf("failed to read local file %s: %v", localFile, err)
+	}
+
+	h := sha256.Sum256(localData)
+	localHash := hex.EncodeToString(h[:])[:10]
+	destBase := filepath.Base(destFile)
+	tmpBase := destBase + ".tmp"
+
+	lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + tmpBase}, port)
+	if err != nil {
+		return fmt.Errorf("failed to list files: %v", err)
+	}
+	var fileHashes map[string]string
+	if err := json.Unmarshal([]byte(lsResp.Payload), &fileHashes); err != nil {
+		return fmt.Errorf("failed to parse LS response: %v", err)
+	}
+	if fileHashes[destBase] == localHash {
+		log.Printf("File %s already up to date", destFile)
+		//return nil
+	}
+
+	if _, ok := fileHashes[tmpBase]; ok {
+		if err := respond(sendMessage(comms.Message{Type: "DELETE", Payload: tmpBase}, port)); err != nil {
+			return fmt.Errorf("failed to delete temp file: %v", err)
+		}
+	}
+
+	var compressed bytes.Buffer
+	fw, err := flate.NewWriter(&compressed, flate.HuffmanOnly)
+	if err != nil {
+		return fmt.Errorf("failed to create compressor: %v", err)
+	}
+	if _, err := fw.Write(localData); err != nil {
+		return fmt.Errorf("failed to compress file: %v", err)
+	}
+	if err := fw.Close(); err != nil {
+		return fmt.Errorf("failed to finalize compression: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
+	fmt.Printf("%s: %d bytes -> %d bytes compressed (%.0f%%)\n", filepath.Base(localFile), len(localData), compressed.Len(), float64(compressed.Len())/float64(len(localData))*100)
+
+	const chunkSize = 500
+	for i := 0; i < len(encoded); i += chunkSize {
+		chunk, err := json.Marshal([]string{encoded[i:min(i+chunkSize, len(encoded))]})
+		if err != nil {
+			return fmt.Errorf("failed to marshal chunk: %v", err)
+		}
+		if err := respond(sendMessage(comms.Message{Type: "WRITE", Payload: tmpBase + "," + string(chunk)}, port)); err != nil {
+			return fmt.Errorf("failed to write chunk at offset %d: %v", i, err)
+		}
+	}
+
+	if err := respond(sendMessage(comms.Message{Type: "DECOMPRESS", Payload: tmpBase + "," + destBase}, port)); err != nil {
+		return fmt.Errorf("failed to decompress file: %v", err)
+	}
+
+	lsResp2, err := sendMessage(comms.Message{Type: "LS", Payload: destBase}, port)
+	if err != nil {
+		return fmt.Errorf("failed to verify file: %v", err)
+	}
+	var fileHashes2 map[string]string
+	if err := json.Unmarshal([]byte(lsResp2.Payload), &fileHashes2); err != nil {
+		return fmt.Errorf("failed to parse verify LS response: %v", err)
+	}
+	if fileHashes2[destBase] != localHash {
+		return fmt.Errorf("file verification failed: hash mismatch")
+	}
+
+	log.Printf("File %s copied successfully", destFile)
 	return nil
 }
