@@ -1,10 +1,13 @@
 package trapcli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,6 +31,7 @@ type Args struct {
 	Write    *Write      `arg:"subcommand:write" help:"Write to a variable."`
 	Listen   *Listen     `arg:"subcommand:listen" help:"Continuously listen for messages from the RP2040."`
 	Message  *CMDMessage `arg:"subcommand:msg" help:"Send a message to the RP2040."`
+	CopyFile *CopyFile   `arg:"subcommand:copy-file" help:"Copy a file to the RP2040."`
 	BaudRate int         `arg:"--baud-rate" help:"Baud rate for UART communication."`
 	goconfig.ConfigArgs
 	logging.LogArgs
@@ -37,6 +41,11 @@ type CMDMessage struct {
 	ID      int    `arg:"--id,required" help:"The ID of the message to send."`
 	Type    string `arg:"--type,required" help:"The type of message to send."`
 	Payload string `arg:"--payload,required" help:"The payload of the message to send."`
+}
+
+type CopyFile struct {
+	Source string `arg:"--source,required" help:"The source file to copy."`
+	Dest   string `arg:"--dest,required" help:"The destination file to copy to."`
 }
 
 type Command struct {
@@ -150,6 +159,94 @@ func Run(inputArgs []string, ver string) error {
 		message := comms.Message{ID: args.Message.ID, Type: args.Message.Type, Payload: args.Message.Payload}
 		return respond(sendMessage(message, port))
 
+	case args.CopyFile != nil:
+		localFile := args.CopyFile.Source
+		destFile := args.CopyFile.Dest
+
+		// Check that local file exists.
+		localData, err := os.ReadFile(localFile)
+		if err != nil {
+			return fmt.Errorf("failed to read local file %s: %v", localFile, err)
+		}
+
+		// Calculate the hash of the file, just he first 10 characters.
+		h := sha256.Sum256(localData)
+		localHash := hex.EncodeToString(h[:])[:10]
+		destBase := filepath.Base(destFile)
+		tmpBase := destBase + ".tmp"
+
+		// Check if the files already matches
+		lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + tmpBase}, port)
+		if err != nil {
+			return fmt.Errorf("failed to list files: %v", err)
+		}
+		var fileHashes map[string]string
+		if err := json.Unmarshal([]byte(lsResp.Payload), &fileHashes); err != nil {
+			return fmt.Errorf("failed to parse LS response: %v", err)
+		}
+		if fileHashes[destBase] == localHash {
+			log.Printf("File %s already up to date", destFile)
+			return nil
+		}
+
+		// Delete the temp file if it already exists
+		if _, ok := fileHashes[tmpBase]; ok {
+			if err := respond(sendMessage(comms.Message{Type: "DELETE", Payload: tmpBase}, port)); err != nil {
+				return fmt.Errorf("failed to delete temp file: %v", err)
+			}
+		}
+
+		// Split the file into lines. Removing the trailing newline as that will be added by the RP2040
+		lines := strings.Split(strings.TrimSuffix(string(localData), "\n"), "\n")
+		if len(lines) == 1 && lines[0] == "" {
+			lines = nil
+		}
+
+		for _, line := range lines {
+			lineSend := []string{line}
+			chunk, err := json.Marshal(lineSend)
+			if err != nil {
+				return fmt.Errorf("failed to marshal chunk: %v", err)
+			}
+			if err := respond(sendMessage(comms.Message{Type: "WRITE", Payload: tmpBase + "," + string(chunk)}, port)); err != nil {
+				return fmt.Errorf("failed to write chunk at line %s: %v", line, err)
+			}
+		}
+
+		// Verify temp file.
+		lsResp2, err := sendMessage(comms.Message{Type: "LS", Payload: tmpBase}, port)
+		if err != nil {
+			return fmt.Errorf("failed to verify file: %v", err)
+		}
+		var fileHashes2 map[string]string
+		if err := json.Unmarshal([]byte(lsResp2.Payload), &fileHashes2); err != nil {
+			return fmt.Errorf("failed to parse verify LS response: %v", err)
+		}
+		if fileHashes2[tmpBase] != localHash {
+			return fmt.Errorf("file verification failed: hash mismatch")
+		}
+
+		// Move the temp file to the destination
+		if err := respond(sendMessage(comms.Message{Type: "MV", Payload: tmpBase + "," + destBase}, port)); err != nil {
+			return fmt.Errorf("failed to move file: %v", err)
+		}
+
+		// Verify the final file
+		lsResp3, err := sendMessage(comms.Message{Type: "LS", Payload: destBase}, port)
+		if err != nil {
+			return fmt.Errorf("failed to verify file: %v", err)
+		}
+		var fileHashes3 map[string]string
+		if err := json.Unmarshal([]byte(lsResp3.Payload), &fileHashes3); err != nil {
+			return fmt.Errorf("failed to parse verify LS response: %v", err)
+		}
+		if fileHashes3[destBase] != localHash {
+			return fmt.Errorf("file verification failed: hash mismatch. Got %s, expected %s", fileHashes3[tmpBase], localHash)
+		}
+
+		log.Printf("File %s copied successfully", destFile)
+		return nil
+
 	default:
 		return fmt.Errorf("no subcommand given")
 	}
@@ -162,6 +259,6 @@ func respond(response *comms.Message, err error) error {
 	if response.Type == "NACK" {
 		return fmt.Errorf("NACK response: %s", response.Payload)
 	}
-	fmt.Printf("type=%s payload=%s\n", response.Type, response.Payload)
+	log.Infof("Response: type=%s, payload=%s", response.Type, response.Payload)
 	return nil
 }
