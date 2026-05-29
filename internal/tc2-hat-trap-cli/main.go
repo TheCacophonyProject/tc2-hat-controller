@@ -1,7 +1,10 @@
 package trapcli
 
 import (
+	"bytes"
+	"compress/flate"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -196,39 +199,36 @@ func Run(inputArgs []string, ver string) error {
 			}
 		}
 
-		// Split the file into lines. Removing the trailing newline as that will be added by the RP2040
-		lines := strings.Split(strings.TrimSuffix(string(localData), "\n"), "\n")
-		if len(lines) == 1 && lines[0] == "" {
-			lines = nil
+		// Compress with raw DEFLATE and base64 encode for safe UART transfer.
+		var compressed bytes.Buffer
+		fw, err := flate.NewWriter(&compressed, flate.BestCompression)
+		if err != nil {
+			return fmt.Errorf("failed to create compressor: %v", err)
 		}
+		if _, err := fw.Write(localData); err != nil {
+			return fmt.Errorf("failed to compress file: %v", err)
+		}
+		if err := fw.Close(); err != nil {
+			return fmt.Errorf("failed to finalize compression: %v", err)
+		}
+		encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
+		fmt.Printf("Original: %d bytes, Compressed: %d bytes (%.0f%%)\n", len(localData), compressed.Len(), float64(compressed.Len())/float64(len(localData))*100)
 
-		for _, line := range lines {
-			lineSend := []string{line}
-			chunk, err := json.Marshal(lineSend)
+		// Write base64-encoded compressed data in chunks
+		const chunkSize = 500
+		for i := 0; i < len(encoded); i += chunkSize {
+			chunk, err := json.Marshal([]string{encoded[i:min(i+chunkSize, len(encoded))]})
 			if err != nil {
 				return fmt.Errorf("failed to marshal chunk: %v", err)
 			}
 			if err := respond(sendMessage(comms.Message{Type: "WRITE", Payload: tmpBase + "," + string(chunk)}, port)); err != nil {
-				return fmt.Errorf("failed to write chunk at line %s: %v", line, err)
+				return fmt.Errorf("failed to write chunk at offset %d: %v", i, err)
 			}
 		}
 
-		// Verify temp file.
-		lsResp2, err := sendMessage(comms.Message{Type: "LS", Payload: tmpBase}, port)
-		if err != nil {
-			return fmt.Errorf("failed to verify file: %v", err)
-		}
-		var fileHashes2 map[string]string
-		if err := json.Unmarshal([]byte(lsResp2.Payload), &fileHashes2); err != nil {
-			return fmt.Errorf("failed to parse verify LS response: %v", err)
-		}
-		if fileHashes2[tmpBase] != localHash {
-			return fmt.Errorf("file verification failed: hash mismatch")
-		}
-
-		// Move the temp file to the destination
-		if err := respond(sendMessage(comms.Message{Type: "MV", Payload: tmpBase + "," + destBase}, port)); err != nil {
-			return fmt.Errorf("failed to move file: %v", err)
+		// Decompress the temp file into the destination
+		if err := respond(sendMessage(comms.Message{Type: "DECOMPRESS", Payload: tmpBase + "," + destBase}, port)); err != nil {
+			return fmt.Errorf("failed to decompress file: %v", err)
 		}
 
 		// Verify the final file
