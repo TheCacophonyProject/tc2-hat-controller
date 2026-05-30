@@ -177,7 +177,10 @@ func Run(inputArgs []string, ver string) error {
 		return respond(sendMessage(message, port))
 
 	case args.CopyFile != nil:
-		return copyFile(args.CopyFile.Source, args.CopyFile.Dest, port)
+		if err := copyFile(args.CopyFile.Source, args.CopyFile.Dest, port); err != nil {
+			return err
+		}
+		return commitFiles(port)
 
 	case args.CopyDir != nil:
 		entries, err := os.ReadDir(args.CopyDir.Source)
@@ -194,11 +197,16 @@ func Run(inputArgs []string, ver string) error {
 				return fmt.Errorf("failed to copy %s: %v", entry.Name(), err)
 			}
 		}
-		return nil
+		return commitFiles(port)
 
 	default:
 		return fmt.Errorf("no subcommand given")
 	}
+}
+
+func commitFiles(port *serialhelper.SerialPort) error {
+	log.Println("Committing files...")
+	return respond(sendMessage(comms.Message{Type: "COMMIT"}, port))
 }
 
 func respond(response *comms.Message, err error) error {
