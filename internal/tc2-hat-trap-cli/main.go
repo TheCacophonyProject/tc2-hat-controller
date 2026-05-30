@@ -85,7 +85,7 @@ func sendMessage(msg comms.Message, port *serialhelper.SerialPort) (*comms.Messa
 		if i > 0 {
 			log.Warnf("Retrying (%d/%d): %s", i, maxRetries-1, strings.TrimSpace(line))
 		} else {
-			log.Println("Sending:", strings.TrimSpace(line))
+			//log.Println("Sending:", strings.TrimSpace(line))
 		}
 		if err := port.Write([]byte(line)); err != nil {
 			return nil, err
@@ -116,7 +116,7 @@ func procArgs(input []string) (Args, error) {
 		os.Exit(0)
 	}
 	if errors.Is(err, arg.ErrVersion) {
-		fmt.Println(version)
+		log.Infoln(version)
 		os.Exit(0)
 	}
 	return args, err
@@ -139,11 +139,11 @@ func Run(inputArgs []string, ver string) error {
 
 	switch {
 	case args.Listen != nil:
-		fmt.Println("Listening for messages from RP2040 (Ctrl+C to stop)...")
+		log.Infoln("Listening for messages from RP2040 (Ctrl+C to stop)...")
 		for line := range port.Lines {
 			msg, err := comms.ParseLine(line)
 			if err != nil {
-				fmt.Printf("raw: %s\n", line)
+				log.Infof("raw: %s\n", line)
 				log.Warnf("Failed to parse incoming message %q: %v", line, err)
 				continue
 			}
@@ -208,11 +208,13 @@ func respond(response *comms.Message, err error) error {
 	if response.Type == "NACK" {
 		return fmt.Errorf("NACK response: %s", response.Payload)
 	}
-	log.Infof("Response: type=%s, payload=%s", response.Type, response.Payload)
+	//log.Infof("Response: type=%s, payload=%s", response.Type, response.Payload)
 	return nil
 }
 
 func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
+	log.Printf("Uploading '%s'", destFile)
+
 	localData, err := os.ReadFile(localFile)
 	if err != nil {
 		return fmt.Errorf("failed to read local file %s: %v", localFile, err)
@@ -221,9 +223,10 @@ func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
 	h := sha256.Sum256(localData)
 	localHash := hex.EncodeToString(h[:])[:10]
 	destBase := filepath.Base(destFile)
+	compressedBase := destBase + ".ztmp"
 	tmpBase := destBase + ".tmp"
 
-	lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + tmpBase}, port)
+	lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + compressedBase}, port)
 	if err != nil {
 		return fmt.Errorf("failed to list files: %v", err)
 	}
@@ -232,12 +235,13 @@ func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
 		return fmt.Errorf("failed to parse LS response: %v", err)
 	}
 	if fileHashes[destBase] == localHash {
-		log.Printf("File %s already up to date", destFile)
+		log.Printf("\tFile is already up to date.")
+		// TODO Add force upload option here.
 		//return nil
 	}
 
-	if _, ok := fileHashes[tmpBase]; ok {
-		if err := respond(sendMessage(comms.Message{Type: "DELETE", Payload: tmpBase}, port)); err != nil {
+	if _, ok := fileHashes[compressedBase]; ok {
+		if err := respond(sendMessage(comms.Message{Type: "DELETE", Payload: compressedBase}, port)); err != nil {
 			return fmt.Errorf("failed to delete temp file: %v", err)
 		}
 	}
@@ -254,24 +258,29 @@ func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
 		return fmt.Errorf("failed to finalize compression: %v", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
-	fmt.Printf("%s: %d bytes -> %d bytes compressed (%.0f%%)\n", filepath.Base(localFile), len(localData), compressed.Len(), float64(compressed.Len())/float64(len(localData))*100)
+	log.Infof("\t%d bytes -> %d bytes compressed (%.0f%%)", len(localData), compressed.Len(), float64(compressed.Len())/float64(len(localData))*100)
 
 	const chunkSize = 500
+	totalChunks := (len(encoded) + chunkSize - 1) / chunkSize
 	for i := 0; i < len(encoded); i += chunkSize {
+		chunkNum := i/chunkSize + 1
+		log.Infof("\t%s: %d/%d", filepath.Base(localFile), chunkNum, totalChunks)
 		chunk, err := json.Marshal([]string{encoded[i:min(i+chunkSize, len(encoded))]})
 		if err != nil {
 			return fmt.Errorf("failed to marshal chunk: %v", err)
 		}
-		if err := respond(sendMessage(comms.Message{Type: "WRITE", Payload: tmpBase + "," + string(chunk)}, port)); err != nil {
+		if err := respond(sendMessage(comms.Message{Type: "WRITE", Payload: compressedBase + "," + string(chunk)}, port)); err != nil {
 			return fmt.Errorf("failed to write chunk at offset %d: %v", i, err)
 		}
 	}
 
-	if err := respond(sendMessage(comms.Message{Type: "DECOMPRESS", Payload: tmpBase + "," + destBase}, port)); err != nil {
+	log.Println("\tDecompressing...")
+	if err := respond(sendMessage(comms.Message{Type: "DECOMPRESS", Payload: compressedBase + "," + tmpBase}, port)); err != nil {
 		return fmt.Errorf("failed to decompress file: %v", err)
 	}
 
-	lsResp2, err := sendMessage(comms.Message{Type: "LS", Payload: destBase}, port)
+	log.Println("\tVerifying...")
+	lsResp2, err := sendMessage(comms.Message{Type: "LS", Payload: tmpBase}, port)
 	if err != nil {
 		return fmt.Errorf("failed to verify file: %v", err)
 	}
@@ -279,10 +288,10 @@ func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
 	if err := json.Unmarshal([]byte(lsResp2.Payload), &fileHashes2); err != nil {
 		return fmt.Errorf("failed to parse verify LS response: %v", err)
 	}
-	if fileHashes2[destBase] != localHash {
+	if fileHashes2[tmpBase] != localHash {
 		return fmt.Errorf("file verification failed: hash mismatch")
 	}
 
-	log.Printf("File %s copied successfully", destFile)
+	log.Printf("\tFile '%s' copied successfully.", tmpBase)
 	return nil
 }
