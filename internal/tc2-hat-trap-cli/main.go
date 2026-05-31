@@ -29,15 +29,17 @@ var (
 )
 
 type Args struct {
-	Command  *Command    `arg:"subcommand:command" help:"Send a command."`
-	Read     *Read       `arg:"subcommand:read" help:"Read from a variable."`
-	Write    *Write      `arg:"subcommand:write" help:"Write to a variable."`
-	Listen   *Listen     `arg:"subcommand:listen" help:"Continuously listen for messages from the RP2040."`
-	Message  *CMDMessage `arg:"subcommand:msg" help:"Send a message to the RP2040."`
-	CopyFile *CopyFile   `arg:"subcommand:copy-file" help:"Copy a file to the RP2040."`
-	CopyDir  *CopyDir    `arg:"subcommand:copy-dir" help:"Copy all files from a directory to the RP2040."`
-	Restart  *Restart    `arg:"subcommand:restart" help:"Restart the RP2040."`
-	BaudRate int         `arg:"--baud-rate" help:"Baud rate for UART communication."`
+	Command   *Command    `arg:"subcommand:command" help:"Send a command."`
+	Read      *Read       `arg:"subcommand:read" help:"Read from a variable."`
+	Write     *Write      `arg:"subcommand:write" help:"Write to a variable."`
+	Listen    *Listen     `arg:"subcommand:listen" help:"Continuously listen for messages from the RP2040."`
+	Message   *CMDMessage `arg:"subcommand:msg" help:"Send a message to the RP2040."`
+	CopyFile  *CopyFile   `arg:"subcommand:copy-file" help:"Copy a file to the RP2040."`
+	CopyDir   *CopyDir    `arg:"subcommand:copy-dir" help:"Copy all files from a directory to the RP2040."`
+	Restart   *Restart    `arg:"subcommand:restart" help:"Restart the RP2040."`
+	ReadTime  *ReadTime   `arg:"subcommand:read-time" help:"Read the time from the RP2040."`
+	WriteTime *WriteTime  `arg:"subcommand:write-time" help:"Write the time to the RP2040."`
+	BaudRate  int         `arg:"--baud-rate" help:"Baud rate for UART communication."`
 	goconfig.ConfigArgs
 	logging.LogArgs
 }
@@ -71,6 +73,12 @@ type Read struct {
 type Write struct {
 	Variable string `arg:"--variable,required" help:"The variable to write to."`
 	Value    string `arg:"--value,required" help:"The value to write."`
+}
+
+type ReadTime struct{}
+
+type WriteTime struct {
+	Time string `arg:"--time" help:"The time to write."`
 }
 
 type Listen struct{}
@@ -206,6 +214,17 @@ func Run(inputArgs []string, ver string) error {
 			}
 		}
 		return commitFiles(port)
+
+	case args.ReadTime != nil:
+		return respond(sendMessage(comms.Message{Type: "READ_TIME"}, port))
+
+	case args.WriteTime != nil:
+		timeStr := time.Now().UTC().Format(time.DateTime)
+		if args.WriteTime.Time != "" {
+			timeStr = args.WriteTime.Time
+		}
+		log.Printf("Writing UTC time: '%s'", timeStr)
+		return respond(sendMessage(comms.Message{Type: "WRITE_TIME", Payload: timeStr}, port))
 
 	default:
 		return fmt.Errorf("no subcommand given")
