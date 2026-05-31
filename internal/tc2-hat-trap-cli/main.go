@@ -36,6 +36,7 @@ type Args struct {
 	Message  *CMDMessage `arg:"subcommand:msg" help:"Send a message to the RP2040."`
 	CopyFile *CopyFile   `arg:"subcommand:copy-file" help:"Copy a file to the RP2040."`
 	CopyDir  *CopyDir    `arg:"subcommand:copy-dir" help:"Copy all files from a directory to the RP2040."`
+	Restart  *Restart    `arg:"subcommand:restart" help:"Restart the RP2040."`
 	BaudRate int         `arg:"--baud-rate" help:"Baud rate for UART communication."`
 	goconfig.ConfigArgs
 	logging.LogArgs
@@ -50,11 +51,13 @@ type CMDMessage struct {
 type CopyFile struct {
 	Source string `arg:"--source,required" help:"The source file to copy."`
 	Dest   string `arg:"--dest,required" help:"The destination file to copy to."`
+	Force  bool   `arg:"--force" help:"Force overwrite of the destination file."`
 }
 
 type CopyDir struct {
 	Source string `arg:"--source,required" help:"The source directory to copy files from."`
 	Dest   string `arg:"--dest,required" help:"The destination directory on the RP2040."`
+	Force  bool   `arg:"--force" help:"Force overwrite of the files."`
 }
 
 type Command struct {
@@ -71,6 +74,8 @@ type Write struct {
 }
 
 type Listen struct{}
+
+type Restart struct{}
 
 var defaultArgs = Args{
 	BaudRate: 9600,
@@ -139,7 +144,7 @@ func Run(inputArgs []string, ver string) error {
 
 	switch {
 	case args.Listen != nil:
-		log.Infoln("Listening for messages from RP2040 (Ctrl+C to stop)...")
+		log.Info("Listening for messages from RP2040 (Ctrl+C to stop)...")
 		for line := range port.Lines {
 			msg, err := comms.ParseLine(line)
 			if err != nil {
@@ -176,8 +181,11 @@ func Run(inputArgs []string, ver string) error {
 		message := comms.Message{ID: args.Message.ID, Type: args.Message.Type, Payload: args.Message.Payload}
 		return respond(sendMessage(message, port))
 
+	case args.Restart != nil:
+		return respond(sendMessage(comms.Message{Type: "RESTART"}, port))
+
 	case args.CopyFile != nil:
-		if err := copyFile(args.CopyFile.Source, args.CopyFile.Dest, port); err != nil {
+		if err := copyFile(args.CopyFile.Source, args.CopyFile.Dest, port, args.CopyFile.Force); err != nil {
 			return err
 		}
 		return commitFiles(port)
@@ -193,7 +201,7 @@ func Run(inputArgs []string, ver string) error {
 			}
 			localFile := filepath.Join(args.CopyDir.Source, entry.Name())
 			destFile := filepath.Join(args.CopyDir.Dest, entry.Name())
-			if err := copyFile(localFile, destFile, port); err != nil {
+			if err := copyFile(localFile, destFile, port, args.CopyDir.Force); err != nil {
 				return fmt.Errorf("failed to copy %s: %v", entry.Name(), err)
 			}
 		}
@@ -205,7 +213,7 @@ func Run(inputArgs []string, ver string) error {
 }
 
 func commitFiles(port *serialhelper.SerialPort) error {
-	log.Println("Committing files...")
+	log.Println("Committing all .tmp files...")
 	return respond(sendMessage(comms.Message{Type: "COMMIT"}, port))
 }
 
@@ -216,12 +224,15 @@ func respond(response *comms.Message, err error) error {
 	if response.Type == "NACK" {
 		return fmt.Errorf("NACK response: %s", response.Payload)
 	}
-	//log.Infof("Response: type=%s, payload=%s", response.Type, response.Payload)
+	log.Infof("Response: type=%s, payload=%s", response.Type, response.Payload)
 	return nil
 }
 
-func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
-	log.Printf("Uploading '%s'", destFile)
+func copyFile(localFile, destFile string, port *serialhelper.SerialPort, force bool) error {
+	destBase := filepath.Base(destFile)
+	compressedBase := destBase + ".ztmp"
+	tmpBase := destBase + ".tmp"
+	log.Printf("Uploading '%s' as '%s'", destFile, tmpBase)
 
 	localData, err := os.ReadFile(localFile)
 	if err != nil {
@@ -230,11 +241,8 @@ func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
 
 	h := sha256.Sum256(localData)
 	localHash := hex.EncodeToString(h[:])[:10]
-	destBase := filepath.Base(destFile)
-	compressedBase := destBase + ".ztmp"
-	tmpBase := destBase + ".tmp"
 
-	lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + compressedBase}, port)
+	lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + compressedBase + "," + tmpBase}, port)
 	if err != nil {
 		return fmt.Errorf("failed to list files: %v", err)
 	}
@@ -242,12 +250,24 @@ func copyFile(localFile, destFile string, port *serialhelper.SerialPort) error {
 	if err := json.Unmarshal([]byte(lsResp.Payload), &fileHashes); err != nil {
 		return fmt.Errorf("failed to parse LS response: %v", err)
 	}
+
+	// Check if file or tmp file is already up to date
 	if fileHashes[destBase] == localHash {
 		log.Printf("\tFile is already up to date.")
-		// TODO Add force upload option here.
-		//return nil
+		if !force {
+			return nil
+		}
+		log.Println("\tForce flag is set, still uploading.")
+	}
+	if fileHashes[tmpBase] == localHash {
+		log.Printf("\t.tmp file is already up to date.")
+		if !force {
+			return nil
+		}
+		log.Println("\tForce flag is set, still uploading.")
 	}
 
+	// Delete old ztmp file if it exists
 	if _, ok := fileHashes[compressedBase]; ok {
 		if err := respond(sendMessage(comms.Message{Type: "DELETE", Payload: compressedBase}, port)); err != nil {
 			return fmt.Errorf("failed to delete temp file: %v", err)
