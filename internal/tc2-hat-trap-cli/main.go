@@ -1,18 +1,9 @@
 package trapcli
 
 import (
-	"bytes"
-	"compress/flate"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
 	comms "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-comms"
 
@@ -29,9 +20,6 @@ var (
 )
 
 type Args struct {
-	Command   *Command    `arg:"subcommand:command" help:"Send a command."`
-	Read      *Read       `arg:"subcommand:read" help:"Read from a variable."`
-	Write     *Write      `arg:"subcommand:write" help:"Write to a variable."`
 	Listen    *Listen     `arg:"subcommand:listen" help:"Continuously listen for messages from the RP2040."`
 	Message   *CMDMessage `arg:"subcommand:msg" help:"Send a message to the RP2040."`
 	CopyFile  *CopyFile   `arg:"subcommand:copy-file" help:"Copy a file to the RP2040."`
@@ -62,19 +50,6 @@ type CopyDir struct {
 	Force  bool   `arg:"--force" help:"Force overwrite of the files."`
 }
 
-type Command struct {
-	Command string `arg:"--command,required" help:"The command to run."`
-}
-
-type Read struct {
-	Variable string `arg:"--variable,required" help:"The variable to read from."`
-}
-
-type Write struct {
-	Variable string `arg:"--variable,required" help:"The variable to write to."`
-	Value    string `arg:"--value,required" help:"The value to write."`
-}
-
 type ReadTime struct{}
 
 type WriteTime struct {
@@ -87,33 +62,6 @@ type Restart struct{}
 
 var defaultArgs = Args{
 	BaudRate: 9600,
-}
-
-const maxRetries = 3
-
-func sendMessage(msg comms.Message, port *serialhelper.SerialPort) (*comms.Message, error) {
-	line := msg.ToUARTLine()
-	var lastErr error
-	for i := range maxRetries {
-		if i > 0 {
-			log.Warnf("Retrying (%d/%d): %s", i, maxRetries-1, strings.TrimSpace(line))
-		} else {
-			//log.Println("Sending:", strings.TrimSpace(line))
-		}
-		if err := port.Write([]byte(line)); err != nil {
-			return nil, err
-		}
-		select {
-		case line, ok := <-port.Lines:
-			if !ok {
-				return nil, fmt.Errorf("serial port closed while waiting for response")
-			}
-			return comms.ParseLine(line)
-		case <-time.After(5 * time.Second):
-			lastErr = fmt.Errorf("timeout waiting for response")
-		}
-	}
-	return nil, lastErr
 }
 
 func procArgs(input []string) (Args, error) {
@@ -150,8 +98,7 @@ func Run(inputArgs []string, ver string) error {
 	}
 	defer port.Close()
 
-	switch {
-	case args.Listen != nil:
+	if args.Listen != nil {
 		log.Info("Listening for messages from RP2040 (Ctrl+C to stop)...")
 		for line := range port.Lines {
 			msg, err := comms.ParseLine(line)
@@ -163,182 +110,50 @@ func Run(inputArgs []string, ver string) error {
 			log.Println("Received:", msg)
 		}
 		return nil
+	}
 
-	case args.Command != nil:
-		data, err := json.Marshal(map[string]string{"command": args.Command.Command})
-		if err != nil {
-			return err
-		}
-		return respond(sendMessage(comms.Message{Type: "command", Payload: string(data)}, port))
+	messenger := comms.NewTrapMessenger(port)
+	messenger.Start()
 
-	case args.Read != nil:
-		data, err := json.Marshal(map[string]string{"var": args.Read.Variable})
-		if err != nil {
-			return err
-		}
-		return respond(sendMessage(comms.Message{Type: "read", Payload: string(data)}, port))
-
-	case args.Write != nil:
-		data, err := json.Marshal(map[string]string{"var": args.Write.Variable, "val": args.Write.Value})
-		if err != nil {
-			return err
-		}
-		return respond(sendMessage(comms.Message{Type: "write", Payload: string(data)}, port))
-
+	switch {
 	case args.Message != nil:
-		message := comms.Message{ID: args.Message.ID, Type: args.Message.Type, Payload: args.Message.Payload}
-		return respond(sendMessage(message, port))
+		message := comms.Message{Type: args.Message.Type, Payload: args.Message.Payload}
+		return comms.HandleResponse(messenger.SendMessage(message))
 
 	case args.Restart != nil:
-		return respond(sendMessage(comms.Message{Type: "RESTART"}, port))
+		return messenger.Restart()
 
 	case args.CopyFile != nil:
-		if err := copyFile(args.CopyFile.Source, args.CopyFile.Dest, port, args.CopyFile.Force); err != nil {
+		fileUpdated, err := messenger.CopyFile(args.CopyFile.Source, args.CopyFile.Dest, args.CopyFile.Force)
+		if err != nil {
 			return err
 		}
-		return commitFiles(port)
+		if fileUpdated {
+			log.Info("File updated.")
+		} else {
+			log.Info("File is already up to date.")
+		}
+		return messenger.CommitFiles()
 
 	case args.CopyDir != nil:
-		entries, err := os.ReadDir(args.CopyDir.Source)
+		fileUpdated, err := messenger.CopyDir(args.CopyDir.Source, args.CopyDir.Dest, args.CopyDir.Force)
 		if err != nil {
-			return fmt.Errorf("failed to read directory %s: %v", args.CopyDir.Source, err)
+			return err
 		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			localFile := filepath.Join(args.CopyDir.Source, entry.Name())
-			destFile := filepath.Join(args.CopyDir.Dest, entry.Name())
-			if err := copyFile(localFile, destFile, port, args.CopyDir.Force); err != nil {
-				return fmt.Errorf("failed to copy %s: %v", entry.Name(), err)
-			}
+		if fileUpdated {
+			log.Info("Files updated.")
+		} else {
+			log.Info("Files are already up to date.")
 		}
-		return commitFiles(port)
+		return nil
 
 	case args.ReadTime != nil:
-		return respond(sendMessage(comms.Message{Type: "READ_TIME"}, port))
+		return messenger.ReadTime()
 
 	case args.WriteTime != nil:
-		timeStr := time.Now().UTC().Format(time.DateTime)
-		if args.WriteTime.Time != "" {
-			timeStr = args.WriteTime.Time
-		}
-		log.Printf("Writing UTC time: '%s'", timeStr)
-		return respond(sendMessage(comms.Message{Type: "WRITE_TIME", Payload: timeStr}, port))
+		return messenger.WriteTime(args.WriteTime.Time)
 
 	default:
 		return fmt.Errorf("no subcommand given")
 	}
-}
-
-func commitFiles(port *serialhelper.SerialPort) error {
-	log.Println("Committing all .tmp files...")
-	return respond(sendMessage(comms.Message{Type: "COMMIT"}, port))
-}
-
-func respond(response *comms.Message, err error) error {
-	if err != nil {
-		return err
-	}
-	if response.Type == "NACK" {
-		return fmt.Errorf("NACK response: %s", response.Payload)
-	}
-	log.Infof("Response: type=%s, payload=%s", response.Type, response.Payload)
-	return nil
-}
-
-func copyFile(localFile, destFile string, port *serialhelper.SerialPort, force bool) error {
-	destBase := filepath.Base(destFile)
-	compressedBase := destBase + ".ztmp"
-	tmpBase := destBase + ".tmp"
-	log.Printf("Uploading '%s' as '%s'", destFile, tmpBase)
-
-	localData, err := os.ReadFile(localFile)
-	if err != nil {
-		return fmt.Errorf("failed to read local file %s: %v", localFile, err)
-	}
-
-	h := sha256.Sum256(localData)
-	localHash := hex.EncodeToString(h[:])[:10]
-
-	lsResp, err := sendMessage(comms.Message{Type: "LS", Payload: destBase + "," + compressedBase + "," + tmpBase}, port)
-	if err != nil {
-		return fmt.Errorf("failed to list files: %v", err)
-	}
-	var fileHashes map[string]string
-	if err := json.Unmarshal([]byte(lsResp.Payload), &fileHashes); err != nil {
-		return fmt.Errorf("failed to parse LS response: %v", err)
-	}
-
-	// Check if file or tmp file is already up to date
-	if fileHashes[destBase] == localHash {
-		log.Printf("\tFile is already up to date.")
-		if !force {
-			return nil
-		}
-		log.Println("\tForce flag is set, still uploading.")
-	}
-	if fileHashes[tmpBase] == localHash {
-		log.Printf("\t.tmp file is already up to date.")
-		if !force {
-			return nil
-		}
-		log.Println("\tForce flag is set, still uploading.")
-	}
-
-	// Delete old ztmp file if it exists
-	if _, ok := fileHashes[compressedBase]; ok {
-		if err := respond(sendMessage(comms.Message{Type: "DELETE", Payload: compressedBase}, port)); err != nil {
-			return fmt.Errorf("failed to delete temp file: %v", err)
-		}
-	}
-
-	var compressed bytes.Buffer
-	fw, err := flate.NewWriter(&compressed, flate.HuffmanOnly)
-	if err != nil {
-		return fmt.Errorf("failed to create compressor: %v", err)
-	}
-	if _, err := fw.Write(localData); err != nil {
-		return fmt.Errorf("failed to compress file: %v", err)
-	}
-	if err := fw.Close(); err != nil {
-		return fmt.Errorf("failed to finalize compression: %v", err)
-	}
-	encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
-	log.Infof("\t%d bytes -> %d bytes compressed (%.0f%%)", len(localData), compressed.Len(), float64(compressed.Len())/float64(len(localData))*100)
-
-	const chunkSize = 500
-	totalChunks := (len(encoded) + chunkSize - 1) / chunkSize
-	for i := 0; i < len(encoded); i += chunkSize {
-		chunkNum := i/chunkSize + 1
-		log.Infof("\t%s: %d/%d", filepath.Base(localFile), chunkNum, totalChunks)
-		chunk, err := json.Marshal([]string{encoded[i:min(i+chunkSize, len(encoded))]})
-		if err != nil {
-			return fmt.Errorf("failed to marshal chunk: %v", err)
-		}
-		if err := respond(sendMessage(comms.Message{Type: "WRITE", Payload: compressedBase + "," + string(chunk)}, port)); err != nil {
-			return fmt.Errorf("failed to write chunk at offset %d: %v", i, err)
-		}
-	}
-
-	log.Println("\tDecompressing...")
-	if err := respond(sendMessage(comms.Message{Type: "DECOMPRESS", Payload: compressedBase + "," + tmpBase}, port)); err != nil {
-		return fmt.Errorf("failed to decompress file: %v", err)
-	}
-
-	log.Println("\tVerifying...")
-	lsResp2, err := sendMessage(comms.Message{Type: "LS", Payload: tmpBase}, port)
-	if err != nil {
-		return fmt.Errorf("failed to verify file: %v", err)
-	}
-	var fileHashes2 map[string]string
-	if err := json.Unmarshal([]byte(lsResp2.Payload), &fileHashes2); err != nil {
-		return fmt.Errorf("failed to parse verify LS response: %v", err)
-	}
-	if fileHashes2[tmpBase] != localHash {
-		return fmt.Errorf("file verification failed: hash mismatch")
-	}
-
-	log.Printf("\tFile '%s' copied successfully.", tmpBase)
-	return nil
 }
