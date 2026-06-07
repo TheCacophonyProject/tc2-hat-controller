@@ -79,6 +79,8 @@ nfpms:
       dst: /usr/bin/tc2-hat-temp
     - src: _release/tc2-hat-trap-cli
       dst: /usr/bin/tc2-hat-trap-cli
+    - src: _release/mpy/*
+      dst: /etc/cacophony/mpy
 
   dependencies:
     #- python3-pip

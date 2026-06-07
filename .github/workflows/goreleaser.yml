@@ -5,6 +5,9 @@ env:
   ATTINY_MINOR: 0
   ATTINY_PATCH: 10
   RELEASE_DOWNLOAD: https://github.com/TheCacophonyProject/attiny1616/releases/download/v${ATTINY_MAJOR}.${ATTINY_MINOR}.${ATTINY_PATCH}
+  SPOOL_PY_VERSION: 0.0.1
+  SPOOL_MPY_VERSION: 1.28.0rc0.post2
+  SPOOL_PY_DOWNLOAD: https://github.com/TheCacophonyProject/spool-py/releases/download/v${SPOOL_PY_VERSION}/spool-mpy-${SPOOL_MPY_VERSION}.zip
 
 on:
   push:
@@ -32,6 +35,13 @@ jobs:
         run: |
           wget -O _release/attiny-firmware.hex ${{ env.RELEASE_DOWNLOAD }}/firmware.hex
           wget -O _release/attiny-firmware.hex.sha256 ${{ env.RELEASE_DOWNLOAD }}/firmware.hex.sha256
+
+      - name: Download spool-py MicroPython files
+        run: |
+          rm -rf _release/mpy
+          wget -O spool-mpy.zip ${{ env.SPOOL_PY_DOWNLOAD }}
+          unzip spool-mpy.zip -d _release/mpy/
+          rm spool-mpy.zip
 
       - name: Set ATTINY_HASH
         run: echo "ATTINY_HASH=$(cut -d ' ' -f 1 < _release/attiny-firmware.hex.sha256)" >> $GITHUB_ENV

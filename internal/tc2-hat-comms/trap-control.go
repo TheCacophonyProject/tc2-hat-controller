@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
@@ -18,6 +17,56 @@ import (
 // processTrapControl communicates the trap enabled/disabled state by writing
 // the "enable" variable over UART instead of setting a digital pin.
 func processTrapControl(config *CommsConfig, eventSignals chan event) error {
+	// Open the serial port so we can send/receive messages from the trap.
+	port, err := serialhelper.OpenSerial(gpio.High, gpio.Low, config.BaudRate)
+	if err != nil {
+		return fmt.Errorf("failed to open serial port: %v", err)
+	}
+	defer port.Close()
+
+	messenger := NewTrapMessenger(port)
+	messenger.UnsolicitedHandler = parseMessageFromTrap
+	messenger.Start()
+
+	// Wait to get PING response from trap
+	log.Info("Waiting for PING response from trap...")
+	for {
+		if err := messenger.Ping(); err == nil {
+			break
+		}
+		log.Warnf("Failed to get PING response from trap: %v", err)
+		time.Sleep(time.Second)
+	}
+	eventclient.AddEvent(eventclient.Event{
+		Timestamp: time.Now(),
+		Type:      "trapPing",
+	})
+	log.Info("PING response received from trap.")
+
+	// Make sure it is running the latest software
+	log.Info("Checking trap software is up to date")
+	fileUpdated, err := messenger.CopyDir("/etc/cacophony/mpy", "/", false)
+	if err != nil {
+		log.Error("Error in uploading the latest software to the trap")
+		return err
+	}
+	if fileUpdated {
+		log.Info("Updated software on trap")
+	} else {
+		log.Info("Software already up to date on trap")
+	}
+
+	// Setup loop for monitoring classifications and enabling/disabling the trap
+	if err := classificationChecks(config, eventSignals, messenger); err != nil {
+		log.Errorf("Failed to run classification checks: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func classificationChecks(config *CommsConfig, eventSignals chan event, messenger *TrapMessenger) error {
+
 	trapEnabled := false
 	previousTrapEnabled := false
 	lastProtectSpeciesSighting := time.Time{}
@@ -29,17 +78,6 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 	trackStartTime := time.Time{}
 	triggerAnimal := ""
 	var confidence int32
-
-	// Open the serial port so we can send/receive messages from the trap.
-	port, err := serialhelper.OpenSerial(gpio.High, gpio.Low, config.BaudRate)
-	if err != nil {
-		return fmt.Errorf("failed to open serial port: %v", err)
-	}
-	defer port.Close()
-
-	// Create the messenger that tracks sending/receiving messages
-	messenger := NewUartMessenger(port)
-	messenger.Start()
 
 	for {
 		now := time.Now()
@@ -54,7 +92,7 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 		if trapEnabled != previousTrapEnabled {
 			if trapEnabled {
 				log.Infof("Enabling trap, reason: %s", enablingReason)
-				success, err := messenger.setEnable(true)
+				success, err := messenger.SetEnable(true)
 				if err != nil {
 					return fmt.Errorf("failed to enable trap: %v", err)
 				}
@@ -81,7 +119,7 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 				})
 			} else {
 				log.Info("Disabling trap, reason: ", disablingReason)
-				success, err := messenger.setEnable(false)
+				success, err := messenger.SetEnable(false)
 				if err != nil {
 					return fmt.Errorf("failed to disable trap: %v", err)
 				}
@@ -151,6 +189,7 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 			log.Debug("Scheduled check")
 		}
 	}
+
 }
 
 // Message represents the data structure for communication with a device connected on UART.
@@ -200,69 +239,6 @@ type Command struct {
 type Write struct {
 	Var string `json:"var,omitempty"`
 	Val any    `json:"val,omitempty"`
-}
-
-// UartMessenger manages bidirectional communication with the RP2040 over UART.
-// It holds a persistent serial port and routes incoming messages to either
-// pending response waiters (matched by ID) or an unsolicited message channel.
-type UartMessenger struct {
-	port      *serialhelper.SerialPort
-	pendingMu sync.Mutex
-	pending   map[int]chan *Message
-	nextID    int
-	baudRate  int
-}
-
-// NewUartMessenger creates a UartMessenger using an already-open SerialPort.
-func NewUartMessenger(port *serialhelper.SerialPort) *UartMessenger {
-	return &UartMessenger{
-		port:    port,
-		pending: make(map[int]chan *Message),
-	}
-}
-
-// Start begins the background routing goroutine. Unsolicited messages from the RP2040
-// (i.e. not responses to a request we sent) are delivered to the unsolicited channel.
-// Pass nil to discard unsolicited messages.
-func (u *UartMessenger) Start() {
-	go u.routeMessages()
-}
-
-// routeMessages reads lines from the serial port, parses them, and routes them:
-// TODO: Maybe separate this for routing messages
-// - Response messages are matched to a pending sendMessage call by ID.
-// - If not a response then it is a notification from the trap.
-func (u *UartMessenger) routeMessages() {
-	for line := range u.port.Lines {
-		// Parse the line
-		msg, err := ParseLine(line)
-		if err != nil {
-			log.Warnf("Failed to parse incoming message %q: %v", line, err)
-			continue
-		}
-
-		// Check if the message was a response
-		if msg.Response() {
-			u.pendingMu.Lock()
-			ch, ok := u.pending[msg.ID]
-			if !ok && len(u.pending) == 1 {
-				// Fallback for RP2040 firmware that doesn't echo message IDs yet.
-				for _, c := range u.pending {
-					ch = c
-					ok = true
-					break
-				}
-			}
-			u.pendingMu.Unlock()
-			if ok {
-				ch <- msg
-				continue
-			}
-		}
-
-		// If not a response then it is a notification from the trap.
-		parseMessageFromTrap(msg)
-	}
 }
 
 func parseMessageFromTrap(msg *Message) {
@@ -384,58 +360,4 @@ func computeChecksum(message []byte) int {
 		checksum += int(b)
 	}
 	return checksum % 256
-}
-
-// sendMessage sends a request and waits for a matching response.
-// It assigns a unique ID to the message for correlation.
-func (u *UartMessenger) sendMessage(message Message) (*Message, error) {
-	u.pendingMu.Lock()
-	u.nextID++
-	id := u.nextID
-	message.ID = id
-	ch := make(chan *Message, 1)
-	u.pending[id] = ch
-	u.pendingMu.Unlock()
-
-	defer func() {
-		u.pendingMu.Lock()
-		delete(u.pending, id)
-		u.pendingMu.Unlock()
-	}()
-
-	line := message.ToUARTLine()
-	log.Infof("Message: '%s'", line)
-
-	if err := u.port.Write([]byte(line)); err != nil {
-		return nil, err
-	}
-
-	select {
-	case response := <-ch:
-		log.Println("Response:", response)
-		return response, nil
-	case <-time.After(5 * time.Second):
-		return nil, fmt.Errorf("timeout waiting for response to message ID %d", id)
-	}
-}
-
-func (u *UartMessenger) setEnable(enable bool) (bool, error) {
-	message := Message{}
-	if enable {
-		message.Type = "ENABLE"
-	} else {
-		message.Type = "DISABLE"
-	}
-	response, err := u.sendMessage(message)
-	if err != nil {
-		return false, err
-	}
-	if response.Type == "NACK" {
-		return false, fmt.Errorf("NACK response")
-	}
-	if response.Type == "BAD_KEY" {
-		log.Warn("Got BAD_KEY response, was trying to set a key that doesn't exist")
-		return false, nil
-	}
-	return true, nil
 }
