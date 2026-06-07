@@ -90,7 +90,7 @@ func (u *TrapMessenger) SendMessage(message Message) (*Message, error) {
 	}()
 
 	line := message.ToUARTLine()
-	log.Infof("Message: '%s'", line)
+	log.Debugf("Message: '%s'", line)
 
 	if err := u.port.Write([]byte(line)); err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func (u *TrapMessenger) SendMessage(message Message) (*Message, error) {
 
 	select {
 	case response := <-ch:
-		log.Println("Response:", response)
+		log.Debug("Response:", response)
 		return response, nil
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout waiting for response to message ID %d", id)
