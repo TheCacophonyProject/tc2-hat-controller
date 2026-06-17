@@ -495,10 +495,11 @@ func (m *BatteryMonitor) detectChemistry(voltage float32) (*goconfig.BatteryType
 		return nil, 0, err
 	}
 
-	log.Printf("Detected chemistry: %s, %d cells (%.1f-%.1fV range) for voltage %.2fV",
+	log.Printf("Detected chemistry: %s, %d cells (%.1f-%.1fV range) for voltage %.2fV min Observed %.2fV  max Observed %.2fV",
 		pack.Type.Chemistry, pack.CellCount,
 		pack.GetScaledMinVoltage(), pack.GetScaledMaxVoltage(),
-		voltage)
+		voltage,
+		m.observedMinVoltage, m.observedMaxVoltage)
 
 	return pack.Type, pack.CellCount, nil
 }

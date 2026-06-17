@@ -24,6 +24,7 @@ type BatteryTestCase struct {
 	expectedChemistry string
 	expectedCellCount int // Expected exact cell count
 	minReadings       int // Minimum readings before detection
+	waitForReadings   int // Wait for this many readings and a chemistry before checking test
 }
 
 // VoltageReading represents a single voltage reading from CSV
@@ -63,6 +64,14 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 			expectedChemistry: "li-ion", // Updated: 27.22V falls in 25.5-29V range = Li-ion 8 cells per voltage table
 			expectedCellCount: 8,        // Correct cell count per voltage table
 			minReadings:       25,
+		},
+		{
+			name:              "Lion 10 cell battery change",
+			csvFile:           "../../test/lion10cell_changed_battery_readings.csv", //starts of as 3cell and then changes to 10 cell
+			expectedChemistry: "li-ion",
+			expectedCellCount: 10,
+			minReadings:       25,
+			waitForReadings:   2,
 		},
 		// Add more battery types here as CSV files become available
 	}
@@ -116,7 +125,7 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 				}()
 
 				// Break if we detected chemistry and cell count
-				if detectedChemistry != "" {
+				if detectedChemistry != "" && i >= tc.waitForReadings {
 					break
 				}
 
