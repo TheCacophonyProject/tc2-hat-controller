@@ -40,7 +40,7 @@ func TestBatteryDetectionFromCSV(t *testing.T) {
 			name:              "Lime Battery Detection",
 			csvFile:           "../../test/lime_battery_readings.csv",
 			expectedChemistry: "li-ion",
-			expectedCellCount: 8, // Updated: 30.18V falls in 29-42.5V range = Li-ion 10 cells per voltage table
+			expectedCellCount: 10, // Updated: 30.18V falls in 29-42.5V range = Li-ion 10 cells per voltage table
 			minReadings:       25,
 		},
 		{
@@ -657,7 +657,7 @@ func TestBatteryChemistrySwitching(t *testing.T) {
 	// Verify Li-Ion detected (30V falls in Li-ion 8 cells range with current voltage table)
 	require.NotNil(t, monitor.currentPack, "Should have detected battery pack")
 	assert.Equal(t, "li-ion", monitor.currentPack.Type.Chemistry, "Should detect Li-Ion chemistry")
-	assert.Equal(t, 8, monitor.currentPack.CellCount, "Should detect 8 cells (30V falls in Li-ion 8 cell range per voltage table)")
+	assert.Equal(t, 10, monitor.currentPack.CellCount, "Should detect 10 cells (30V falls in Li-ion 8 / 10 cell range per voltage table and we sell 10 cell so prefer 10 cell)")
 
 	// Simulate battery swap to Li-ion 4 cells (13V)
 	// According to voltage table: 12.66-17V should be Li-ion 4 cells
