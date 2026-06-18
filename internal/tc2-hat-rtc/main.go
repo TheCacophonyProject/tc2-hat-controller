@@ -142,7 +142,7 @@ func startService() error {
 
 	log.Debug("Setting RPi time from RTC.")
 	if err := rtc.SetSystemTime(); err != nil {
-		log.Println(err)
+		log.Error(err)
 	}
 
 	// Starting NTP sync loop. This is so when the NTP sync is done the RTC is set to the correct time.
