@@ -193,7 +193,7 @@ func (rtc *pcf8563) SetTime(newTime time.Time) error {
 	if err != nil {
 		return err
 	}
-	if rtcTime.Sub(newTime) > time.Second {
+	if rtcTime.Sub(newTime).Abs() > 2*time.Second {
 		return fmt.Errorf("error setting time. RTC time %s. Time it was set to %s", rtcTime.Format("2006-01-02 15:04:05"), newTime.Format("2006-01-02 15:04:05"))
 	}
 
@@ -209,7 +209,7 @@ func (rtc *pcf8563) SetTime(newTime time.Time) error {
 }
 
 func (rtc *pcf8563) SetSystemTime() error {
-	now, integrity, err := rtc.GetTime()
+	rtcNow, integrity, err := rtc.GetTime()
 	if err != nil {
 		return err
 	}
@@ -218,15 +218,35 @@ func (rtc *pcf8563) SetSystemTime() error {
 			Timestamp: time.Now(),
 			Type:      "rtcIntegrityError",
 		})
-		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", now.Format(time.DateTime))
+		return fmt.Errorf("rtc clock does't have integrity  RTC time is %s", rtcNow.Format(time.DateTime))
 	}
-	if now.Before(time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)) {
-		// TODO make wrong RTC time event to report to user.
-		log.Println("RTC time is before 2023, not writing to system clock.")
-		return nil
+	// Sanity checks when reading the time from the RTC.
+	if rtcNow.Before(time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)) {
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "rtcWrongTime",
+			Details: map[string]interface{}{
+				eventclient.SeverityKey: eventclient.SeverityError,
+				"RPiTime":               time.Now().Format(time.DateTime),
+				"rtcTime":               rtcNow.Format(time.DateTime),
+			},
+		})
+		return fmt.Errorf("RTC time (%s) is before 2026, not writing to system clock.", rtcNow.Format(time.DateTime))
+	}
+	if rtcNow.After(time.Now().Add(365 * 24 * time.Hour)) {
+		eventclient.AddEvent(eventclient.Event{
+			Timestamp: time.Now(),
+			Type:      "rtcWrongTime",
+			Details: map[string]interface{}{
+				eventclient.SeverityKey: eventclient.SeverityError,
+				"RPiTime":               time.Now().Format(time.DateTime),
+				"rtcTime":               rtcNow.Format(time.DateTime),
+			},
+		})
+		return fmt.Errorf("RTC time (%s) jumped more than a year, not writing to system clock.", rtcNow.Format(time.DateTime))
 	}
 
-	timeStr := now.Format(time.DateTime)
+	timeStr := rtcNow.Format(time.DateTime)
 
 	before, err := time.Parse(time.DateTime, time.Now().Format(time.DateTime))
 	if err != nil {
