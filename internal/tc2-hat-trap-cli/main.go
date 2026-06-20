@@ -27,6 +27,7 @@ type Args struct {
 	Restart   *Restart    `arg:"subcommand:restart" help:"Restart the RP2040."`
 	ReadTime  *ReadTime   `arg:"subcommand:read-time" help:"Read the time from the RP2040."`
 	WriteTime *WriteTime  `arg:"subcommand:write-time" help:"Write the time to the RP2040."`
+	Ping      *Ping       `arg:"subcommand:ping" help:"Ping the RP2040."`
 	BaudRate  int         `arg:"--baud-rate" help:"Baud rate for UART communication."`
 	goconfig.ConfigArgs
 	logging.LogArgs
@@ -59,6 +60,8 @@ type WriteTime struct {
 type Listen struct{}
 
 type Restart struct{}
+
+type Ping struct{}
 
 var defaultArgs = Args{
 	BaudRate: 9600,
@@ -152,6 +155,10 @@ func Run(inputArgs []string, ver string) error {
 
 	case args.WriteTime != nil:
 		return messenger.WriteTime(args.WriteTime.Time)
+
+	case args.Ping != nil:
+		message := comms.Message{Type: "PING", Payload: ""}
+		return comms.HandleResponse(messenger.SendMessage(message))
 
 	default:
 		return fmt.Errorf("no subcommand given")
