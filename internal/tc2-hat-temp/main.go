@@ -178,6 +178,10 @@ func Run(inputArgs []string, ver string) error {
 			reportType = "tempTooLow"
 		}
 		if humidity > float64(args.HighHumidity) {
+			log.Info("Humidity high")
+			reportType = "humidityHigh"
+		}
+		if humidity > float64(args.MaxHumidity) {
 			log.Info("Humidity too high!")
 			reportType = "humidityTooHigh"
 		}
@@ -187,7 +191,7 @@ func Run(inputArgs []string, ver string) error {
 			err := eventclient.AddEvent(eventclient.Event{
 				Timestamp: time.Now(),
 				Type:      reportType,
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"temp":     temp,
 					"humidity": humidity,
 				},
