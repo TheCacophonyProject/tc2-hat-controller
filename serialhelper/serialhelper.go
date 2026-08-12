@@ -209,6 +209,140 @@ func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, d
 	return response, nil
 }
 
+const (
+	defaultATReceiveTimeout = 3 * time.Second
+	defaultATDrainTimeout   = 200 * time.Millisecond
+	maxATResponseBytes      = 4096
+)
+
+// SerialSendReceiveUntil drains pending RX, writes data, then reads until the
+// response contains one of endMarkers (e.g. "O^K", "E^RROR"), the overall
+// timeout elapses after the write, or maxATResponseBytes is reached.
+// Unlike SerialSendReceive it keeps multi-line payloads (needed for AT+XCMD=m00).
+// Empty endMarkers means read until timeout/idle only.
+func SerialSendReceiveUntil(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int, timeout time.Duration, endMarkers ...[]byte) ([]byte, error) {
+	if timeout <= 0 {
+		timeout = defaultATReceiveTimeout
+	}
+
+	serialFile, err := GetSerial(retries, mul0, mul1, wait)
+	if err != nil {
+		return nil, err
+	}
+	defer ReleaseSerial(serialFile)
+
+	// Short ReadTimeout so drain/idle detection does not block for seconds per read.
+	c := &serial.Config{Name: "/dev/serial0", Baud: baud, ReadTimeout: 100 * time.Millisecond}
+	serialPort, err := serial.OpenPort(c)
+	if err != nil {
+		return nil, err
+	}
+	defer serialPort.Close()
+
+	drained := drainSerial(serialPort, defaultATDrainTimeout)
+	if drained > 0 {
+		log.Debugf("Drained %d pending serial bytes before write", drained)
+	}
+
+	start := time.Now()
+	if len(data) == 0 || (data[len(data)-1] != '\n' && data[len(data)-1] != '\r') {
+		data = append(data, '\n')
+	}
+	n, err := serialPort.Write(data)
+	if err != nil {
+		return nil, err
+	}
+	if n != len(data) {
+		return nil, fmt.Errorf("wrote %d bytes, expected %d", n, len(data))
+	}
+
+	deadline := time.Now().Add(timeout)
+	var response []byte
+	var responseTime time.Time
+	firstBits := true
+	buf := make([]byte, 64)
+	idleRounds := 0
+	const idleRoundsToStop = 3 // ~300ms quiet after some data, or after markers missed
+
+	for time.Now().Before(deadline) {
+		n, err = serialPort.Read(buf)
+		if err != nil {
+			return response, err
+		}
+		if n == 0 {
+			if len(response) > 0 {
+				idleRounds++
+				if idleRounds >= idleRoundsToStop && len(endMarkers) == 0 {
+					break
+				}
+				// If we already saw a marker, a short idle is enough to finish.
+				if idleRounds >= idleRoundsToStop && containsAny(response, endMarkers...) {
+					break
+				}
+			}
+			continue
+		}
+		idleRounds = 0
+		if firstBits {
+			responseTime = time.Now()
+			firstBits = false
+		}
+		response = append(response, buf[:n]...)
+		if len(response) > maxATResponseBytes {
+			return response, fmt.Errorf("serial response exceeded %d bytes", maxATResponseBytes)
+		}
+		if len(endMarkers) > 0 && containsAny(response, endMarkers...) {
+			// Brief extra read window to catch trailing CR/LF after the marker.
+			extraDeadline := time.Now().Add(150 * time.Millisecond)
+			for time.Now().Before(extraDeadline) {
+				n, err = serialPort.Read(buf)
+				if err != nil || n == 0 {
+					break
+				}
+				response = append(response, buf[:n]...)
+				if len(response) > maxATResponseBytes {
+					break
+				}
+			}
+			break
+		}
+	}
+
+	log.Infof("Sent message at %s", start.Format("15:04:05.999"))
+	if !firstBits {
+		log.Infof("Received message at %s", responseTime.Format("15:04:05.999"))
+	}
+	log.Debugf("Received %d bytes (until markers/timeout)", len(response))
+	return response, nil
+}
+
+func drainSerial(port *serial.Port, timeout time.Duration) int {
+	deadline := time.Now().Add(timeout)
+	buf := make([]byte, 256)
+	total := 0
+	for time.Now().Before(deadline) {
+		n, err := port.Read(buf)
+		if err != nil || n == 0 {
+			if n == 0 {
+				// One empty read is enough once the FIFO looks quiet.
+				return total
+			}
+			return total
+		}
+		total += n
+	}
+	return total
+}
+
+func containsAny(data []byte, markers ...[]byte) bool {
+	for _, m := range markers {
+		if len(m) > 0 && bytes.Contains(data, m) {
+			return true
+		}
+	}
+	return false
+}
+
 func SerialSend(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int) error {
 	start := time.Now()
 
