@@ -266,7 +266,12 @@ func getRegisteryData(baudRate int, reg int) int64 {
 	log.Infof("get reg %d, data via command %v", reg, cmd)
 
 	response, _ := sendATCommand(string(cmd), baudRate)
+	return parseRegistryResponse(response, reg, regCmd)
+}
 
+// parseRegistryResponse finds reg in an mXX-style dump and returns its value.
+// Short/empty responses return 0 instead of panicking on a slice bounds error.
+func parseRegistryResponse(response []byte, reg int, regCmd string) int64 {
 	// Let's clean-up the output - trim any unwanted charaters
 	if idx := bytes.Index(response, []byte(regCmd+"\r\n\r\n")); idx != -1 {
 		response = response[idx:]
@@ -296,6 +301,11 @@ func getRegisteryData(baudRate int, reg int) int64 {
 		}
 	}
 
+	if pos+2 > len(response) {
+		log.Warnf("registry response too short to read reg %d (len=%d pos=%d): %q",
+			reg, len(response), pos, string(response))
+		return 0
+	}
 	hexstr := string(response[pos : pos+2])
 	reg_value, err := strconv.ParseInt(hexstr, 16, 64)
 	log.Debugf("Converted %v to int value: %d", hexstr, reg_value)
