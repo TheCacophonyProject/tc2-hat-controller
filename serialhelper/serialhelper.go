@@ -150,8 +150,37 @@ func getLockingProcess(serialPath string) (string, error) {
 }
 
 func ReleaseSerial(serialFile *os.File) error {
-	serialFile.Close()
-	return syscall.Flock(int(serialFile.Fd()), syscall.LOCK_UN)
+	fd := int(serialFile.Fd())
+	_ = syscall.Flock(fd, syscall.LOCK_UN)
+	return serialFile.Close()
+}
+
+// raspiGPIO runs raspi-gpio with the given args. Overridden in unit tests.
+var raspiGPIO = func(args ...string) ([]byte, error) {
+	return exec.Command("raspi-gpio", args...).CombinedOutput()
+}
+
+// IsolateESLUART disconnects the HAT UART mux from the ESL path and parks
+// GPIO14/15 as inputs (high-Z). Intended for AT-ESL only: call after ESL
+// serial use so an unpowered Pi is not left electrically tied to a live ESL
+// node UART (node TX idle-high can otherwise back-feed through Pi ESD diodes).
+//
+// Mux pins match the boot-idle defaults from enable-aux-uart
+// (gpio=6=ip,pu / gpio=12=ip,pd). UART lines are plain inputs.
+func IsolateESLUART() error {
+	commands := [][]string{
+		{"set", "6", "ip", "pu"},
+		{"set", "12", "ip", "pd"},
+		{"set", "14", "ip"},
+		{"set", "15", "ip"},
+	}
+	for _, args := range commands {
+		out, err := raspiGPIO(args...)
+		if err != nil {
+			return fmt.Errorf("raspi-gpio %v failed: %v, output: %s", args, err, out)
+		}
+	}
+	return nil
 }
 
 func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int) ([]byte, error) {
