@@ -49,13 +49,6 @@ type ATESLLastBattery struct {
 var atesLastPrediction = ATESLLastPrediction{Lockout: predictionLockoutMinutesDefault}
 var atesLastBattery = ATESLLastBattery{Lockout: batteryLockoutMinutesDefault}
 
-// Overridable in unit tests (avoid real UART / raspi-gpio).
-var (
-	eslSerialSend             = serialhelper.SerialSend
-	eslSerialSendReceiveUntil = serialhelper.SerialSendReceiveUntil
-	isolateESLUARTAfterAT     = serialhelper.IsolateESLUART
-)
-
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
 	messenger := ATESLMessenger{
 		config.BaudRate,
@@ -215,7 +208,7 @@ func sendATWakeUp(baudRate int) error {
 	for {
 		log.Infof("Sending AT wakeup command[%d]: %q", attempt, string(payload))
 
-		err := eslSerialSend(1, gpio.High, gpio.Low, 10*time.Second, payload, baudRate)
+		err := serialhelper.SerialSend(1, gpio.High, gpio.Low, 10*time.Second, payload, baudRate)
 		attempt = attempt + 1
 
 		if err != nil {
@@ -240,14 +233,6 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 		return response, nil
 	}
 
-	// After ESL use, park mux + UART pins so a later Pi power cut does not leave
-	// GPIO14/15 tied to a live node TX (back-feed). Boot defaults match this.
-	defer func() {
-		if err := isolateESLUARTAfterAT(); err != nil {
-			log.Printf("failed to isolate ESL UART after AT command: %v", err)
-		}
-	}()
-
 	// Try and wake up the serial receiver first
 	err := sendATWakeUp(baudRate)
 	if err != nil {
@@ -262,7 +247,7 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 	payload := append([]byte(command), byte('\r'))
 	log.Infof("Sending AT command: %s", command)
 
-	response, err = eslSerialSendReceiveUntil(
+	response, err = serialhelper.SerialSendReceiveUntil(
 		1, gpio.High, gpio.Low, 5*time.Second, payload, baudRate, 3*time.Second,
 		[]byte("O^K"), []byte("E^RROR"),
 	)

@@ -2,7 +2,9 @@ package serialhelper
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -155,34 +157,6 @@ func ReleaseSerial(serialFile *os.File) error {
 	return serialFile.Close()
 }
 
-// raspiGPIO runs raspi-gpio with the given args. Overridden in unit tests.
-var raspiGPIO = func(args ...string) ([]byte, error) {
-	return exec.Command("raspi-gpio", args...).CombinedOutput()
-}
-
-// IsolateESLUART disconnects the HAT UART mux from the ESL path and parks
-// GPIO14/15 as inputs (high-Z). Intended for AT-ESL only: call after ESL
-// serial use so an unpowered Pi is not left electrically tied to a live ESL
-// node UART (node TX idle-high can otherwise back-feed through Pi ESD diodes).
-//
-// Mux pins match the boot-idle defaults from enable-aux-uart
-// (gpio=6=ip,pu / gpio=12=ip,pd). UART lines are plain inputs.
-func IsolateESLUART() error {
-	commands := [][]string{
-		{"set", "6", "ip", "pu"},
-		{"set", "12", "ip", "pd"},
-		{"set", "14", "ip"},
-		{"set", "15", "ip"},
-	}
-	for _, args := range commands {
-		out, err := raspiGPIO(args...)
-		if err != nil {
-			return fmt.Errorf("raspi-gpio %v failed: %v, output: %s", args, err, out)
-		}
-	}
-	return nil
-}
-
 func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int) ([]byte, error) {
 	serialFile, err := GetSerial(retries, mul0, mul1, wait)
 	if err != nil {
@@ -285,46 +259,69 @@ func SerialSendReceiveUntil(retries int, mul0, mul1 gpio.Level, wait time.Durati
 		return nil, fmt.Errorf("wrote %d bytes, expected %d", n, len(data))
 	}
 
+	response, responseTime, err := readUntilMarkers(serialPort, timeout, endMarkers...)
+
+	log.Infof("Sent message at %s", start.Format("15:04:05.999"))
+	if !responseTime.IsZero() {
+		log.Infof("Received message at %s", responseTime.Format("15:04:05.999"))
+	}
+	log.Debugf("Received %d bytes (until markers/timeout)", len(response))
+	return response, err
+}
+
+// serialReader is the read side of a serial port, so the framing logic can be
+// unit tested without hardware.
+type serialReader interface {
+	Read(p []byte) (int, error)
+}
+
+// isReadTimeout reports whether a read error just means "no bytes this round".
+// tarm/serial sets VMIN=0 when ReadTimeout > 0, so an expired VTIME read
+// returns 0 bytes, which os.File turns into io.EOF. Treating that as fatal
+// aborts multi-line AT responses that have gaps between lines.
+func isReadTimeout(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded)
+}
+
+// readUntilMarkers accumulates bytes until one of endMarkers appears, the
+// stream stays idle after data has arrived, or timeout elapses. It returns the
+// bytes read plus the time the first byte arrived (zero if nothing arrived).
+func readUntilMarkers(port serialReader, timeout time.Duration, endMarkers ...[]byte) ([]byte, time.Time, error) {
 	deadline := time.Now().Add(timeout)
 	var response []byte
 	var responseTime time.Time
-	firstBits := true
 	buf := make([]byte, 64)
 	idleRounds := 0
 	const idleRoundsToStop = 3 // ~300ms quiet after some data, or after markers missed
 
 	for time.Now().Before(deadline) {
-		n, err = serialPort.Read(buf)
-		if err != nil {
-			return response, err
+		n, err := port.Read(buf)
+		if err != nil && !isReadTimeout(err) {
+			return response, responseTime, err
 		}
 		if n == 0 {
 			if len(response) > 0 {
 				idleRounds++
-				if idleRounds >= idleRoundsToStop && len(endMarkers) == 0 {
-					break
-				}
-				// If we already saw a marker, a short idle is enough to finish.
-				if idleRounds >= idleRoundsToStop && containsAny(response, endMarkers...) {
+				if idleRounds >= idleRoundsToStop &&
+					(len(endMarkers) == 0 || containsAny(response, endMarkers...)) {
 					break
 				}
 			}
 			continue
 		}
 		idleRounds = 0
-		if firstBits {
+		if responseTime.IsZero() {
 			responseTime = time.Now()
-			firstBits = false
 		}
 		response = append(response, buf[:n]...)
 		if len(response) > maxATResponseBytes {
-			return response, fmt.Errorf("serial response exceeded %d bytes", maxATResponseBytes)
+			return response, responseTime, fmt.Errorf("serial response exceeded %d bytes", maxATResponseBytes)
 		}
 		if len(endMarkers) > 0 && containsAny(response, endMarkers...) {
 			// Brief extra read window to catch trailing CR/LF after the marker.
 			extraDeadline := time.Now().Add(150 * time.Millisecond)
 			for time.Now().Before(extraDeadline) {
-				n, err = serialPort.Read(buf)
+				n, err = port.Read(buf)
 				if err != nil || n == 0 {
 					break
 				}
@@ -337,25 +334,20 @@ func SerialSendReceiveUntil(retries int, mul0, mul1 gpio.Level, wait time.Durati
 		}
 	}
 
-	log.Infof("Sent message at %s", start.Format("15:04:05.999"))
-	if !firstBits {
-		log.Infof("Received message at %s", responseTime.Format("15:04:05.999"))
-	}
-	log.Debugf("Received %d bytes (until markers/timeout)", len(response))
-	return response, nil
+	return response, responseTime, nil
 }
 
-func drainSerial(port *serial.Port, timeout time.Duration) int {
+func drainSerial(port serialReader, timeout time.Duration) int {
 	deadline := time.Now().Add(timeout)
 	buf := make([]byte, 256)
 	total := 0
 	for time.Now().Before(deadline) {
 		n, err := port.Read(buf)
-		if err != nil || n == 0 {
-			if n == 0 {
-				// One empty read is enough once the FIFO looks quiet.
-				return total
-			}
+		if err != nil && !isReadTimeout(err) {
+			return total
+		}
+		if n == 0 {
+			// One empty read is enough once the FIFO looks quiet.
 			return total
 		}
 		total += n
