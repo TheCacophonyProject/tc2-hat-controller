@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	// Node register addresses (hex), matching cmdpro wXX / m00 dump lines.
+	// Node register addresses (hex), matching cmdpro wXX / mXX dump lines.
 	// 0x05 = EVENT_LOCKOUT_MINS (prediction).
 	// 0x12/0x13 = HOURS/MINS_PER_INST_READING — battery is an instrument reading;
 	// these set how often we report those readings.
@@ -26,7 +26,8 @@ var (
 
 	// Pause after AT wake before the real command so the node can leave the wake
 	// O^K and accept AT+XCMD / AT+CAM.
-	atPostWakeSettle = 300 * time.Millisecond
+	atPostWakeSettle = 50 * time.Millisecond
+	atPostRegTimeout = 2000 * time.Millisecond
 )
 
 type ATESLMessenger struct {
@@ -248,7 +249,7 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 	log.Infof("Sending AT command: %s", command)
 
 	response, err = serialhelper.SerialSendReceiveUntil(
-		1, gpio.High, gpio.Low, 5*time.Second, payload, baudRate, 3*time.Second,
+		1, gpio.High, gpio.Low, 0*time.Second, payload, baudRate, atPostRegTimeout,
 		[]byte("O^K"), []byte("E^RROR"),
 	)
 	if err != nil {
@@ -275,58 +276,118 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 
 // parseRegistryByte extracts one register byte from an mXX hex dump.
 // reg is the node register address (e.g. 0x05, 0x12). Value 0xff is treated as unset (0).
+//
+// Rows are matched on their absolute label ("10:" holds 0x10-0x1f). Dumps are
+// requested row-aligned, so if the node labels rows relative to the request
+// instead the first dump row is still the row we asked for, and is used as a
+// fallback.
 func parseRegistryByte(response []byte, reg int) (int64, error) {
 	if len(response) == 0 {
 		return 0, fmt.Errorf("empty registry response")
 	}
 
 	addr := reg & 0xff
-	rowBase := addr & 0xf0
 	col := addr & 0x0f
-	prefix := fmt.Sprintf("%02x:", rowBase)
+	prefix := fmt.Sprintf("%02x:", addr&0xf0)
 
+	var firstRow []string
 	scanner := bufio.NewScanner(bytes.NewReader(response))
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		lower := strings.ToLower(line)
-		if !strings.HasPrefix(lower, prefix) {
+		lower := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if !isRegistryRow(lower) {
 			continue
 		}
 		fields := strings.Fields(lower)
-		// fields[0] is "00:", remaining are hex bytes
-		if len(fields) < col+2 {
-			return 0, fmt.Errorf("registry line %q too short for column %d", line, col)
+		if firstRow == nil {
+			firstRow = fields
 		}
-		hexstr := fields[col+1]
-		if len(hexstr) != 2 {
-			return 0, fmt.Errorf("invalid hex byte %q on line %q", hexstr, line)
+		if strings.HasPrefix(lower, prefix) {
+			return registryColumn(fields, addr, col)
 		}
-		regValue, err := strconv.ParseInt(hexstr, 16, 64)
-		if err != nil {
-			return 0, fmt.Errorf("parseInt %q: %w", hexstr, err)
-		}
-		if regValue == 255 {
-			log.Debugf("Reg 0x%02x value is 255 (FF); treating as unset (0)", addr)
-			return 0, nil
-		}
-		return regValue, nil
 	}
 	if err := scanner.Err(); err != nil {
 		return 0, err
 	}
+	if firstRow != nil {
+		// Only reachable if the node relabels rows; warn since it also looks like
+		// a node that ignored the requested row and dumped from 0x00 instead.
+		log.Warnf("Registry row %s absent; reading column %d of first dump row %q", prefix, col, firstRow[0])
+		return registryColumn(firstRow, addr, col)
+	}
 	return 0, fmt.Errorf("registry row %s not found in response", prefix)
 }
 
-// fetchRegistryDump requests an mXX dump for the given register address.
-// Node aligns the start to a 16-byte boundary (m05 → dump from 0x00) and prints ~80 bytes.
+// isRegistryRow reports whether line starts with a two hex digit row label such
+// as "10:", so echoed commands and status lines are skipped.
+func isRegistryRow(line string) bool {
+	if len(line) < 3 || line[2] != ':' {
+		return false
+	}
+	_, err := strconv.ParseUint(line[:2], 16, 8)
+	return err == nil
+}
+
+// registryColumn reads column col of a dump row, where fields[0] is the row
+// label. addr is only used for logging.
+func registryColumn(fields []string, addr, col int) (int64, error) {
+	if len(fields) < col+2 {
+		return 0, fmt.Errorf("registry row %q too short for column %d", strings.Join(fields, " "), col)
+	}
+	hexstr := fields[col+1]
+	if len(hexstr) != 2 {
+		return 0, fmt.Errorf("invalid hex byte %q in row %q", hexstr, strings.Join(fields, " "))
+	}
+	regValue, err := strconv.ParseInt(hexstr, 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parseInt %q: %w", hexstr, err)
+	}
+	if regValue == 255 {
+		log.Infof("Reg 0x%02x = 0 (FF unset) from %s", addr, formatRegistryRow(fields, col))
+		return 0, nil
+	}
+	log.Infof("Reg 0x%02x = %d (0x%02x) from %s", addr, regValue, uint8(regValue), formatRegistryRow(fields, col))
+	return regValue, nil
+}
+
+// formatRegistryRow rebuilds a dump line with the selected column in [brackets].
+func formatRegistryRow(fields []string, col int) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(fields[0])
+	for i, hexstr := range fields[1:] {
+		b.WriteByte(' ')
+		if i == col {
+			b.WriteByte('[')
+			b.WriteString(hexstr)
+			b.WriteByte(']')
+		} else {
+			b.WriteString(hexstr)
+		}
+	}
+	return b.String()
+}
+
+// registryDumpCommand returns the mXX command that dumps the 16-byte row
+// containing reg. The node wants two digits but ignores the low one, so the row
+// is selected by the high nibble (0x12 → "m10").
+//
+// Sending the low nibble verbatim is not just redundant, it is unsafe: "m12"
+// has a CRC16 of 0xea,0x7e, and 0x7e is the frame flag. AT+XCMD payloads are
+// not byte-stuffed here, so the node truncates the frame and never answers.
+// Every row-aligned command (m00..mf0) has a CRC free of flag/CR/LF/ESC bytes.
+func registryDumpCommand(reg int) string {
+	return fmt.Sprintf("m%02x", reg&0xf0)
+}
+
+// fetchRegistryDump requests the register row containing reg. The node prints
+// ~80 bytes from the row start, so one dump covers all 16 registers in the row.
 func fetchRegistryDump(baudRate int, reg int) ([]byte, error) {
-	regCmd := fmt.Sprintf("m%02x", reg&0xff)
+	regCmd := registryDumpCommand(reg)
 
 	cmd := append([]byte("AT+XCMD="+regCmd), calcCRC16([]byte(regCmd))...)
-	log.Infof("fetch registry dump for 0x%02x via command %v", reg&0xff, cmd)
+	log.Infof("fetch registry dump for 0x%02x via command %s (%q)", reg&0xff, regCmd, cmd)
 
 	response, err := sendATCommand(string(cmd), baudRate)
 	if err != nil {
@@ -350,7 +411,6 @@ func getRegisteryData(baudRate int, reg int) (int64, bool) {
 		log.Warnf("registry parse failed for 0x%02x: %v (response %q)", reg, err, string(response))
 		return 0, false
 	}
-	log.Infof("Reg 0x%02x value = %d", reg, regValue)
 	return regValue, true
 }
 
@@ -390,7 +450,7 @@ Battery voltage is reported as an instrument reading, so this interval gates how
 30min = 'w131e’
 */
 func getBatteryEventLockout(baudRate int, current int64) int64 {
-	// One dump covering both 0x12 and 0x13 (same 16-byte row after node align).
+	// 0x12 and 0x13 share row 1, so a single m10 dump covers both.
 	response, err := fetchRegistryDump(baudRate, batteryLockoutHoursNodeRegister)
 	if err != nil {
 		log.Warnf("Battery lockout registry read failed - retaining %d: %v", current, err)
