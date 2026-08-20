@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -156,19 +157,35 @@ func TestRegistryDumpCommandUsesRowStart(t *testing.T) {
 	}
 }
 
-// The node treats 0x7e as a frame flag and we do not byte-stuff AT+XCMD
-// payloads, so a command whose CRC contains a flag/CR/LF/ESC byte is truncated
-// on the wire. Unaligned "m12" hits this (CRC 0xea,0x7e); row starts must not.
-func TestRegistryDumpCommandCRCAvoidsFramingBytes(t *testing.T) {
-	framing := map[byte]string{0x7e: "flag", '\r': "CR", '\n': "LF", 0x1b: "ESC"}
+// Row-aligned commands happen to have CRCs free of flag/CR/LF/ESC, but that is
+// not why we send m10 instead of m12 — the node only uses the high nibble.
+// Stuffing is what makes a CRC that does contain those bytes (e.g. m12) safe.
+func TestByteStuffXCMDEscapesFramingBytes(t *testing.T) {
+	in := []byte{0x01, 0x7e, '\r', '\n', 0x1b, 0x02}
+	got := byteStuffXCMD(in)
+	want := []byte{0x01, 0x7e, 0x7e, 0x7e, '\r', 0x7e, '\n', 0x7e, 0x1b, 0x02}
+	if string(got) != string(want) {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	if string(byteStuffXCMD([]byte("m00"))) != "m00" {
+		t.Fatal("ASCII with no framing bytes should be unchanged")
+	}
+}
 
-	for row := 0; row < 16; row++ {
-		reg := row * 16
-		cmd := registryDumpCommand(reg)
-		for _, b := range calcCRC16([]byte(cmd)) {
-			if name, bad := framing[b]; bad {
-				t.Errorf("CRC of %q contains %s byte 0x%02x", cmd, name, b)
-			}
-		}
+func TestEncodeATXCMDStuffsCRCFlag(t *testing.T) {
+	// m12 CRC is 0xea,0x7e; without stuffing the node sees CH_FLAG and drops the byte.
+	crc := calcCRC16([]byte("m12"))
+	if len(crc) != 2 || crc[1] != 0x7e {
+		t.Fatalf("m12 CRC = %x, expected ..7e so this test still covers stuffing", crc)
+	}
+	got := encodeATXCMD("m12")
+	want := append([]byte("AT+XCMD=m12"), crc[0], 0x7e, crc[1])
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %q want %q", got, want)
+	}
+
+	plain := encodeATXCMD("m10")
+	if bytes.Contains(plain, []byte{0x7e}) {
+		t.Fatalf("m10 encoding unexpectedly contains flag: %q", plain)
 	}
 }

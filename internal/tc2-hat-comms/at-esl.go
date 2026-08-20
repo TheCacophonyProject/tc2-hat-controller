@@ -246,7 +246,7 @@ func sendATCommand(command string, baudRate int) ([]byte, error) {
 	// O^K now send the AT command. Drain clears wake leftover; read until O^K/E^RROR
 	// so multi-line responses (e.g. m00 register dump) are kept intact.
 	payload := append([]byte(command), byte('\r'))
-	log.Infof("Sending AT command: %s", command)
+	log.Infof("Sending AT command: %q", command)
 
 	response, err = serialhelper.SerialSendReceiveUntil(
 		1, gpio.High, gpio.Low, 0*time.Second, payload, baudRate, atPostRegTimeout,
@@ -372,21 +372,43 @@ func formatRegistryRow(fields []string, col int) string {
 // registryDumpCommand returns the mXX command that dumps the 16-byte row
 // containing reg. The node wants two digits but ignores the low one, so the row
 // is selected by the high nibble (0x12 → "m10").
-//
-// Sending the low nibble verbatim is not just redundant, it is unsafe: "m12"
-// has a CRC16 of 0xea,0x7e, and 0x7e is the frame flag. AT+XCMD payloads are
-// not byte-stuffed here, so the node truncates the frame and never answers.
-// Every row-aligned command (m00..mf0) has a CRC free of flag/CR/LF/ESC bytes.
 func registryDumpCommand(reg int) string {
 	return fmt.Sprintf("m%02x", reg&0xf0)
+}
+
+const (
+	xcmdFlag = 0x7e
+	xcmdESC  = 0x1b
+)
+
+// byteStuffXCMD prefixes CH_FLAG (0x7e) before flag/CR/LF/ESC so the node's
+// AT parser does not treat those bytes as end-of-frame. Matches serial_node.py
+// and hub-and-node atproc.c / rfid.c destuff (flag_escaped).
+func byteStuffXCMD(msg []byte) []byte {
+	out := make([]byte, 0, len(msg)+4)
+	for _, c := range msg {
+		if c == xcmdFlag || c == '\r' || c == '\n' || c == xcmdESC {
+			out = append(out, xcmdFlag)
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// encodeATXCMD builds AT+XCMD=<cmd><crc16>, stuffing only the command+CRC.
+// CRC is computed on the unstuffed command. The AT line terminator is not stuffed;
+// sendATCommand appends that CR afterwards.
+func encodeATXCMD(cmd string) []byte {
+	body := []byte(cmd)
+	body = append(body, calcCRC16(body)...)
+	return append([]byte("AT+XCMD="), byteStuffXCMD(body)...)
 }
 
 // fetchRegistryDump requests the register row containing reg. The node prints
 // ~80 bytes from the row start, so one dump covers all 16 registers in the row.
 func fetchRegistryDump(baudRate int, reg int) ([]byte, error) {
 	regCmd := registryDumpCommand(reg)
-
-	cmd := append([]byte("AT+XCMD="+regCmd), calcCRC16([]byte(regCmd))...)
+	cmd := encodeATXCMD(regCmd)
 	log.Infof("fetch registry dump for 0x%02x via command %s (%q)", reg&0xff, regCmd, cmd)
 
 	response, err := sendATCommand(string(cmd), baudRate)
