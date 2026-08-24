@@ -17,6 +17,7 @@ type models struct {
 }
 
 var (
+	labelsLoaded  = false
 	animalsList   = models{Id: 1, Labels: []string{"bird", "cat", "deer", "dog", "false-positive", "hedgehog", "human", "kiwi", "leporidae", "mustelid", "penguin", "possum", "rodent", "sheep", "vehicle", "wallaby"}}
 	fpModelLabels = models{Id: 1004, Labels: []string{"animal", "false-positive"}}
 )
@@ -94,6 +95,10 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string) 
 	// Listen for signals, process and send tracking events to the channel.
 	go func() {
 		for signal := range c {
+			if !labelsLoaded {
+				log.Debugf("Receieved signal before labels were loaded, loading labels")
+				getLabels()
+			}
 			if signal.Name == targetSignalName {
 				log.Debugf("Received tracking event [%v]:", signal.Name)
 
@@ -322,6 +327,7 @@ func getLabels() {
 			log.Warnf("Unexpected classification label id: %v, with labels: %v", k, bodyMap)
 		}
 	}
+	labelsLoaded = true
 	log.Infof("Classification labels updated: animalsList: %+v, fpModelLabels: %+v", animalsList, fpModelLabels)
 }
 
