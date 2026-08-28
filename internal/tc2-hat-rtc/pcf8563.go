@@ -94,6 +94,8 @@ func checkRtcDrift(ntpTime time.Time, rtcTime time.Time, rtcIntegrity bool) erro
 
 	timeFromLastWrite := ntpTime.Sub(previousRtcWriteTime).Truncate(time.Second)
 	rtcDriftSeconds := ntpTime.Sub(rtcTime).Truncate(time.Second).Seconds()
+	// If rtc time is running fast then the drift will be negative
+	// If rtc time is running slow then the drift will be positive
 
 	// RTC only has a resolution of one second so we should reduce the
 	// drift by 1 second when checking the drift over a time period
@@ -231,7 +233,7 @@ func (rtc *pcf8563) SetSystemTime() error {
 				"rtcTime":               rtcNow.Format(time.DateTime),
 			},
 		})
-		return fmt.Errorf("RTC time (%s) is before 2026, not writing to system clock.", rtcNow.Format(time.DateTime))
+		return fmt.Errorf("rtc time (%s) is before 2026, not writing to system clock", rtcNow.Format(time.DateTime))
 	}
 	if rtcNow.After(time.Now().Add(365 * 24 * time.Hour)) {
 		eventclient.AddEvent(eventclient.Event{
@@ -243,7 +245,7 @@ func (rtc *pcf8563) SetSystemTime() error {
 				"rtcTime":               rtcNow.Format(time.DateTime),
 			},
 		})
-		return fmt.Errorf("RTC time (%s) jumped more than a year, not writing to system clock.", rtcNow.Format(time.DateTime))
+		return fmt.Errorf("rtc time (%s) jumped more than a year, not writing to system clock", rtcNow.Format(time.DateTime))
 	}
 
 	timeStr := rtcNow.Format(time.DateTime)

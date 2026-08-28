@@ -29,7 +29,7 @@ type service struct {
 	requestCount int
 }
 
-var waitingForBinToBeAvailable bool
+var waitingForPinToBeAvailable bool
 var mu sync.Mutex
 
 func startService() error {
@@ -102,7 +102,7 @@ func timeBusyPinBusyDuration(busyPin gpio.PinIO, startTime time.Time) {
 	for {
 		if busyPin.Read() == gpio.Low {
 			mu.Lock()
-			waitingForBinToBeAvailable = false
+			waitingForPinToBeAvailable = false
 			mu.Unlock()
 			waitTime := time.Since(startTime)
 			log.Infof("Waited %s for I2C busy pin to go low.", waitTime.Truncate(time.Microsecond*100))
@@ -239,8 +239,8 @@ func (s *service) processTransaction(req Request) Response {
 		if time.Since(startTime) > time.Duration(req.Timeout)*time.Millisecond {
 
 			mu.Lock()
-			if !waitingForBinToBeAvailable {
-				waitingForBinToBeAvailable = true
+			if !waitingForPinToBeAvailable {
+				waitingForPinToBeAvailable = true
 				go timeBusyPinBusyDuration(s.busyPin, startTime)
 			}
 			mu.Unlock()
