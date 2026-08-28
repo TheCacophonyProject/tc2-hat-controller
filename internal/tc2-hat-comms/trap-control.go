@@ -255,6 +255,7 @@ func parseMessageFromTrap(msg *Message) {
 		"RUNNING":     "trapRunning",
 		"ERROR_CODE":  "trapErrorCode",
 		"EXCEPTION":   "trapException",
+		"MAX_MOTION":  "trapMaxMotion",
 	}
 
 	// Messages that we want to trigger the events to be uploaded right away.
