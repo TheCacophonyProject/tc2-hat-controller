@@ -293,3 +293,8 @@ func (u *TrapMessenger) CopyFile(localFile, destFile string, force bool) (bool, 
 	log.Printf("\tFile '%s' copied successfully.", tmpBase)
 	return true, nil
 }
+
+func (u *TrapMessenger) DeleteTmpFiles() error {
+	log.Println("Deleting all .tmp files...")
+	return HandleResponse(u.SendMessage(Message{Type: "DELETE_TMP"}))
+}

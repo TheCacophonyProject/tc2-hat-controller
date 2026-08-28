@@ -2161,7 +2161,7 @@ func (m *BatteryMonitor) calculateSampledDischargeRate(sampleInterval time.Durat
 	for len(samples) < 10 && currentSampleTime.Sub(m.dischargeHistory[0].Timestamp) > 0 {
 		// Find the closest reading to this sample time
 		var closestEntry *DischargeRateHistory
-		var closestTimeDiff time.Duration = time.Hour * 24 // Start with a large value
+		var closestTimeDiff = time.Hour * 24 // Start with a large value
 
 		for i := range m.dischargeHistory {
 			entry := &m.dischargeHistory[i]
