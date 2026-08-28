@@ -68,6 +68,8 @@ func (u *TrapMessenger) routeMessages() {
 
 		if u.UnsolicitedHandler != nil {
 			u.UnsolicitedHandler(msg)
+		} else {
+			log.Warnf("Received unsolicited message: %v", msg)
 		}
 	}
 }
