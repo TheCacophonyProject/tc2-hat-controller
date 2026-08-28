@@ -204,11 +204,11 @@ type Message struct {
 	PayloadUnmarshaled any
 }
 
-func (u *Message) String() string {
-	if u.PayloadUnmarshaled != nil {
-		return fmt.Sprintf("ID: %d, Type: %s, Payload: %v, PayloadUnmarshaled: %v", u.ID, u.Type, u.Payload, u.PayloadUnmarshaled)
+func (m *Message) String() string {
+	if m.PayloadUnmarshaled != nil {
+		return fmt.Sprintf("ID: %d, Type: %s, Payload: %v, PayloadUnmarshaled: %v", m.ID, m.Type, m.Payload, m.PayloadUnmarshaled)
 	}
-	return fmt.Sprintf("ID: %d, Type: %s, Payload: %v", u.ID, u.Type, u.Payload)
+	return fmt.Sprintf("ID: %d, Type: %s, Payload: %v", m.ID, m.Type, m.Payload)
 }
 
 func (m *Message) ToUARTLine() string {
