@@ -21,6 +21,7 @@ import (
 // pending response waiters (matched by ID) or an unsolicited message handler.
 type TrapMessenger struct {
 	port               *serialhelper.SerialPort
+	sendMu             sync.Mutex // Serializes request/response exchanges so only one is in flight at a time.
 	pendingMu          sync.Mutex
 	pending            map[int]chan *Message
 	nextID             int
@@ -76,7 +77,12 @@ func (u *TrapMessenger) routeMessages() {
 
 // SendMessage sends a request and waits for a matching response.
 // It assigns a unique ID to the message for correlation.
+// Only one exchange is allowed at a time so that messages from different goroutines,
+// such as the trap control loop and the DBus service, don't get interleaved.
 func (u *TrapMessenger) SendMessage(message Message) (*Message, error) {
+	u.sendMu.Lock()
+	defer u.sendMu.Unlock()
+
 	u.pendingMu.Lock()
 	u.nextID++
 	id := u.nextID

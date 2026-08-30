@@ -87,6 +87,11 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 		}
 	}
 
+	// Start the DBus service so other services can send requests to the trap.
+	if err := startTrapService(messenger); err != nil {
+		return fmt.Errorf("failed to start trap service: %v", err)
+	}
+
 	// Setup loop for monitoring classifications and enabling/disabling the trap
 	if err := classificationChecks(config, eventSignals, messenger); err != nil {
 		log.Errorf("Failed to run classification checks: %v", err)
