@@ -60,6 +60,33 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 		log.Info("Software already up to date on trap")
 	}
 
+	// Copy over config to trap
+	configJSON, err := json.Marshal(config.TrapConfig.Config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal trap config: %v", err)
+	}
+	log.Info("Checking config on trap is up to date")
+	log.Debug(string(configJSON))
+	configUpdated, err := messenger.CopyData(configJSON, "/config.json", false)
+	if err != nil {
+		return fmt.Errorf("failed to upload config to trap: %v", err)
+	}
+	if err := messenger.CommitFiles(); err != nil {
+		return fmt.Errorf("failed to commit config on trap: %v", err)
+	}
+	if configUpdated {
+		log.Info("Updated config on trap")
+	} else {
+		log.Info("Config already up to date on trap")
+	}
+
+	if configUpdated || fileUpdated {
+		log.Info("Trap config or software updated, restarting trap...")
+		if err := messenger.Restart(); err != nil {
+			return fmt.Errorf("failed to restart trap: %v", err)
+		}
+	}
+
 	// Setup loop for monitoring classifications and enabling/disabling the trap
 	if err := classificationChecks(config, eventSignals, messenger); err != nil {
 		log.Errorf("Failed to run classification checks: %v", err)

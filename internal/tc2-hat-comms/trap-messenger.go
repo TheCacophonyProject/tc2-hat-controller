@@ -196,20 +196,25 @@ func (u *TrapMessenger) CopyDir(sourceDir, destDir string, force bool) (bool, er
 	return aFileWasUpdated, u.CommitFiles()
 }
 
-// CopyFile uploads a file to the RP2040.
-// The file will be written to a .tmp file on the RP2040. Once you want to commit the file change use the COMMIT command.
-// It returns a bool that indicates whether the file needed to be updated.
-// Only files that don't match the hash will be updated unless force is true.
+// CopyFile uploads a local file to the RP2040. See CopyData for the details of
+// how the file is written.
 func (u *TrapMessenger) CopyFile(localFile, destFile string, force bool) (bool, error) {
-	destBase := filepath.Base(destFile)
-	compressedBase := destBase + ".ztmp"
-	tmpBase := destBase + ".tmp"
-	log.Printf("Uploading '%s' as '%s'", destFile, tmpBase)
-
 	localData, err := os.ReadFile(localFile)
 	if err != nil {
 		return false, fmt.Errorf("failed to read local file %s: %v", localFile, err)
 	}
+	return u.CopyData(localData, destFile, force)
+}
+
+// CopyData uploads the given data to the RP2040 as destFile.
+// The data will be written to a .tmp file on the RP2040. Once you want to commit the file change use the COMMIT command.
+// It returns a bool that indicates whether the file needed to be updated.
+// Only data that doesn't match the hash on the trap will be uploaded unless force is true.
+func (u *TrapMessenger) CopyData(localData []byte, destFile string, force bool) (bool, error) {
+	destBase := filepath.Base(destFile)
+	compressedBase := destBase + ".ztmp"
+	tmpBase := destBase + ".tmp"
+	log.Printf("Uploading '%s' as '%s'", destFile, tmpBase)
 
 	h := sha256.Sum256(localData)
 	localHash := hex.EncodeToString(h[:])[:10]
@@ -262,7 +267,7 @@ func (u *TrapMessenger) CopyFile(localFile, destFile string, force bool) (bool, 
 	totalChunks := (len(encoded) + chunkSize - 1) / chunkSize
 	for i := 0; i < len(encoded); i += chunkSize {
 		chunkNum := i/chunkSize + 1
-		log.Infof("\t%s: %d/%d", filepath.Base(localFile), chunkNum, totalChunks)
+		log.Infof("\t%s: %d/%d", destBase, chunkNum, totalChunks)
 		chunk, err := json.Marshal([]string{encoded[i:min(i+chunkSize, len(encoded))]})
 		if err != nil {
 			return false, fmt.Errorf("failed to marshal chunk: %v", err)

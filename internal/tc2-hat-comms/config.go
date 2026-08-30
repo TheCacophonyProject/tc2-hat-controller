@@ -13,6 +13,8 @@ type CommsConfig struct {
 
 	UartTxPin string
 	BaudRate  int
+
+	TrapConfig config.Trap
 }
 
 func ParseCommsConfig(configDir string) (*CommsConfig, error) {
@@ -31,10 +33,16 @@ func ParseCommsConfig(configDir string) (*CommsConfig, error) {
 		return nil, err
 	}
 
+	trap := config.DefaultTrap()
+	if err := conf.Unmarshal(config.TrapKey, &trap); err != nil {
+		return nil, err
+	}
+
 	return &CommsConfig{
 		Comms:          c,
 		TrapSpecies:    tracks.Species(c.TrapSpecies),
 		ProtectSpecies: tracks.Species(c.ProtectSpecies),
 		UartTxPin:      gpio.UartTx,
+		TrapConfig:     trap,
 	}, nil
 }
