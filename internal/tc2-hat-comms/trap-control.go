@@ -45,6 +45,12 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 
 	// Make sure it is running the latest software
 	log.Info("Checking trap software is up to date")
+
+	// Before we start copying over the files we need to make sure that there are no tmp files already on the trap
+	if err := messenger.DeleteTmpFiles(); err != nil {
+		return fmt.Errorf("failed to delete tmp files on trap: %v", err)
+	}
+
 	fileUpdated, err := messenger.CopyDir("/etc/cacophony/mpy", "/", false)
 	if err != nil {
 		log.Error("Error in uploading the latest software to the trap")
@@ -54,6 +60,38 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 		log.Info("Updated software on trap")
 	} else {
 		log.Info("Software already up to date on trap")
+	}
+
+	// Copy over config to trap
+	configJSON, err := json.Marshal(config.TrapConfig.Config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal trap config: %v", err)
+	}
+	log.Info("Checking config on trap is up to date")
+	log.Debug(string(configJSON))
+	configUpdated, err := messenger.CopyData(configJSON, "/config.json", false)
+	if err != nil {
+		return fmt.Errorf("failed to upload config to trap: %v", err)
+	}
+	if err := messenger.CommitFiles(); err != nil {
+		return fmt.Errorf("failed to commit config on trap: %v", err)
+	}
+	if configUpdated {
+		log.Info("Updated config on trap")
+	} else {
+		log.Info("Config already up to date on trap")
+	}
+
+	if configUpdated || fileUpdated {
+		log.Info("Trap config or software updated, restarting trap...")
+		if err := messenger.Restart(); err != nil {
+			return fmt.Errorf("failed to restart trap: %v", err)
+		}
+	}
+
+	// Start the DBus service so other services can send requests to the trap.
+	if err := startTrapService(messenger); err != nil {
+		return fmt.Errorf("failed to start trap service: %v", err)
 	}
 
 	// Setup loop for monitoring classifications and enabling/disabling the trap
@@ -204,11 +242,11 @@ type Message struct {
 	PayloadUnmarshaled any
 }
 
-func (u *Message) String() string {
-	if u.PayloadUnmarshaled != nil {
-		return fmt.Sprintf("ID: %d, Type: %s, Payload: %v, PayloadUnmarshaled: %v", u.ID, u.Type, u.Payload, u.PayloadUnmarshaled)
+func (m *Message) String() string {
+	if m.PayloadUnmarshaled != nil {
+		return fmt.Sprintf("ID: %d, Type: %s, Payload: %v, PayloadUnmarshaled: %v", m.ID, m.Type, m.Payload, m.PayloadUnmarshaled)
 	}
-	return fmt.Sprintf("ID: %d, Type: %s, Payload: %v", u.ID, u.Type, u.Payload)
+	return fmt.Sprintf("ID: %d, Type: %s, Payload: %v", m.ID, m.Type, m.Payload)
 }
 
 func (m *Message) ToUARTLine() string {
@@ -255,6 +293,16 @@ func parseMessageFromTrap(msg *Message) {
 		"RUNNING":     "trapRunning",
 		"ERROR_CODE":  "trapErrorCode",
 		"EXCEPTION":   "trapException",
+		"MAX_MOTION":  "trapMaxMotion",
+
+		// The payload is the door number, so it lands in the event details.
+		"DOOR_OPENED": "trapDoorOpened",
+		"DOOR_CLOSED": "trapDoorClosed",
+
+		// The trap stops running its sequence when asked to release or reset the spool.
+		"MANUAL_MODE":         "trapManualMode",
+		"MANUAL_MODE_TIMEOUT": "trapManualModeTimeout",
+		"MANUAL_ERROR":        "trapManualError",
 	}
 
 	// Messages that we want to trigger the events to be uploaded right away.
@@ -262,6 +310,7 @@ func parseMessageFromTrap(msg *Message) {
 		"TRIGGERED",
 		"EXCEPTION",
 		"ERROR_CODE",
+		"MANUAL_ERROR",
 	}
 
 	// Handle messages that we want to make events for

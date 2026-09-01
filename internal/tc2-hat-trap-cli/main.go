@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	comms "github.com/TheCacophonyProject/tc2-hat-controller/internal/tc2-hat-comms"
 
@@ -37,6 +38,7 @@ type CMDMessage struct {
 	ID      int    `arg:"--id,required" help:"The ID of the message to send."`
 	Type    string `arg:"--type,required" help:"The type of message to send."`
 	Payload string `arg:"--payload,required" help:"The payload of the message to send."`
+	Wait    int    `arg:"--wait" default:"0" help:"The number of seconds to wait for a response."`
 }
 
 type CopyFile struct {
@@ -121,7 +123,15 @@ func Run(inputArgs []string, ver string) error {
 	switch {
 	case args.Message != nil:
 		message := comms.Message{Type: args.Message.Type, Payload: args.Message.Payload}
-		return comms.HandleResponse(messenger.SendMessage(message))
+		err := comms.HandleResponse(messenger.SendMessage(message))
+		if err != nil {
+			log.Errorf("Failed to send message: %v", err)
+		}
+		// Wait here. This is so we can see other messages come through.
+		if args.Message.Wait > 0 {
+			time.Sleep(time.Duration(args.Message.Wait) * time.Second)
+		}
+		return err
 
 	case args.Restart != nil:
 		return messenger.Restart()

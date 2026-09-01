@@ -29,7 +29,7 @@ type service struct {
 	requestCount int
 }
 
-var waitingForBinToBeAvailable bool
+var waitingForPinToBeAvailable bool
 var mu sync.Mutex
 
 func startService() error {
@@ -102,7 +102,7 @@ func timeBusyPinBusyDuration(busyPin gpio.PinIO, startTime time.Time) {
 	for {
 		if busyPin.Read() == gpio.Low {
 			mu.Lock()
-			waitingForBinToBeAvailable = false
+			waitingForPinToBeAvailable = false
 			mu.Unlock()
 			waitTime := time.Since(startTime)
 			log.Infof("Waited %s for I2C busy pin to go low.", waitTime.Truncate(time.Microsecond*100))
@@ -229,18 +229,13 @@ func (s *service) processTransaction(req Request) Response {
 		if locked {
 			log.Debugf("Waited %s for I2C busy pin to go low.", time.Since(startTime).Truncate(time.Microsecond*100))
 			log.Debug("I2C busy pin went low.")
-			if err := s.busyPin.Out(gpio.High); err != nil {
-				return Response{
-					Err: dbus.NewError("org.cacophony.i2c.ErrorUsingBusyBusPin ", nil),
-				}
-			}
 			break
 		}
 		if time.Since(startTime) > time.Duration(req.Timeout)*time.Millisecond {
 
 			mu.Lock()
-			if !waitingForBinToBeAvailable {
-				waitingForBinToBeAvailable = true
+			if !waitingForPinToBeAvailable {
+				waitingForPinToBeAvailable = true
 				go timeBusyPinBusyDuration(s.busyPin, startTime)
 			}
 			mu.Unlock()
@@ -254,7 +249,7 @@ func (s *service) processTransaction(req Request) Response {
 	}
 
 	defer s.busyPin.In(gpio.Float, gpio.NoEdge)
-	log.Debug("Driving pin high and locked the transaction.")
+	log.Debug("Holding pin low for the duration of the transaction.")
 
 	read := make([]byte, req.ReadLen)
 	retries := 2

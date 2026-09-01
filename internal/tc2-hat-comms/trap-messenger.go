@@ -21,6 +21,7 @@ import (
 // pending response waiters (matched by ID) or an unsolicited message handler.
 type TrapMessenger struct {
 	port               *serialhelper.SerialPort
+	sendMu             sync.Mutex // Serializes request/response exchanges so only one is in flight at a time.
 	pendingMu          sync.Mutex
 	pending            map[int]chan *Message
 	nextID             int
@@ -68,13 +69,20 @@ func (u *TrapMessenger) routeMessages() {
 
 		if u.UnsolicitedHandler != nil {
 			u.UnsolicitedHandler(msg)
+		} else {
+			log.Warnf("Received unsolicited message: %v", msg)
 		}
 	}
 }
 
 // SendMessage sends a request and waits for a matching response.
 // It assigns a unique ID to the message for correlation.
+// Only one exchange is allowed at a time so that messages from different goroutines,
+// such as the trap control loop and the DBus service, don't get interleaved.
 func (u *TrapMessenger) SendMessage(message Message) (*Message, error) {
+	u.sendMu.Lock()
+	defer u.sendMu.Unlock()
+
 	u.pendingMu.Lock()
 	u.nextID++
 	id := u.nextID
@@ -152,6 +160,54 @@ func (u *TrapMessenger) Restart() error {
 	return HandleResponse(u.SendMessage(Message{Type: "RESTART"}))
 }
 
+// ReleaseSpool asks the trap to release the spool.
+// This puts the trap into manual mode, where it stops running its sequence until it is
+// restarted. The response only says the request was accepted; the trap reports that it
+// has released with a TRIGGERED message.
+func (u *TrapMessenger) ReleaseSpool() error {
+	return HandleResponse(u.manualRequest("RELEASE_SPOOL"))
+}
+
+// ResetSpool asks the trap to reset the spool.
+// Like ReleaseSpool this puts the trap into manual mode, and the trap reports that it
+// has reset with a SPOOL_RESET message.
+func (u *TrapMessenger) ResetSpool() error {
+	return HandleResponse(u.manualRequest("RESET_SPOOL"))
+}
+
+// OpenDoor asks the trap to open one of its ratchet doors, ratcheting it up and holding
+// it there. Like the spool requests this puts the trap into manual mode, and the response
+// only says the request was accepted; the trap reports that the door has finished moving
+// with a DOOR_OPENED message. Opening takes around 20 seconds.
+func (u *TrapMessenger) OpenDoor(door int) error {
+	if door != 1 && door != 2 {
+		return fmt.Errorf("no such door: %d", door)
+	}
+	return HandleResponse(u.manualRequest(fmt.Sprintf("OPEN_DOOR_%d", door)))
+}
+
+// CloseDoor asks the trap to close one of its ratchet doors, releasing the ratchet so the
+// door drops. Like OpenDoor this puts the trap into manual mode, and the trap reports that
+// the door has finished moving with a DOOR_CLOSED message.
+func (u *TrapMessenger) CloseDoor(door int) error {
+	if door != 1 && door != 2 {
+		return fmt.Errorf("no such door: %d", door)
+	}
+	return HandleResponse(u.manualRequest(fmt.Sprintf("CLOSE_DOOR_%d", door)))
+}
+
+// manualRequest sends a request that hands the trap over to manual mode.
+func (u *TrapMessenger) manualRequest(messageType string) (*Message, error) {
+	response, err := u.SendMessage(Message{Type: messageType})
+	if err != nil {
+		return nil, err
+	}
+	if response.Type == "BAD_KEY" {
+		return nil, fmt.Errorf("the program running on the trap doesn't support manual control")
+	}
+	return response, nil
+}
+
 func (u *TrapMessenger) ReadTime() error {
 	return HandleResponse(u.SendMessage(Message{Type: "READ_TIME"}))
 }
@@ -194,20 +250,25 @@ func (u *TrapMessenger) CopyDir(sourceDir, destDir string, force bool) (bool, er
 	return aFileWasUpdated, u.CommitFiles()
 }
 
-// CopyFile uploads a file to the RP2040.
-// The file will be written to a .tmp file on the RP2040. Once you want to commit the file change use the COMMIT command.
-// It returns a bool that indicates whether the file needed to be updated.
-// Only files that don't match the hash will be updated unless force is true.
+// CopyFile uploads a local file to the RP2040. See CopyData for the details of
+// how the file is written.
 func (u *TrapMessenger) CopyFile(localFile, destFile string, force bool) (bool, error) {
-	destBase := filepath.Base(destFile)
-	compressedBase := destBase + ".ztmp"
-	tmpBase := destBase + ".tmp"
-	log.Printf("Uploading '%s' as '%s'", destFile, tmpBase)
-
 	localData, err := os.ReadFile(localFile)
 	if err != nil {
 		return false, fmt.Errorf("failed to read local file %s: %v", localFile, err)
 	}
+	return u.CopyData(localData, destFile, force)
+}
+
+// CopyData uploads the given data to the RP2040 as destFile.
+// The data will be written to a .tmp file on the RP2040. Once you want to commit the file change use the COMMIT command.
+// It returns a bool that indicates whether the file needed to be updated.
+// Only data that doesn't match the hash on the trap will be uploaded unless force is true.
+func (u *TrapMessenger) CopyData(localData []byte, destFile string, force bool) (bool, error) {
+	destBase := filepath.Base(destFile)
+	compressedBase := destBase + ".ztmp"
+	tmpBase := destBase + ".tmp"
+	log.Printf("Uploading '%s' as '%s'", destFile, tmpBase)
 
 	h := sha256.Sum256(localData)
 	localHash := hex.EncodeToString(h[:])[:10]
@@ -260,7 +321,7 @@ func (u *TrapMessenger) CopyFile(localFile, destFile string, force bool) (bool, 
 	totalChunks := (len(encoded) + chunkSize - 1) / chunkSize
 	for i := 0; i < len(encoded); i += chunkSize {
 		chunkNum := i/chunkSize + 1
-		log.Infof("\t%s: %d/%d", filepath.Base(localFile), chunkNum, totalChunks)
+		log.Infof("\t%s: %d/%d", destBase, chunkNum, totalChunks)
 		chunk, err := json.Marshal([]string{encoded[i:min(i+chunkSize, len(encoded))]})
 		if err != nil {
 			return false, fmt.Errorf("failed to marshal chunk: %v", err)
@@ -290,4 +351,9 @@ func (u *TrapMessenger) CopyFile(localFile, destFile string, force bool) (bool, 
 
 	log.Printf("\tFile '%s' copied successfully.", tmpBase)
 	return true, nil
+}
+
+func (u *TrapMessenger) DeleteTmpFiles() error {
+	log.Println("Deleting all .tmp files...")
+	return HandleResponse(u.SendMessage(Message{Type: "DELETE_TMP"}))
 }
