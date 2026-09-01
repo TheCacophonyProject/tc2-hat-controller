@@ -292,6 +292,15 @@ func parseMessageFromTrap(msg *Message) {
 		"ERROR_CODE":  "trapErrorCode",
 		"EXCEPTION":   "trapException",
 		"MAX_MOTION":  "trapMaxMotion",
+
+		// The payload is the door number, so it lands in the event details.
+		"DOOR_OPENED": "trapDoorOpened",
+		"DOOR_CLOSED": "trapDoorClosed",
+
+		// The trap stops running its sequence when asked to release or reset the spool.
+		"MANUAL_MODE":         "trapManualMode",
+		"MANUAL_MODE_TIMEOUT": "trapManualModeTimeout",
+		"MANUAL_ERROR":        "trapManualError",
 	}
 
 	// Messages that we want to trigger the events to be uploaded right away.
@@ -299,6 +308,7 @@ func parseMessageFromTrap(msg *Message) {
 		"TRIGGERED",
 		"EXCEPTION",
 		"ERROR_CODE",
+		"MANUAL_ERROR",
 	}
 
 	// Handle messages that we want to make events for

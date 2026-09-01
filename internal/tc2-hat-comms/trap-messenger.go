@@ -160,6 +160,54 @@ func (u *TrapMessenger) Restart() error {
 	return HandleResponse(u.SendMessage(Message{Type: "RESTART"}))
 }
 
+// ReleaseSpool asks the trap to release the spool.
+// This puts the trap into manual mode, where it stops running its sequence until it is
+// restarted. The response only says the request was accepted; the trap reports that it
+// has released with a TRIGGERED message.
+func (u *TrapMessenger) ReleaseSpool() error {
+	return HandleResponse(u.manualRequest("RELEASE_SPOOL"))
+}
+
+// ResetSpool asks the trap to reset the spool.
+// Like ReleaseSpool this puts the trap into manual mode, and the trap reports that it
+// has reset with a SPOOL_RESET message.
+func (u *TrapMessenger) ResetSpool() error {
+	return HandleResponse(u.manualRequest("RESET_SPOOL"))
+}
+
+// OpenDoor asks the trap to open one of its ratchet doors, ratcheting it up and holding
+// it there. Like the spool requests this puts the trap into manual mode, and the response
+// only says the request was accepted; the trap reports that the door has finished moving
+// with a DOOR_OPENED message. Opening takes around 20 seconds.
+func (u *TrapMessenger) OpenDoor(door int) error {
+	if door != 1 && door != 2 {
+		return fmt.Errorf("no such door: %d", door)
+	}
+	return HandleResponse(u.manualRequest(fmt.Sprintf("OPEN_DOOR_%d", door)))
+}
+
+// CloseDoor asks the trap to close one of its ratchet doors, releasing the ratchet so the
+// door drops. Like OpenDoor this puts the trap into manual mode, and the trap reports that
+// the door has finished moving with a DOOR_CLOSED message.
+func (u *TrapMessenger) CloseDoor(door int) error {
+	if door != 1 && door != 2 {
+		return fmt.Errorf("no such door: %d", door)
+	}
+	return HandleResponse(u.manualRequest(fmt.Sprintf("CLOSE_DOOR_%d", door)))
+}
+
+// manualRequest sends a request that hands the trap over to manual mode.
+func (u *TrapMessenger) manualRequest(messageType string) (*Message, error) {
+	response, err := u.SendMessage(Message{Type: messageType})
+	if err != nil {
+		return nil, err
+	}
+	if response.Type == "BAD_KEY" {
+		return nil, fmt.Errorf("the program running on the trap doesn't support manual control")
+	}
+	return response, nil
+}
+
 func (u *TrapMessenger) ReadTime() error {
 	return HandleResponse(u.SendMessage(Message{Type: "READ_TIME"}))
 }

@@ -57,6 +57,46 @@ func (s *trapService) Restart() *dbus.Error {
 	return nil
 }
 
+// ReleaseSpool asks the trap to release the spool, putting it into manual mode.
+func (s *trapService) ReleaseSpool() *dbus.Error {
+	log.Info("Releasing spool from DBus request")
+	if err := s.messenger.ReleaseSpool(); err != nil {
+		log.Errorf("Failed to release spool: %v", err)
+		return trapDbusErr(err)
+	}
+	return nil
+}
+
+// ResetSpool asks the trap to reset the spool, putting it into manual mode.
+func (s *trapService) ResetSpool() *dbus.Error {
+	log.Info("Resetting spool from DBus request")
+	if err := s.messenger.ResetSpool(); err != nil {
+		log.Errorf("Failed to reset spool: %v", err)
+		return trapDbusErr(err)
+	}
+	return nil
+}
+
+// OpenDoor asks the trap to open one of its ratchet doors, putting it into manual mode.
+func (s *trapService) OpenDoor(door int32) *dbus.Error {
+	log.Infof("Opening door %d from DBus request", door)
+	if err := s.messenger.OpenDoor(int(door)); err != nil {
+		log.Errorf("Failed to open door %d: %v", door, err)
+		return trapDbusErr(err)
+	}
+	return nil
+}
+
+// CloseDoor asks the trap to close one of its ratchet doors, putting it into manual mode.
+func (s *trapService) CloseDoor(door int32) *dbus.Error {
+	log.Infof("Closing door %d from DBus request", door)
+	if err := s.messenger.CloseDoor(int(door)); err != nil {
+		log.Errorf("Failed to close door %d: %v", door, err)
+		return trapDbusErr(err)
+	}
+	return nil
+}
+
 func genTrapIntrospectable(v interface{}) introspect.Introspectable {
 	node := &introspect.Node{
 		Interfaces: []introspect.Interface{{
