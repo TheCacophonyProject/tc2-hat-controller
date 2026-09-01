@@ -47,7 +47,9 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 	log.Info("Checking trap software is up to date")
 
 	// Before we start copying over the files we need to make sure that there are no tmp files already on the trap
-	messenger.DeleteTmpFiles()
+	if err := messenger.DeleteTmpFiles(); err != nil {
+		return fmt.Errorf("failed to delete tmp files on trap: %v", err)
+	}
 
 	fileUpdated, err := messenger.CopyDir("/etc/cacophony/mpy", "/", false)
 	if err != nil {
