@@ -154,6 +154,35 @@ func ReleaseSerial(serialFile *os.File) error {
 	return syscall.Flock(int(serialFile.Fd()), syscall.LOCK_UN)
 }
 
+// QuiesceSerialMux drives the HAT UART mux to the ATtiny/programming select
+// (GPIO6 low, GPIO12 low). That disconnects accessory UART paths from the Pi
+// while the SoC is still powered — intended for the ATtiny shutdown sequence
+// before EN_5V is cut.
+//
+// Unlike floating the mux/UART pins, this keeps a driven select so we do not
+// leave the accessory bus on a floating Pi TX (which can chatter a live peer).
+// GPIO14/15 are left alone; they go high-Z naturally when the rail drops.
+func QuiesceSerialMux() error {
+	if _, err := host.Init(); err != nil {
+		return fmt.Errorf("gpio host init: %w", err)
+	}
+	mul0Pin := gpioreg.ByName("GPIO6")
+	if mul0Pin == nil {
+		return fmt.Errorf("failed to init GPIO6 pin")
+	}
+	if err := mul0Pin.Out(gpio.Low); err != nil {
+		return fmt.Errorf("GPIO6 low: %w", err)
+	}
+	mul1Pin := gpioreg.ByName("GPIO12")
+	if mul1Pin == nil {
+		return fmt.Errorf("failed to init GPIO12 pin")
+	}
+	if err := mul1Pin.Out(gpio.Low); err != nil {
+		return fmt.Errorf("GPIO12 low: %w", err)
+	}
+	return nil
+}
+
 func SerialSendReceive(retries int, mul0, mul1 gpio.Level, wait time.Duration, data []byte, baud int) ([]byte, error) {
 	serialFile, err := GetSerial(retries, mul0, mul1, wait)
 	if err != nil {
