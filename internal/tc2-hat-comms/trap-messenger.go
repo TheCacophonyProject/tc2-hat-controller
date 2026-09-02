@@ -220,6 +220,11 @@ func (u *TrapMessenger) ReadTime() error {
 	return HandleResponse(u.SendMessage(Message{Type: "READ_TIME"}))
 }
 
+// SetTime sets the clock on the trap to the camera's current UTC time.
+func (u *TrapMessenger) SetTime() error {
+	return u.WriteTime("")
+}
+
 func (u *TrapMessenger) WriteTime(timeStr string) error {
 	if timeStr == "" {
 		timeStr = time.Now().UTC().Format(time.DateTime)

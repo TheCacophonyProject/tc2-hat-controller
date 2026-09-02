@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/TheCacophonyProject/event-reporter/v3/eventclient"
@@ -87,6 +89,26 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 		if err := messenger.Restart(); err != nil {
 			return fmt.Errorf("failed to restart trap: %v", err)
 		}
+		log.Info("Trap restarting. Waiting to connect to trap...")
+		for {
+			if err := messenger.Ping(); err == nil {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		log.Info("Connected to trap.")
+	}
+
+	// Set the time on the trap, but only if the camera's clock has been synced from the
+	// internet. Otherwise the camera could be running off a time that is no better than
+	// the one the trap already has from its RTC.
+	if ntpSynced() {
+		if err := messenger.SetTime(); err != nil {
+			return fmt.Errorf("failed to set time on trap: %v", err)
+		}
+	} else {
+		log.Info("Camera clock has not synced with NTP, will set the time on the trap when it has.")
+		go setTimeWhenNtpSynced(messenger)
 	}
 
 	// Start the DBus service so other services can send requests to the trap.
@@ -277,6 +299,39 @@ type Command struct {
 type Write struct {
 	Var string `json:"var,omitempty"`
 	Val any    `json:"val,omitempty"`
+}
+
+// How often to check if the camera's clock has synced with NTP yet.
+const ntpCheckInterval = 5 * time.Minute
+
+// ntpSynced reports whether the camera's clock has been synced from the internet.
+func ntpSynced() bool {
+	out, err := exec.Command("timedatectl", "status").CombinedOutput()
+	if err != nil {
+		log.Errorf("Error running 'timedatectl status': %v, output: %s", err, out)
+		return false
+	}
+	return strings.Contains(string(out), "synchronized: yes")
+}
+
+// setTimeWhenNtpSynced waits for the camera's clock to sync with NTP and then sets the
+// time on the trap. The camera can be offline for a long time before it gets a chance to
+// sync, so this keeps checking until it does.
+func setTimeWhenNtpSynced(messenger *TrapMessenger) {
+	for {
+		time.Sleep(ntpCheckInterval)
+
+		if !ntpSynced() {
+			continue
+		}
+
+		log.Info("Camera clock has synced with NTP, setting the time on the trap.")
+		if err := messenger.SetTime(); err != nil {
+			log.Errorf("Failed to set time on trap: %v", err)
+			continue
+		}
+		return
+	}
 }
 
 func parseMessageFromTrap(msg *Message) {

@@ -75,6 +75,7 @@ func (s service) IsPresent() (bool, *dbus.Error) {
 
 // StayOnFor will delay turning off the raspberry pi for m minutes.
 func (s service) StayOnFor(m int) *dbus.Error {
+	log.Debugf("Delaying shutdown for %d minutes", m)
 	err := setStayOnUntil(time.Now().Add(time.Duration(m) * time.Minute))
 	if err != nil {
 		return dbusErr(err)
@@ -84,12 +85,14 @@ func (s service) StayOnFor(m int) *dbus.Error {
 
 // StayOnFinished finished staying on for this process.
 func (s service) StayOnFinished(processName string) *dbus.Error {
+	log.Debugf("Finished staying on for '%s'", processName)
 	stayOnFinished(processName)
 	return nil
 }
 
 // StayOnForProcess will delay turning off the raspberry pi for m minutes or until process says finished.
 func (s service) StayOnForProcess(processName string, maxDuration int) *dbus.Error {
+	log.Debugf("Delaying shutdown for %d minutes for '%s'", maxDuration, processName)
 	err := setStayOnForProcess(processName, time.Now().Add(time.Duration(maxDuration)*time.Minute))
 	if err != nil {
 		return dbusErr(err)
