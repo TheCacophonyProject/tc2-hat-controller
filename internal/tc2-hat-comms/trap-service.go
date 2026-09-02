@@ -57,6 +57,16 @@ func (s *trapService) Restart() *dbus.Error {
 	return nil
 }
 
+// Stop asks the trap to stop what it is doing, putting it into manual mode.
+func (s *trapService) Stop() *dbus.Error {
+	log.Info("Stopping trap from DBus request")
+	if err := s.messenger.Stop(); err != nil {
+		log.Errorf("Failed to stop trap: %v", err)
+		return trapDbusErr(err)
+	}
+	return nil
+}
+
 // ReleaseSpool asks the trap to release the spool, putting it into manual mode.
 func (s *trapService) ReleaseSpool() *dbus.Error {
 	log.Info("Releasing spool from DBus request")

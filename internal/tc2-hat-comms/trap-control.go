@@ -301,6 +301,7 @@ func parseMessageFromTrap(msg *Message) {
 
 		// The trap stops running its sequence when asked to release or reset the spool.
 		"MANUAL_MODE":         "trapManualMode",
+		"STOPPED":             "trapStopped",
 		"MANUAL_MODE_TIMEOUT": "trapManualModeTimeout",
 		"MANUAL_ERROR":        "trapManualError",
 	}

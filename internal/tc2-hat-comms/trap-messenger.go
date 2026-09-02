@@ -160,6 +160,14 @@ func (u *TrapMessenger) Restart() error {
 	return HandleResponse(u.SendMessage(Message{Type: "RESTART"}))
 }
 
+// Stop asks the trap to stop whatever it is doing, interrupting a spool or door that is
+// part way through moving. Like the other manual requests this puts the trap into manual
+// mode, so it stays stopped until it is restarted. The trap reports that everything has
+// stopped with a STOPPED message.
+func (u *TrapMessenger) Stop() error {
+	return HandleResponse(u.manualRequest("STOP"))
+}
+
 // ReleaseSpool asks the trap to release the spool.
 // This puts the trap into manual mode, where it stops running its sequence until it is
 // restarted. The response only says the request was accepted; the trap reports that it
