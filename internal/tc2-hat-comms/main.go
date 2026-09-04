@@ -124,7 +124,7 @@ func Run(inputArgs []string, ver string) error {
 	}
 
 	switch config.CommsOut {
-	case "uart", "json-out":
+	case "json-out": // Should be ("uart", "json-out"). Currently 'uart' is being used for trap control for sidekick compatibility reasons.
 		log.Info("Running UART/json-out.")
 
 		// uart comms channel listens for tracking events
@@ -154,7 +154,7 @@ func Run(inputArgs []string, ver string) error {
 		if err := processSimpleOutput(config, eventsChan); err != nil {
 			return err
 		}
-	case "trap-control":
+	case "trap-control", "uart": // UART is only used here at the moment for sidekick compatibility
 		log.Info("Running trap-control output.")
 
 		// TODO, check what speed we want for this
