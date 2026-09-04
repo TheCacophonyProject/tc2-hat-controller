@@ -314,7 +314,13 @@ func getLabels() {
 		log.Warnf("Failed to get classification labels, will use defaults: animalsList: %+v, fpModelLabels: %+v", animalsList, fpModelLabels)
 		return
 	}
-	bodyMap := t_call.Body[0].(map[int32][]string)
+	// With the classifier turned off the reply is an empty list, which doesn't carry the
+	// types the labels would have, so check the type rather than asserting it.
+	bodyMap, ok := t_call.Body[0].(map[int32][]string)
+	if !ok {
+		log.Warnf("Classification labels are %T, not map[int32][]string, will use defaults. The classifier is likely turned off.", t_call.Body[0])
+		return
+	}
 
 	// Out model labels have id '1' .. false-positive are the other element.
 	// e.g. [map[1:[bird cat deer ... vehicle wallaby] 1004:[animal false-positive]]]
