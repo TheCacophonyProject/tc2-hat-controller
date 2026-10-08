@@ -3,7 +3,10 @@ package comms
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,8 +20,8 @@ var (
 	// 0x05 = EVENT_LOCKOUT_MINS (prediction).
 	// 0x12/0x13 = HOURS/MINS_PER_INST_READING — battery is an instrument reading;
 	// these set how often we report those readings.
-	predictionLockoutNodeRegister     int   = 0x05
-	predictionLockoutMinutesDefault   int64 = 1 // default 1min.
+	predictionLockoutNodeRegister   int   = 0x05
+	predictionLockoutMinutesDefault int64 = 1 // default 1min.
 
 	batteryLockoutHoursNodeRegister   int   = 0x12
 	batteryLockoutMinutesNodeRegister int   = 0x13
@@ -36,21 +39,36 @@ type ATESLMessenger struct {
 }
 
 type ATESLLastPrediction struct {
-	What    string
-	When    time.Time
-	Lockout int64
+	What    string    `json:"what"`
+	When    time.Time `json:"when"`
+	Lockout int64     `json:"lockout_minutes"`
 }
 
 type ATESLLastBattery struct {
-	Voltage float64
-	When    time.Time
-	Lockout int64
+	Voltage float64   `json:"voltage"`
+	When    time.Time `json:"when"`
+	Lockout int64     `json:"lockout_minutes"`
 }
 
-var atesLastPrediction = ATESLLastPrediction{Lockout: predictionLockoutMinutesDefault}
-var atesLastBattery = ATESLLastBattery{Lockout: batteryLockoutMinutesDefault}
+// atESLPersistentState is the standdown clock and the last node-register
+// lockouts. It is the only AT-ESL state written across a service restart,
+// package upgrade, or Pi reboot.
+type atESLPersistentState struct {
+	Prediction ATESLLastPrediction `json:"prediction"`
+	Battery    ATESLLastBattery    `json:"battery"`
+}
+
+const atESLStateDir = "/var/lib/tc2-hat-controller"
+
+var (
+	atesLastPrediction = ATESLLastPrediction{Lockout: predictionLockoutMinutesDefault}
+	atesLastBattery    = ATESLLastBattery{Lockout: batteryLockoutMinutesDefault}
+	atESLStatePath     = filepath.Join(atESLStateDir, "at-esl-state.json")
+)
 
 func processATESL(config *CommsConfig, testClassification *TestClassification, eventChannel chan event) error {
+	loadATESLState()
+
 	messenger := ATESLMessenger{
 		config.BaudRate,
 		config.TrapSpecies,
@@ -119,6 +137,7 @@ func (a ATESLMessenger) processBatteryEvent(b batteryEvent, l *ATESLLastBattery)
 
 	// Re-query lockout (hub may have changed w12/w13); keep last-good on failure.
 	l.Lockout = getBatteryEventLockout(a.BaudRate, l.Lockout)
+	saveATESLState()
 
 	return nil
 }
@@ -193,6 +212,7 @@ func (a ATESLMessenger) processTrackingEvent(t trackingEvent, l *ATESLLastPredic
 
 		// Re-query lockout (hub may have changed w05); keep last-good on failure.
 		l.Lockout = getPredictionEventLockout(a.BaudRate, l.Lockout)
+		saveATESLState()
 	}
 
 	return nil
@@ -494,6 +514,72 @@ func getBatteryEventLockout(baudRate int, current int64) int64 {
 
 	log.Infof("Battery lockout time = %d (mins)", batteryLockoutMinutes)
 	return batteryLockoutMinutes
+}
+
+// loadATESLState restores the last standdown window. A missing or unreadable
+// file leaves the compiled defaults in place so the service still starts.
+func loadATESLState() {
+	data, err := os.ReadFile(atESLStatePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Infof("No AT-ESL state at %s; using default lockouts", atESLStatePath)
+			return
+		}
+		log.Warnf("Could not read AT-ESL state: %v", err)
+		return
+	}
+
+	var state atESLPersistentState
+	if err := json.Unmarshal(data, &state); err != nil {
+		log.Warnf("Could not parse AT-ESL state: %v", err)
+		return
+	}
+
+	if state.Prediction.Lockout <= 0 {
+		state.Prediction.Lockout = predictionLockoutMinutesDefault
+	}
+	if state.Battery.Lockout <= 0 {
+		state.Battery.Lockout = batteryLockoutMinutesDefault
+	}
+
+	atesLastPrediction = state.Prediction
+	atesLastBattery = state.Battery
+	log.Infof("Restored AT-ESL standdown: prediction lockout %d min (last %s), battery lockout %d min (last %s)",
+		atesLastPrediction.Lockout, formatStateTime(atesLastPrediction.When),
+		atesLastBattery.Lockout, formatStateTime(atesLastBattery.When))
+}
+
+// saveATESLState writes the current standdown clock and register lockouts.
+// A write failure is logged and does not fail the event that was just sent.
+func saveATESLState() {
+	state := atESLPersistentState{
+		Prediction: atesLastPrediction,
+		Battery:    atesLastBattery,
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		log.Warnf("Failed to marshal AT-ESL state: %v", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(atESLStatePath), 0755); err != nil {
+		log.Warnf("Failed to create AT-ESL state dir: %v", err)
+		return
+	}
+	tmp := atESLStatePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		log.Warnf("Failed to write AT-ESL state: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, atESLStatePath); err != nil {
+		log.Warnf("Failed to commit AT-ESL state: %v", err)
+	}
+}
+
+func formatStateTime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.Format(time.RFC3339)
 }
 
 func feedCRC16(crc uint16, dat byte) uint16 {
