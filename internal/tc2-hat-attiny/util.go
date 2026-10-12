@@ -15,9 +15,16 @@ import (
 
 	"github.com/TheCacophonyProject/go-utils/saltutil"
 	"github.com/TheCacophonyProject/tc2-hat-controller/i2crequest"
+	"github.com/TheCacophonyProject/tc2-hat-controller/serialhelper"
 )
 
 func shutdown(a *attiny) error {
+	// Disconnect accessory UART from the Pi before the rail drops. Generic HAT
+	// hygiene; ATtiny cannot do this after EN_5V is cut.
+	if err := serialhelper.QuiesceSerialMux(); err != nil {
+		log.Printf("Warning: failed to quiesce HAT serial mux before poweroff: %v", err)
+	}
+
 	err := a.writeCameraState(statePoweringOff) // Without setting the state to powering off the ATtiny will automatically reboot the RPi.
 	if err != nil {
 		return err
