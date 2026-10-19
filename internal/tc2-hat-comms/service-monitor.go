@@ -40,6 +40,7 @@ type trackingEvent struct {
 	LastPredictionFrame int32
 	ClipAgeSeconds      int32
 	TrackStartTime      time.Time
+	Confident           bool
 }
 
 func (t trackingEvent) isEvent() {}
@@ -104,7 +105,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string, 
 				log.Debugf("Received tracking event [%v]:", signal.Name)
 
 				// Reprocessed signals have an additional parameter 'clip_end_time'
-				if len(signal.Body) != 13 {
+				if len(signal.Body) != 14 {
 					log.Errorf("Unexpected signal format in body: %v", signal.Body)
 					continue
 				}
@@ -121,6 +122,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string, 
 				log.Debugf("Last prediction frame: %v", signal.Body[10])
 				log.Debugf("Model Id: %v", signal.Body[11])
 				log.Debugf("Track Start Time: %v", signal.Body[12])
+				log.Debugf("Confident: %v", signal.Body[13])
 
 				var modelId int32
 				var modelLabels []string
@@ -181,6 +183,7 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string, 
 					Tracking:            signal.Body[9].(bool),
 					LastPredictionFrame: signal.Body[10].(int32),
 					TrackStartTime:      trackStartTime,
+					Confident:           signal.Body[13].(bool),
 				}
 				log.Debugf("Sending tracking event: %+v", t)
 
