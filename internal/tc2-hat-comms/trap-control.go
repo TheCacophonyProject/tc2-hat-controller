@@ -200,6 +200,7 @@ func classificationChecks(config *CommsConfig, eventSignals chan event, messenge
 					Type:      "trapEnableCommand",
 					Details:   details,
 				})
+				uploadEventsNow()
 			} else {
 				log.Info("Disabling trap, reason: ", reason)
 				success, err := messenger.SetEnable(false)
@@ -219,6 +220,7 @@ func classificationChecks(config *CommsConfig, eventSignals chan event, messenge
 					Type:      "trapDisableCommand",
 					Details:   details,
 				})
+				uploadEventsNow()
 			}
 		}
 
@@ -386,6 +388,8 @@ func parseMessageFromTrap(msg *Message) {
 
 	// Messages that we want to trigger the events to be uploaded right away.
 	uploadEventsNowMessages := []string{
+		"ENABLED",
+		"DISABLED",
 		"TRIGGERED",
 		"EXCEPTION",
 		"ERROR_CODE",
@@ -412,11 +416,7 @@ func parseMessageFromTrap(msg *Message) {
 			log.Error("Error adding event:", err)
 		}
 		if contains(uploadEventsNowMessages, msg.Type) {
-			log.Info("Uploading events now")
-			err := eventclient.UploadEvents()
-			if err != nil {
-				log.Error("Error requesting events to be uploaded:", err)
-			}
+			uploadEventsNow()
 		}
 		return
 	}
@@ -430,6 +430,15 @@ func parseMessageFromTrap(msg *Message) {
 
 	// Unknown messages
 	log.Warnf("Unknown trap message: %+v", msg)
+}
+
+// uploadEventsNow asks event-reporter to upload the queued events right away
+// instead of waiting for its next scheduled upload.
+func uploadEventsNow() {
+	log.Info("Uploading events now")
+	if err := eventclient.UploadEvents(); err != nil {
+		log.Error("Error requesting events to be uploaded:", err)
+	}
 }
 
 func contains(arr []string, item string) bool {
