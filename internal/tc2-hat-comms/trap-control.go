@@ -125,85 +125,112 @@ func processTrapControl(config *CommsConfig, eventSignals chan event) error {
 	return nil
 }
 
+// sighting is the last time a protect or trap species was seen.
+type sighting struct {
+	time       time.Time
+	animal     string
+	confidence int32
+}
+
+// trapState works out if the trap should be enabled and the reason why, from the last
+// protect and trap species sightings. A protect sighting takes priority over a trap sighting.
+// trigger is the sighting that decided the state, or nil when the trap is in its default state.
+func trapState(config *CommsConfig, protect, trap sighting, now time.Time) (enabled bool, reason string, trigger *sighting) {
+	if !protect.time.IsZero() && protect.time.Add(config.ProtectDuration).After(now) {
+		return false, fmt.Sprintf("Found an %s of confidence %d that needs to be protected (seen at %s)",
+			protect.animal, protect.confidence, protect.time.Format("15:04:05")), &protect
+	}
+	if !trap.time.IsZero() && trap.time.Add(config.TrapDuration).After(now) {
+		return true, fmt.Sprintf("Found an %s of confidence %d that needs to be trapped (seen at %s)",
+			trap.animal, trap.confidence, trap.time.Format("15:04:05")), &trap
+	}
+	if config.TrapEnabledByDefault {
+		return true, "No protect or trap species seen recently, trap is enabled by default", nil
+	}
+	return false, "No protect or trap species seen recently, trap is disabled by default", nil
+}
+
 func classificationChecks(config *CommsConfig, eventSignals chan event, messenger *TrapMessenger) error {
 
-	trapEnabled := false
 	previousTrapEnabled := false
-	lastProtectSpeciesSighting := time.Time{}
-	lastTrapSpeciesSighting := time.Time{}
-	enablingReason := ""
-	disablingReason := ""
+	// The trap state is unknown at startup, so always send it on the first check.
+	firstCheck := true
+	lastProtectSighting := sighting{}
+	lastTrapSighting := sighting{}
 
 	recordingStartTime := time.Time{}
 	trackStartTime := time.Time{}
-	triggerAnimal := ""
-	var confidence int32
 
 	for {
-		now := time.Now()
-		trapEnabled = config.TrapEnabledByDefault
-
-		if lastProtectSpeciesSighting.Add(config.ProtectDuration).After(now) {
-			trapEnabled = false
-		} else if lastTrapSpeciesSighting.Add(config.TrapDuration).After(now) {
-			trapEnabled = true
+		trapEnabled, reason, trigger := trapState(config, lastProtectSighting, lastTrapSighting, time.Now())
+		if firstCheck {
+			reason = "Startup: " + reason
 		}
 
-		if trapEnabled != previousTrapEnabled {
+		if firstCheck || trapEnabled != previousTrapEnabled {
 			if trapEnabled {
-				log.Infof("Enabling trap, reason: %s", enablingReason)
+				log.Infof("Enabling trap, reason: %s", reason)
 				success, err := messenger.SetEnable(true)
 				if err != nil {
 					return fmt.Errorf("failed to enable trap: %v", err)
 				}
 				trapEnableTime := time.Now()
-				log.Infof("Recording start time: %s", recordingStartTime.Format("15:04:05.999"))
-				log.Infof("Track start time: %s", trackStartTime.Format("15:04:05.999"))
 				log.Infof("TrapEnableTime: %s", trapEnableTime.Format("15:04:05.999")) // TODO, we can get better accuracy on when this actually
-				timeToEnableTrap := trapEnableTime.Sub(recordingStartTime).String()
-				log.Infof("Time to enable trap: %s", timeToEnableTrap)
+				details := map[string]any{
+					"reason":            reason,
+					"trapEnableTime":    trapEnableTime,
+					"enableTrapSuccess": success, // If this fails that likely means the trap is not in a state to be enabled through the UART
+				}
+				// The animal and timing details are only relevant when a sighting enabled the trap,
+				// not when it is going back to its default state.
+				if trigger != nil {
+					log.Infof("Recording start time: %s", recordingStartTime.Format("15:04:05.999"))
+					log.Infof("Track start time: %s", trackStartTime.Format("15:04:05.999"))
+					timeToEnableTrap := trapEnableTime.Sub(recordingStartTime).String()
+					log.Infof("Time to enable trap: %s", timeToEnableTrap)
+					details["recordingStartTime"] = recordingStartTime
+					details["trackStartTime"] = trackStartTime
+					details["timeToEnableTrap"] = timeToEnableTrap
+					details["animal"] = trigger.animal
+					details["confidence"] = trigger.confidence
+				}
 
 				eventclient.AddEvent(eventclient.Event{
 					Timestamp: time.Now(),
 					Type:      "trapEnableCommand",
-					Details: map[string]any{
-						"reason":             enablingReason,
-						"recordingStartTime": recordingStartTime,
-						"trackStartTime":     trackStartTime,
-						"trapEnableTime":     trapEnableTime,
-						"timeToEnableTrap":   timeToEnableTrap,
-						"animal":             triggerAnimal,
-						"confidence":         confidence,
-						"enableTrapSuccess":  success, // If this fails that likely means the trap is not in a state to be enabled through the UART
-					},
+					Details:   details,
 				})
 			} else {
-				log.Info("Disabling trap, reason: ", disablingReason)
+				log.Info("Disabling trap, reason: ", reason)
 				success, err := messenger.SetEnable(false)
 				if err != nil {
 					return fmt.Errorf("failed to disable trap: %v", err)
 				}
+				details := map[string]any{
+					"reason":             reason,
+					"disableTrapSuccess": success,
+				}
+				if trigger != nil {
+					details["animal"] = trigger.animal
+					details["confidence"] = trigger.confidence
+				}
 				eventclient.AddEvent(eventclient.Event{
 					Timestamp: time.Now(),
 					Type:      "trapDisableCommand",
-					Details: map[string]any{
-						"reason":             disablingReason,
-						"disableTrapSuccess": success,
-					},
+					Details:   details,
 				})
 			}
 		}
 
 		previousTrapEnabled = trapEnabled
+		firstCheck = false
 
 		var delay = 10 * time.Second
-		trapDisableTime := lastTrapSpeciesSighting.Add(config.TrapDuration)
+		trapDisableTime := lastTrapSighting.time.Add(config.TrapDuration)
 		if trapEnabled && time.Until(trapDisableTime) < delay {
 			delay = time.Until(trapDisableTime)
 		}
 
-		disablingReason = "timeout"
-		enablingReason = "timeout"
 		log.Debug("Waiting")
 		select {
 		case t := <-eventSignals:
@@ -214,19 +241,15 @@ func classificationChecks(config *CommsConfig, eventSignals chan event, messenge
 
 				protect, animal, conf := v.Species.MatchSpeciesWithConfidence(config.ProtectSpecies)
 				if protect {
-					disablingReason = fmt.Sprintf("Found an %s of confidence %d that needs to be protected", animal, conf)
-					log.Debug(disablingReason)
-					lastProtectSpeciesSighting = time.Now()
+					log.Debugf("Found an %s of confidence %d that needs to be protected", animal, conf)
+					lastProtectSighting = sighting{time: time.Now(), animal: animal, confidence: conf}
 					break
 				}
 
 				trap, animal, conf := v.Species.MatchSpeciesWithConfidence(config.TrapSpecies)
 				if trap {
-					enablingReason = fmt.Sprintf("Found an %s of confidence %d that needs to be trapped", animal, conf)
-					triggerAnimal = animal
-					confidence = conf
-					log.Debug(enablingReason)
-					lastTrapSpeciesSighting = time.Now()
+					log.Debugf("Found an %s of confidence %d that needs to be trapped", animal, conf)
+					lastTrapSighting = sighting{time: time.Now(), animal: animal, confidence: conf}
 					break
 				}
 
