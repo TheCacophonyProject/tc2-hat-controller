@@ -2,8 +2,8 @@ name: CI and Release
 
 env:
   ATTINY_MAJOR: 1
-  ATTINY_MINOR: 0
-  ATTINY_PATCH: 10
+  ATTINY_MINOR: 1
+  ATTINY_PATCH: 0
   RELEASE_DOWNLOAD: https://github.com/TheCacophonyProject/attiny1616/releases/download/v${ATTINY_MAJOR}.${ATTINY_MINOR}.${ATTINY_PATCH}
   SPOOL_PY_VERSION: 0.1.0
   SPOOL_MPY_VERSION: 1.28.0rc0.post2
