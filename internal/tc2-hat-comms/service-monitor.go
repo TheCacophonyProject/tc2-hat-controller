@@ -158,8 +158,15 @@ func addTrackingEventsForSignal(eventsChan chan event, targetSignalName string, 
 
 				// Loop through our track species and get the model scores
 				species := tracks.Species{}
+				prediction := signal.Body[2].([]int32)
+				if len(prediction) == 0 {
+					prediction = make([]int32, len(modelLabels))
+				} else if len(prediction) < len(modelLabels) {
+					log.Errorf("Prediction length %d is less than model labels length %d", len(prediction), len(modelLabels))
+					continue
+				}
 				for i, v := range modelLabels {
-					species[v] = signal.Body[2].([]int32)[i]
+					species[v] = prediction[i]
 				}
 
 				// Get the region details
