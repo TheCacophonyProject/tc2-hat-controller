@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -20,18 +21,25 @@ import (
 // It holds a persistent serial port and routes incoming messages to either
 // pending response waiters (matched by ID) or an unsolicited message handler.
 type TrapMessenger struct {
-	port               *serialhelper.SerialPort
-	sendMu             sync.Mutex // Serializes request/response exchanges so only one is in flight at a time.
+	write              func([]byte) error // Writes to the serial port.
+	lines              <-chan []byte      // Lines read from the serial port.
+	sendMu             sync.Mutex         // Serializes request/response exchanges so only one is in flight at a time.
 	pendingMu          sync.Mutex
 	pending            map[int]chan *Message
 	nextID             int
 	UnsolicitedHandler func(*Message)
+	// History, if set, is where every message sent to and received from the trap is saved.
+	History     *trapHistory
+	pingFailing bool // The last PING got no reply. Guarded by sendMu.
+	// OnUpload, if set, is called for each file CopyData finds needs uploading.
+	OnUpload func()
 }
 
 // NewTrapMessenger creates a TrapMessenger using an already-open SerialPort.
 func NewTrapMessenger(port *serialhelper.SerialPort) *TrapMessenger {
 	return &TrapMessenger{
-		port:    port,
+		write:   port.Write,
+		lines:   port.Lines,
 		pending: make(map[int]chan *Message),
 	}
 }
@@ -42,10 +50,13 @@ func (u *TrapMessenger) Start() {
 }
 
 func (u *TrapMessenger) routeMessages() {
-	for line := range u.port.Lines {
+	for line := range u.lines {
 		msg, err := ParseLine(line)
 		if err != nil {
 			log.Warnf("Failed to parse incoming message %q: %v", line, err)
+			// Save that a line was lost, it could have been a response or a message from the
+			// trap. The error includes the line as it was received.
+			u.record(TrapHistoryEntry{Time: time.Now(), Dir: "lost", Payload: err.Error()})
 			continue
 		}
 
@@ -62,11 +73,13 @@ func (u *TrapMessenger) routeMessages() {
 			}
 			u.pendingMu.Unlock()
 			if ok {
+				// SendMessage saves the response to the history, after the message it answers.
 				ch <- msg
 				continue
 			}
 		}
 
+		u.record(newHistoryEntry("received", msg))
 		if u.UnsolicitedHandler != nil {
 			u.UnsolicitedHandler(msg)
 		} else {
@@ -100,7 +113,45 @@ func (u *TrapMessenger) SendMessage(message Message) (*Message, error) {
 	line := message.ToUARTLine()
 	log.Debugf("Message: '%s'", line)
 
-	if err := u.port.Write([]byte(line)); err != nil {
+	// Quiet messages, such as the chunks of a file being uploaded, would fill the history,
+	// so they and their responses are only saved if they fail. While the trap isn't
+	// answering, PING is sent every few seconds, so only the first PING without a reply is
+	// saved.
+	quiet := message.quiet
+	ping := message.Type == "PING"
+	sent := newHistoryEntry("sent", &message)
+	if !quiet && !ping {
+		u.record(sent)
+	}
+
+	response, err := u.exchange(line, ch, id)
+	if err != nil {
+		if !(ping && u.pingFailing) {
+			if quiet || ping {
+				u.record(sent)
+			}
+			failed := newHistoryEntry("failed", &message)
+			failed.Payload = err.Error()
+			u.record(failed)
+		}
+		if ping {
+			u.pingFailing = true
+		}
+		return nil, err
+	}
+	if ping {
+		u.pingFailing = false
+		u.record(sent)
+	}
+	if !quiet {
+		u.record(newHistoryEntry("received", response))
+	}
+	return response, nil
+}
+
+// exchange writes a message to the trap and waits for its response on ch.
+func (u *TrapMessenger) exchange(line string, ch chan *Message, id int) (*Message, error) {
+	if err := u.write([]byte(line)); err != nil {
 		return nil, err
 	}
 
@@ -110,6 +161,16 @@ func (u *TrapMessenger) SendMessage(message Message) (*Message, error) {
 		return response, nil
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout waiting for response to message ID %d", id)
+	}
+}
+
+// record saves a message to the history, if the messenger has one.
+func (u *TrapMessenger) record(entry TrapHistoryEntry) {
+	if u.History == nil {
+		return
+	}
+	if err := u.History.Add(entry); err != nil {
+		log.Errorf("Failed to save trap message to history: %v", err)
 	}
 }
 
@@ -124,13 +185,29 @@ func (u *TrapMessenger) Ping() error {
 	return nil
 }
 
+// SetEnable enables or disables the trap. An enable only lasts for trapEnableDuration, so
+// while the trap should stay enabled it needs to be renewed with RenewEnable.
 func (u *TrapMessenger) SetEnable(enable bool) (bool, error) {
-	message := Message{}
+	message := Message{Type: "DISABLE"}
 	if enable {
-		message.Type = "ENABLE"
-	} else {
-		message.Type = "DISABLE"
+		message = enableMessage()
 	}
+	return u.sendEnable(message)
+}
+
+// RenewEnable keeps the trap enabled for another trapEnableDuration. It is sent often, so it
+// is only saved to the history if it fails.
+func (u *TrapMessenger) RenewEnable() (bool, error) {
+	message := enableMessage()
+	message.quiet = true
+	return u.sendEnable(message)
+}
+
+func enableMessage() Message {
+	return Message{Type: "ENABLE", Payload: strconv.Itoa(int(trapEnableDuration.Seconds()))}
+}
+
+func (u *TrapMessenger) sendEnable(message Message) (bool, error) {
 	response, err := u.SendMessage(message)
 	if err != nil {
 		return false, err
@@ -178,7 +255,8 @@ func (u *TrapMessenger) ReleaseSpool() error {
 
 // ResetSpool asks the trap to reset the spool.
 // Like ReleaseSpool this puts the trap into manual mode, and the trap reports that it
-// has reset with a SPOOL_RESET message.
+// has reset with a SPOOL_RESET message, or SPOOL_RESET_FAILED if its reed switch shows
+// the spool didn't stay reset.
 func (u *TrapMessenger) ResetSpool() error {
 	return HandleResponse(u.manualRequest("RESET_SPOOL"))
 }
@@ -204,6 +282,61 @@ func (u *TrapMessenger) CloseDoor(door int) error {
 	return HandleResponse(u.manualRequest(fmt.Sprintf("CLOSE_DOOR_%d", door)))
 }
 
+// Cage commands, for an animal held in the cage on a trap that has one fitted.
+// Unlike the manual requests these don't put the trap into manual mode, they steer the
+// cage sequence. Each is only accepted in part of the sequence, the trap NACKs, with the
+// reason in the payload, a command that doesn't apply.
+
+// CageHold asks the trap to keep holding the animal in the cage, for another
+// cage_hold_hours from now. Without one the trap releases the animal once that has passed.
+// The trap reports the new hold with a CAGE_HOLDING message.
+func (u *TrapMessenger) CageHold() error {
+	return HandleResponse(u.cageRequest("CAGE_HOLD"))
+}
+
+// CageRelease asks the trap to let the animal out of the cage, back through the spool.
+// The trap reports this with a CAGE_RELEASING message.
+func (u *TrapMessenger) CageRelease() error {
+	return HandleResponse(u.cageRequest("CAGE_RELEASE"))
+}
+
+// CageKill asks the trap to open the cage door to the kill mechanism.
+// The trap reports this with a CAGE_KILLING message.
+func (u *TrapMessenger) CageKill() error {
+	return HandleResponse(u.cageRequest("CAGE_KILL"))
+}
+
+// CageWait asks the trap, once it has released the animal or opened the door to the kill
+// mechanism, to wait another cage_exit_wait_hours for the animal to leave the cage.
+// The trap reports the new wait with a CAGE_WAITING message.
+func (u *TrapMessenger) CageWait() error {
+	return HandleResponse(u.cageRequest("CAGE_WAIT"))
+}
+
+// CageEscaped tells the trap the animal has left the cage, so it can carry on.
+// The trap reports this with a CAGE_FINISHED message.
+func (u *TrapMessenger) CageEscaped() error {
+	return HandleResponse(u.cageRequest("CAGE_ESCAPED"))
+}
+
+// CageKilled tells the trap the animal has been killed, so it can carry on.
+// The trap reports this with a CAGE_FINISHED message.
+func (u *TrapMessenger) CageKilled() error {
+	return HandleResponse(u.cageRequest("CAGE_KILLED"))
+}
+
+// cageRequest sends one of the cage commands.
+func (u *TrapMessenger) cageRequest(messageType string) (*Message, error) {
+	response, err := u.SendMessage(Message{Type: messageType})
+	if err != nil {
+		return nil, err
+	}
+	if response.Type == "BAD_KEY" {
+		return nil, fmt.Errorf("the trap doesn't have a cage enabled, or the program running on it doesn't support one")
+	}
+	return response, nil
+}
+
 // manualRequest sends a request that hands the trap over to manual mode.
 func (u *TrapMessenger) manualRequest(messageType string) (*Message, error) {
 	response, err := u.SendMessage(Message{Type: messageType})
@@ -214,6 +347,26 @@ func (u *TrapMessenger) manualRequest(messageType string) (*Message, error) {
 		return nil, fmt.Errorf("the program running on the trap doesn't support manual control")
 	}
 	return response, nil
+}
+
+// Status asks the trap what it is doing. It returns the JSON payload of the trap's
+// STATUS_R reply, with fields such as State, CagePhase, Enabled and DisabledReason (see
+// status_reply in spool-py). It is quiet, so polling it doesn't fill the history. The trap
+// also sends its status when it changes, which is passed on as a StatusChanged signal.
+func (u *TrapMessenger) Status() (string, error) {
+	response, err := u.SendMessage(Message{Type: "STATUS", quiet: true})
+	if err != nil {
+		return "", err
+	}
+	switch response.Type {
+	case "STATUS_R":
+		return response.Payload, nil
+	case "NACK":
+		// Trap software from before STATUS NACKs messages it doesn't know.
+		return "", fmt.Errorf("the software on the trap is too old to report its status")
+	default:
+		return "", fmt.Errorf("unexpected %s response to STATUS", response.Type)
+	}
 }
 
 func (u *TrapMessenger) ReadTime() error {
@@ -310,6 +463,10 @@ func (u *TrapMessenger) CopyData(localData []byte, destFile string, force bool) 
 		log.Println("\tForce flag is set, still uploading.")
 	}
 
+	if u.OnUpload != nil {
+		u.OnUpload()
+	}
+
 	if _, ok := fileHashes[compressedBase]; ok {
 		if err := HandleResponse(u.SendMessage(Message{Type: "DELETE", Payload: compressedBase})); err != nil {
 			return false, fmt.Errorf("failed to delete temp file: %v", err)
@@ -339,7 +496,7 @@ func (u *TrapMessenger) CopyData(localData []byte, destFile string, force bool) 
 		if err != nil {
 			return false, fmt.Errorf("failed to marshal chunk: %v", err)
 		}
-		if err := HandleResponse(u.SendMessage(Message{Type: "WRITE", Payload: compressedBase + "," + string(chunk)})); err != nil {
+		if err := HandleResponse(u.SendMessage(Message{Type: "WRITE", Payload: compressedBase + "," + string(chunk), quiet: true})); err != nil {
 			return false, fmt.Errorf("failed to write chunk at offset %d: %v", i, err)
 		}
 	}

@@ -15,6 +15,10 @@ type CommsConfig struct {
 	BaudRate  int
 
 	TrapConfig config.Trap
+
+	// LowPowerMode is set when the RP2040 does the recording rather than the Raspberry Pi.
+	// The Pi is then only on now and then, so it doesn't enable the trap.
+	LowPowerMode bool
 }
 
 func ParseCommsConfig(configDir string) (*CommsConfig, error) {
@@ -38,11 +42,17 @@ func ParseCommsConfig(configDir string) (*CommsConfig, error) {
 		return nil, err
 	}
 
+	recorder := config.DefaultThermalRecorder()
+	if err := conf.Unmarshal(config.ThermalRecorderKey, &recorder); err != nil {
+		return nil, err
+	}
+
 	return &CommsConfig{
 		Comms:          c,
 		TrapSpecies:    tracks.Species(c.TrapSpecies),
 		ProtectSpecies: tracks.Species(c.ProtectSpecies),
 		UartTxPin:      gpio.UartTx,
 		TrapConfig:     trap,
+		LowPowerMode:   recorder.UseLowPowerMode,
 	}, nil
 }
