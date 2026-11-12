@@ -93,8 +93,11 @@ func processSimpleOutput(config *CommsConfig, eventSignals chan event) error {
 		// Delay 10 seconds or until the trap should be disabled
 		var delay = 10 * time.Second
 		trapDisableTime := lastTrapSpeciesSighting.Add(config.TrapDuration)
-		if trapEnabled && time.Until(trapDisableTime) < delay {
-			delay = time.Until(trapDisableTime)
+		// Only wait for the disable time if it is still ahead. If it has already passed (e.g. trap
+		// enabled by default with no recent sighting) a zero or negative delay would make
+		// time.After fire straight away and this loop would spin.
+		if untilDisable := time.Until(trapDisableTime); trapEnabled && untilDisable > 0 && untilDisable < delay {
+			delay = untilDisable
 		}
 
 		// The default reason for enabling or disabling is that it timed out
