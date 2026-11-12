@@ -32,6 +32,18 @@ func ParseCommsConfig(configDir string) (*CommsConfig, error) {
 		return nil, err
 	}
 
+	// A zero or negative duration would mean the trap is never enabled (or never protected),
+	// so fall back to the default instead.
+	defaults := config.DefaultComms()
+	if c.TrapDuration <= 0 {
+		log.Warnf("Invalid trap-duration '%s', using default of '%s'", c.TrapDuration, defaults.TrapDuration)
+		c.TrapDuration = defaults.TrapDuration
+	}
+	if c.ProtectDuration <= 0 {
+		log.Warnf("Invalid protect-duration '%s', using default of '%s'", c.ProtectDuration, defaults.ProtectDuration)
+		c.ProtectDuration = defaults.ProtectDuration
+	}
+
 	gpio := config.DefaultGPIO()
 	if err := conf.Unmarshal(config.GPIOKey, &gpio); err != nil {
 		return nil, err
